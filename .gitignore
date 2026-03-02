@@ -1,0 +1,38 @@
+# ============================================
+# UFS Master Core Ecosystem
+# ============================================
+
+# Environment & Secrets
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Docker
+*.log
+
+# SQLite databases (runtime data, not source)
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (for Lab-Studio React frontend)
+node_modules/
+.next/
