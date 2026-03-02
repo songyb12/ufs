@@ -1,5 +1,5 @@
-import { useCallback } from 'react'
-import type { InstrumentConfig, Note } from '../../types/music'
+import { useCallback, useMemo } from 'react'
+import type { InstrumentConfig, Note, NoteName } from '../../types/music'
 import { getNoteAtFret, calculateFretX } from '../../utils/noteCalculator'
 import { FretboardString } from './FretboardString'
 import { FretMarker } from './FretMarker'
@@ -8,6 +8,8 @@ import { NoteLabel } from './NoteLabel'
 interface FretboardProps {
   instrument: InstrumentConfig
   highlightedNotes?: Note[]
+  scaleNoteNames?: NoteName[]
+  rootNote?: NoteName
   onNoteClick?: (note: Note, stringIndex: number, fret: number) => void
 }
 
@@ -22,6 +24,8 @@ const STRING_SPACING = 28
 export function Fretboard({
   instrument,
   highlightedNotes = [],
+  scaleNoteNames = [],
+  rootNote,
   onNoteClick,
 }: FretboardProps) {
   const { stringCount, fretCount, tuning } = instrument
@@ -53,6 +57,8 @@ export function Fretboard({
       ),
     [highlightedNotes],
   )
+
+  const scaleSet = useMemo(() => new Set(scaleNoteNames), [scaleNoteNames])
 
   const yCenter = PADDING_TOP + fretboardHeight / 2
   const dotSpread = fretboardHeight * 0.3
@@ -133,6 +139,8 @@ export function Fretboard({
             const note = getNoteAtFret(openNote, fret)
             const x = getFretCenterX(fret)
             const highlighted = isNoteHighlighted(note)
+            const inScale = scaleSet.has(note.name)
+            const isRoot = rootNote === note.name
 
             return (
               <NoteLabel
@@ -141,6 +149,8 @@ export function Fretboard({
                 x={x}
                 y={y}
                 isHighlighted={highlighted}
+                isInScale={inScale}
+                isRoot={isRoot}
                 onClick={() => onNoteClick?.(note, stringIndex, fret)}
               />
             )

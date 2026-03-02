@@ -1,15 +1,35 @@
-import { useState, useCallback } from 'react'
-import type { InstrumentConfig, Note } from './types/music'
+import { useState, useCallback, useMemo } from 'react'
+import type { InstrumentConfig, Note, NoteName } from './types/music'
 import { STANDARD_GUITAR } from './constants/tunings'
 import { AppShell } from './components/layout/AppShell'
 import { Fretboard } from './components/fretboard/Fretboard'
 import { MetronomePanel } from './components/metronome/MetronomePanel'
 import { MidiStatus } from './components/midi/MidiStatus'
+import { ScaleSelector } from './components/scale/ScaleSelector'
+import {
+  SCALES,
+  getScaleNoteNames,
+  type ScaleDefinition,
+  type ChordDefinition,
+} from './utils/scaleCalculator'
 
 export default function App() {
   const [instrument, setInstrument] =
     useState<InstrumentConfig>(STANDARD_GUITAR)
   const [highlightedNotes, setHighlightedNotes] = useState<Note[]>([])
+
+  // Scale/Chord overlay state
+  const [selectedRoot, setSelectedRoot] = useState<NoteName | null>(null)
+  const [selectedDefinition, setSelectedDefinition] = useState<
+    ScaleDefinition | ChordDefinition | null
+  >(SCALES[0]) // Default: Major
+  const [mode, setMode] = useState<'scale' | 'chord'>('scale')
+
+  // Compute scale note names (memoized)
+  const scaleNoteNames = useMemo(() => {
+    if (!selectedRoot || !selectedDefinition) return []
+    return getScaleNoteNames(selectedRoot, selectedDefinition)
+  }, [selectedRoot, selectedDefinition])
 
   const handleNoteClick = useCallback(
     (note: Note) => {
@@ -30,11 +50,23 @@ export default function App() {
 
   return (
     <AppShell instrument={instrument} onInstrumentChange={setInstrument}>
+      {/* Scale/Chord selector */}
+      <ScaleSelector
+        selectedRoot={selectedRoot}
+        selectedDefinition={selectedDefinition}
+        mode={mode}
+        onRootChange={setSelectedRoot}
+        onDefinitionChange={setSelectedDefinition}
+        onModeChange={setMode}
+      />
+
       {/* Fretboard */}
       <section>
         <Fretboard
           instrument={instrument}
           highlightedNotes={highlightedNotes}
+          scaleNoteNames={scaleNoteNames}
+          rootNote={selectedRoot ?? undefined}
           onNoteClick={handleNoteClick}
         />
         {highlightedNotes.length > 0 && (
