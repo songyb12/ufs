@@ -36,3 +36,6 @@ Thumbs.db
 # Node (for Lab-Studio React frontend)
 node_modules/
 .next/
+
+# Frontend build output
+frontend/*/dist/

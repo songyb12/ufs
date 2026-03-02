@@ -119,6 +119,23 @@ services:
       retries: 3
       start_period: 10s
 
+  # ============================================
+  # Frontends
+  # ============================================
+  bocchi-frontend:
+    build: ./frontend/bocchi-master
+    container_name: ufs-bocchi-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - SERVICE_NAME=bocchi-frontend
+    networks:
+      - ufs-network
+    restart: unless-stopped
+    depends_on:
+      lab-studio:
+        condition: service_healthy
+
 # ============================================
 # Shared Resources
 # ============================================
