@@ -15,6 +15,7 @@ const SCHEDULE_INTERVAL = 25 // ms between scheduling checks
 
 export interface SchedulerCallbacks {
   onBeat: (beatNumber: number, time: number) => void
+  onMeasureChange?: (measure: number) => void
 }
 
 export class AudioScheduler {
@@ -23,6 +24,8 @@ export class AudioScheduler {
   private beatsPerMeasure: number
   private nextNoteTime: number = 0
   private currentBeat: number = 0
+  private currentMeasure: number = 0
+  private isFirstBeat: boolean = true
   private timerId: number | null = null
   private isPlaying: boolean = false
   private callbacks: SchedulerCallbacks
@@ -62,6 +65,13 @@ export class AudioScheduler {
       this.nextNoteTime <
       this.audioContext.currentTime + LOOKAHEAD
     ) {
+      // Detect new measure on downbeat (beat 0), skip the very first beat
+      if (this.currentBeat === 0 && !this.isFirstBeat) {
+        this.currentMeasure++
+        this.callbacks.onMeasureChange?.(this.currentMeasure)
+      }
+      this.isFirstBeat = false
+
       this.scheduleNote(this.nextNoteTime)
       const secondsPerBeat = 60.0 / this.bpm
       this.nextNoteTime += secondsPerBeat
@@ -73,7 +83,10 @@ export class AudioScheduler {
     if (this.isPlaying) return
     this.isPlaying = true
     this.currentBeat = 0
+    this.currentMeasure = 0
+    this.isFirstBeat = true
     this.nextNoteTime = this.audioContext.currentTime + 0.05
+    this.callbacks.onMeasureChange?.(0)
     this.timerId = window.setInterval(this.scheduler, SCHEDULE_INTERVAL)
   }
 
@@ -85,6 +98,7 @@ export class AudioScheduler {
       this.timerId = null
     }
     this.currentBeat = 0
+    this.currentMeasure = 0
   }
 
   setBpm(bpm: number): void {

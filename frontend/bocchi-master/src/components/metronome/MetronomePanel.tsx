@@ -1,18 +1,25 @@
-import { useMetronome } from '../../hooks/useMetronome'
 import { BpmSlider } from './BpmSlider'
 import { TapTempo } from './TapTempo'
 
-export function MetronomePanel() {
-  const {
-    bpm,
-    setBpm,
-    isPlaying,
-    toggle,
-    currentBeat,
-    beatsPerMeasure,
-    setBeatsPerMeasure,
-  } = useMetronome()
+export interface MetronomePanelProps {
+  bpm: number
+  setBpm: (bpm: number) => void
+  isPlaying: boolean
+  toggle: () => void
+  currentBeat: number
+  beatsPerMeasure: number
+  setBeatsPerMeasure: (beats: number) => void
+}
 
+export function MetronomePanel({
+  bpm,
+  setBpm,
+  isPlaying,
+  toggle,
+  currentBeat,
+  beatsPerMeasure,
+  setBeatsPerMeasure,
+}: MetronomePanelProps) {
   return (
     <div className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">

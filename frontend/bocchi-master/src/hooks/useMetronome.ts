@@ -10,6 +10,7 @@ export function useMetronome() {
   const [beatsPerMeasure, setBeatsPerMeasureState] = useState(4)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentBeat, setCurrentBeat] = useState(-1)
+  const [currentMeasure, setCurrentMeasure] = useState(0)
 
   const start = useCallback(async () => {
     const ctx = await ensureResumed()
@@ -20,6 +21,7 @@ export function useMetronome() {
 
     schedulerRef.current = new AudioScheduler(ctx, bpm, beatsPerMeasure, {
       onBeat: (beat) => setCurrentBeat(beat),
+      onMeasureChange: (measure) => setCurrentMeasure(measure),
     })
     schedulerRef.current.start()
     setIsPlaying(true)
@@ -30,6 +32,7 @@ export function useMetronome() {
     schedulerRef.current = null
     setIsPlaying(false)
     setCurrentBeat(-1)
+    setCurrentMeasure(0)
   }, [])
 
   const toggle = useCallback(() => {
@@ -62,6 +65,7 @@ export function useMetronome() {
     stop,
     toggle,
     currentBeat,
+    currentMeasure,
     beatsPerMeasure,
     setBeatsPerMeasure,
   }
