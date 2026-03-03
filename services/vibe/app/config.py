@@ -21,6 +21,30 @@ class Settings(BaseSettings):
     RSI_BUY_THRESHOLD_US: float = 55.0  # 미장
     DISPARITY_HARD_LIMIT: float = 105.0  # 20일선 이격도 %
 
+    # Scheduler
+    SCHEDULER_ENABLED: bool = True
+    KR_PIPELINE_HOUR_UTC: int = 7  # 16:00 KST
+    KR_PIPELINE_MINUTE: int = 0
+    US_PIPELINE_HOUR_UTC: int = 22  # 17:00 EST (winter)
+    US_PIPELINE_MINUTE: int = 0
+    MACRO_COLLECT_HOUR_UTC: int = 5
+    MACRO_COLLECT_MINUTE: int = 0
+
+    # Data collection
+    PRICE_HISTORY_DAYS: int = 200
+    COLLECTION_DELAY_SECONDS: float = 1.0  # pykrx rate limiting
+    MAX_RETRY_ATTEMPTS: int = 3
+    RETRY_BASE_DELAY: float = 2.0
+
+    # Signal scoring weights
+    WEIGHT_TECHNICAL: float = 0.35
+    WEIGHT_MACRO: float = 0.20
+    WEIGHT_FUND_FLOW: float = 0.25  # KR only; US redistributes to tech/macro
+    WEIGHT_FUNDAMENTAL: float = 0.20
+
+    # Red-Team (Stage 7)
+    RED_TEAM_ENABLED: bool = True
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
