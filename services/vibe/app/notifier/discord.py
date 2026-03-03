@@ -19,19 +19,19 @@ class DiscordNotifier:
 
     async def send_dashboard(self, context: dict[str, Any]) -> bool:
         """Build and send dashboard to Discord. Returns True on success."""
-        if not self.webhook_url:
-            logger.warning("Discord webhook URL not configured, skipping send")
-            return False
-
         payload = build_dashboard_payload(context)
 
-        # Save snapshot to DB
+        # Always save snapshot to DB (regardless of Discord config)
         snapshot_id = await repo.save_dashboard_snapshot(
             run_id=context["run_id"],
             snapshot_date=context["date"],
             market=context["market"],
             content=payload,
         )
+
+        if not self.webhook_url:
+            logger.warning("Discord webhook URL not configured, snapshot saved but not sent")
+            return False
 
         # Send to Discord
         try:
