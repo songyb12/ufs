@@ -47,11 +47,15 @@ class PipelineOrchestrator:
         run_id = str(uuid4())
         start_time = time.time()
 
+        # Fetch symbol -> name mapping for display
+        symbol_names = await repo.get_symbol_names(market)
+
         context: dict[str, Any] = {
             "market": market,
             "symbols": symbols,
             "run_id": run_id,
             "date": date.today().strftime("%Y-%m-%d"),
+            "symbol_names": symbol_names,
         }
 
         logger.info(

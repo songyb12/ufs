@@ -17,6 +17,9 @@ def build_dashboard_payload(context: dict[str, Any]) -> dict:
     source = s7 if s7 and s7.status == "success" else s6
     per_symbol = source.data.get("per_symbol", {}) if source else {}
 
+    # Symbol -> Name mapping for display
+    symbol_names = context.get("symbol_names", {})
+
     # Get macro data
     macro_result = context.get("s3_macro_analysis")
     macro_data = macro_result.data.get("raw_data", {}) if macro_result else {}
@@ -68,12 +71,13 @@ def build_dashboard_payload(context: dict[str, Any]) -> dict:
     # ── Embed 2: Investment Signals ──
     signal_fields = []
     for symbol, sig in per_symbol.items():
+        name = symbol_names.get(symbol, symbol)
         emoji = _signal_emoji(sig["final_signal"])
         hl_tag = " **[HL]**" if sig.get("hard_limit_triggered") else ""
         conf = sig.get("confidence", 1.0)
 
         signal_fields.append({
-            "name": f"{emoji} {symbol}{hl_tag}",
+            "name": f"{emoji} {name}{hl_tag}",
             "value": (
                 f"**{sig['final_signal']}** (score: {sig['raw_score']:+.1f})\n"
                 f"RSI: {_fmt(sig.get('rsi_value'))} | "
@@ -97,7 +101,7 @@ def build_dashboard_payload(context: dict[str, Any]) -> dict:
     ]
     if hl_alerts:
         hl_lines = [
-            f"**{sym}**: {sig.get('hard_limit_reason', 'N/A')}"
+            f"**{symbol_names.get(sym, sym)}**: {sig.get('hard_limit_reason', 'N/A')}"
             for sym, sig in hl_alerts
         ]
         embeds.append({
@@ -113,7 +117,7 @@ def build_dashboard_payload(context: dict[str, Any]) -> dict:
     ]
     if rt_warnings:
         rt_lines = [
-            f"**{sym}**: {sig['red_team_warning']}"
+            f"**{symbol_names.get(sym, sym)}**: {sig['red_team_warning']}"
             for sym, sig in rt_warnings
         ]
         embeds.append({

@@ -87,6 +87,20 @@ async def get_active_symbols(market: str) -> list[str]:
         await db.close()
 
 
+async def get_symbol_names(market: str) -> dict[str, str]:
+    """Return {symbol: name} mapping for active symbols in a market."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT symbol, name FROM watchlist WHERE market = ? AND is_active = 1",
+            (market,),
+        )
+        rows = await cursor.fetchall()
+        return {r["symbol"]: r["name"] for r in rows}
+    finally:
+        await db.close()
+
+
 # ── Price History ──
 
 
