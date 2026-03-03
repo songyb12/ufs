@@ -15,11 +15,13 @@ from app.pipeline.stages.s2_technical_analysis import TechnicalAnalysisStage
 from app.pipeline.stages.s2b_fundamental import FundamentalAnalysisStage
 from app.pipeline.stages.s2c_weekly import WeeklyAnalysisStage
 from app.pipeline.stages.s3_macro_analysis import MacroAnalysisStage
+from app.pipeline.stages.s3b_sentiment import SentimentAnalysisStage
 from app.pipeline.stages.s4_fund_flow import FundFlowStage
+from app.pipeline.stages.s4b_us_fund_flow import USFundFlowStage
 from app.pipeline.stages.s5_hard_limit import HardLimitStage
 from app.pipeline.stages.s6_signal_generation import SignalGenerationStage
 from app.pipeline.stages.s6b_risk_sizing import RiskSizingStage
-from app.pipeline.stages.s7_red_team import RedTeamStage
+from app.pipeline.stages.s7_red_team import LLMRedTeamStage
 
 logger = logging.getLogger("vibe.pipeline")
 
@@ -33,11 +35,13 @@ class PipelineOrchestrator:
             FundamentalAnalysisStage(config),
             WeeklyAnalysisStage(config),
             MacroAnalysisStage(config),
+            SentimentAnalysisStage(config),
             FundFlowStage(config, collector_registry),
+            USFundFlowStage(config),
             HardLimitStage(config),
             SignalGenerationStage(config),
             RiskSizingStage(config),
-            RedTeamStage(config),
+            LLMRedTeamStage(config),
         ]
 
     async def run(

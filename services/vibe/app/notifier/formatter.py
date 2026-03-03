@@ -57,11 +57,30 @@ def build_dashboard_payload(context: dict[str, Any]) -> dict:
     macro_score = macro_details.get("aggregate_score", 0)
     macro_emoji = _score_emoji(macro_score * 100)
 
+    # Sentiment data (Phase D)
+    sentiment_result = context.get("s3b_sentiment_analysis")
+    sentiment_line = ""
+    if sentiment_result and sentiment_result.status == "success":
+        s_score = sentiment_result.data.get("sentiment_score", 0)
+        s_emoji = _score_emoji(s_score)
+        fg = sentiment_result.data.get("raw_data", {}).get("fear_greed_index")
+        fg_str = f" | F&G: {fg}" if fg is not None else ""
+        sentiment_line = f"\nSentiment: {s_emoji} **{s_score:+.0f}**{fg_str}"
+        # Add VIX term structure to overview
+        vix_struct = sentiment_result.data.get("raw_data", {}).get("vix_term_structure")
+        if vix_struct:
+            overview_fields.append({
+                "name": "VIX Term",
+                "value": vix_struct.capitalize(),
+                "inline": True,
+            })
+
     embeds.append({
         "title": f"VIBE DAILY DASHBOARD - {market}",
         "description": (
             f"Date: **{signal_date}** | Run: `{run_id}`\n"
             f"Macro Score: {macro_emoji} **{macro_score:+.2f}**"
+            f"{sentiment_line}"
         ),
         "color": 0x03B2F8,
         "fields": overview_fields,

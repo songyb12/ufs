@@ -306,6 +306,62 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    # ── Sentiment Data (Phase D) ──
+    """
+    CREATE TABLE IF NOT EXISTS sentiment_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        indicator_date TEXT NOT NULL,
+        fear_greed_index INTEGER,
+        put_call_ratio REAL,
+        vix_term_structure TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(indicator_date)
+    )
+    """,
+    # ── US Fund Flow (Phase D) ──
+    """
+    CREATE TABLE IF NOT EXISTS us_fund_flow (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        trade_date TEXT NOT NULL,
+        data_type TEXT NOT NULL,
+        value REAL,
+        description TEXT,
+        source TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    # ── Short Interest (Phase D) ──
+    """
+    CREATE TABLE IF NOT EXISTS short_interest (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL DEFAULT 'US',
+        report_date TEXT NOT NULL,
+        short_interest_shares INTEGER,
+        short_ratio REAL,
+        short_pct_float REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(symbol, market, report_date)
+    )
+    """,
+    # ── LLM Reviews (Phase D) ──
+    """
+    CREATE TABLE IF NOT EXISTS llm_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        review_date TEXT NOT NULL,
+        input_context TEXT,
+        llm_response TEXT,
+        model_used TEXT,
+        risk_flags TEXT,
+        confidence_adjustment REAL,
+        signal_override TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES = [

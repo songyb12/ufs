@@ -63,6 +63,19 @@ class Settings(BaseSettings):
     EVENT_SUPPRESS_DAYS: int = 3  # D-3 event warning window
     EVENT_SUPPRESS_ENABLED: bool = True
 
+    # Sentiment (Phase D)
+    SENTIMENT_FETCH_ENABLED: bool = True
+    WEIGHT_SENTIMENT: float = 0.0  # Enable after validation
+
+    # LLM Red-Team (Phase D)
+    LLM_RED_TEAM_ENABLED: bool = False  # Enable after API key setup
+    LLM_PROVIDER: str = "anthropic"  # 'anthropic' or 'openai'
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = "claude-3-haiku-20240307"
+
+    # US Fund Flow (Phase D)
+    US_FUND_FLOW_ENABLED: bool = True
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

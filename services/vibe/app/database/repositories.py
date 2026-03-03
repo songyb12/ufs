@@ -886,3 +886,90 @@ async def get_screening_candidates(
         return [dict(r) for r in rows]
     finally:
         await db.close()
+
+
+# ── Sentiment Data (Phase D) ──
+
+
+async def upsert_sentiment_data(data: dict) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT OR REPLACE INTO sentiment_data
+               (indicator_date, fear_greed_index, put_call_ratio, vix_term_structure)
+               VALUES (?, ?, ?, ?)""",
+            (data["indicator_date"], data.get("fear_greed_index"),
+             data.get("put_call_ratio"), data.get("vix_term_structure")),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_sentiment_history(days: int = 7) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM sentiment_data
+               ORDER BY indicator_date DESC LIMIT ?""",
+            (days,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_latest_sentiment() -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM sentiment_data ORDER BY indicator_date DESC LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+# ── US Fund Flow (Phase D) ──
+
+
+async def insert_us_fund_flow(data: dict) -> int:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """INSERT INTO us_fund_flow
+               (symbol, trade_date, data_type, value, description, source)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (data["symbol"], data["trade_date"], data["data_type"],
+             data.get("value"), data.get("description"), data.get("source")),
+        )
+        await db.commit()
+        return cursor.rowcount
+    finally:
+        await db.close()
+
+
+# ── LLM Reviews (Phase D) ──
+
+
+async def insert_llm_review(data: dict) -> int:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """INSERT INTO llm_reviews
+               (run_id, symbol, market, review_date, input_context,
+                llm_response, model_used, risk_flags,
+                confidence_adjustment, signal_override)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (data["run_id"], data["symbol"], data["market"],
+             data["review_date"], data.get("input_context"),
+             data.get("llm_response"), data.get("model_used"),
+             data.get("risk_flags"), data.get("confidence_adjustment"),
+             data.get("signal_override")),
+        )
+        await db.commit()
+        return cursor.rowcount
+    finally:
+        await db.close()
