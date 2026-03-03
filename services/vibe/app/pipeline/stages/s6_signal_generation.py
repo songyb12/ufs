@@ -5,6 +5,7 @@ from typing import Any
 
 from app.config import Settings
 from app.indicators.scoring import compute_aggregate_signal, compute_technical_score
+from app.indicators.weekly import compute_timeframe_multiplier
 from app.models.enums import SignalType
 from app.pipeline.base import BaseStage, StageResult
 
@@ -42,7 +43,18 @@ class SignalGenerationStage(BaseStage):
         if s4 and s4.status not in ("skipped", "failed"):
             fund_flow_data = s4.data.get("per_symbol", {})
 
-        signals: list[dict] = {}
+        # Fundamental scores (from S2b, Phase C)
+        fundamental_data = {}
+        s2b = context.get("s2b_fundamental_analysis")
+        if s2b and s2b.status not in ("skipped", "failed"):
+            fundamental_data = s2b.data.get("per_symbol", {})
+
+        # Weekly analysis (from S2c, Phase C)
+        weekly_data = {}
+        s2c = context.get("s2c_weekly_analysis")
+        if s2c and s2c.status not in ("skipped", "failed"):
+            weekly_data = s2c.data.get("per_symbol", {})
+
         per_symbol_signals: dict[str, dict] = {}
 
         for symbol, indicators in tech_data.items():
@@ -54,13 +66,39 @@ class SignalGenerationStage(BaseStage):
             if symbol in fund_flow_data:
                 ff_score = fund_flow_data[symbol].get("fund_flow_score", 0.0)
 
-            # Aggregate signal
+            # Fundamental score (Phase C)
+            fund_score = 0.0
+            if symbol in fundamental_data:
+                fund_score = fundamental_data[symbol].get("fundamental_score", 0.0)
+
+            # Weekly trend (Phase C) - compute multiplier after initial signal
+            weekly_trend = "neutral"
+            if symbol in weekly_data:
+                weekly_trend = weekly_data[symbol].get("trend_direction", "neutral")
+
+            # First pass: get preliminary signal for timeframe alignment
+            prelim_signal, _ = compute_aggregate_signal(
+                technical_score=tech_score,
+                macro_score=macro_score_normalized,
+                fund_flow_score=ff_score,
+                market=market,
+                config=self.config,
+                fundamental_score=fund_score,
+                timeframe_multiplier=1.0,
+            )
+
+            # Compute timeframe multiplier based on preliminary signal
+            tf_multiplier = compute_timeframe_multiplier(prelim_signal, weekly_trend)
+
+            # Final aggregate signal with timeframe alignment
             raw_signal, raw_score = compute_aggregate_signal(
                 technical_score=tech_score,
                 macro_score=macro_score_normalized,
                 fund_flow_score=ff_score,
                 market=market,
                 config=self.config,
+                fundamental_score=fund_score,
+                timeframe_multiplier=tf_multiplier,
             )
 
             # Apply Hard Limit override (non-negotiable)
@@ -83,9 +121,13 @@ class SignalGenerationStage(BaseStage):
                 "technical_score": tech_score,
                 "macro_score": macro_score_normalized,
                 "fund_flow_score": ff_score,
+                "fundamental_score": fund_score,
+                "weekly_trend": weekly_trend,
+                "timeframe_multiplier": tf_multiplier,
                 "rationale": _build_rationale(
                     symbol, raw_signal, final_signal,
-                    tech_score, macro_score_normalized, ff_score, hl,
+                    tech_score, macro_score_normalized, ff_score,
+                    fund_score, weekly_trend, tf_multiplier, hl,
                 ),
             }
 
@@ -93,9 +135,10 @@ class SignalGenerationStage(BaseStage):
 
             log_fn = logger.warning if hl.get("hard_limit_triggered") else logger.info
             log_fn(
-                "[S6] %s: %s (raw=%s, score=%.1f, RSI=%.1f, HL=%s)",
+                "[S6] %s: %s (raw=%s, score=%.1f, RSI=%.1f, Fund=%.1f, WkTrend=%s, HL=%s)",
                 symbol, final_signal, raw_signal, raw_score,
-                indicators.get("rsi_14", 0),
+                indicators.get("rsi_14", 0), fund_score,
+                weekly_trend,
                 "YES" if hl.get("hard_limit_triggered") else "NO",
             )
 
@@ -113,11 +156,18 @@ def _build_rationale(
     tech_score: float,
     macro_score: float,
     ff_score: float | None,
+    fund_score: float,
+    weekly_trend: str,
+    tf_multiplier: float,
     hard_limit: dict,
 ) -> str:
     parts = [f"Tech={tech_score:+.1f}", f"Macro={macro_score:+.1f}"]
     if ff_score is not None:
         parts.append(f"FundFlow={ff_score:+.1f}")
+    if fund_score != 0:
+        parts.append(f"Fund={fund_score:+.1f}")
+    if weekly_trend != "neutral":
+        parts.append(f"WkTrend={weekly_trend}(×{tf_multiplier:.1f})")
 
     rationale = f"Scores: {', '.join(parts)}"
 

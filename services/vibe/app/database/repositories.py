@@ -808,3 +808,81 @@ async def upsert_portfolio_position(symbol: str, market: str, data: dict) -> Non
         await db.commit()
     finally:
         await db.close()
+
+
+# ── Fundamental Data (Phase C) ──
+
+
+async def upsert_fundamental_data(data: dict) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT OR REPLACE INTO fundamental_data
+               (symbol, market, trade_date, per, pbr, eps, roe,
+                operating_margin, div_yield, market_cap,
+                fundamental_score, value_score, quality_score)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (data["symbol"], data["market"], data["trade_date"],
+             data.get("per"), data.get("pbr"), data.get("eps"),
+             data.get("roe"), data.get("operating_margin"),
+             data.get("div_yield"), data.get("market_cap"),
+             data.get("fundamental_score"), data.get("value_score"),
+             data.get("quality_score")),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_latest_fundamental(symbol: str, market: str) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM fundamental_data
+               WHERE symbol = ? AND market = ?
+               ORDER BY trade_date DESC LIMIT 1""",
+            (symbol, market),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+# ── Screening Candidates (Phase C) ──
+
+
+async def insert_screening_candidate(data: dict) -> int:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """INSERT INTO screening_candidates
+               (symbol, market, detected_date, trigger_type, trigger_value,
+                trigger_description)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (data["symbol"], data["market"], data["detected_date"],
+             data["trigger_type"], data.get("trigger_value"),
+             data.get("trigger_description")),
+        )
+        await db.commit()
+        return cursor.rowcount
+    finally:
+        await db.close()
+
+
+async def get_screening_candidates(
+    market: str, status: str | None = None,
+) -> list[dict]:
+    db = await get_db()
+    try:
+        query = "SELECT * FROM screening_candidates WHERE market = ?"
+        params: list = [market]
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        query += " ORDER BY detected_date DESC LIMIT 100"
+        cursor = await db.execute(query, params)
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()

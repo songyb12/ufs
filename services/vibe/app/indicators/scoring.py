@@ -102,6 +102,8 @@ def compute_aggregate_signal(
     fund_flow_score: float | None,
     market: str,
     config: Settings,
+    fundamental_score: float = 0.0,
+    timeframe_multiplier: float = 1.0,
 ) -> tuple[SignalType, float]:
     """Compute final weighted signal.
 
@@ -127,13 +129,16 @@ def compute_aggregate_signal(
         }
         fund_flow_val = 0.0
 
-    # Weighted score
+    # Weighted score (now includes fundamental)
     raw_score = (
         technical_score * weights["technical"]
         + macro_score * weights["macro"]
         + fund_flow_val * weights["fund_flow"]
-        # fundamental score placeholder (0 for now)
+        + fundamental_score * weights["fundamental"]
     )
+
+    # Apply timeframe multiplier (weekly alignment)
+    raw_score = raw_score * timeframe_multiplier
 
     raw_score = round(raw_score, 2)
 

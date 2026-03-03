@@ -76,12 +76,24 @@ def build_dashboard_payload(context: dict[str, Any]) -> dict:
         hl_tag = " **[HL]**" if sig.get("hard_limit_triggered") else ""
         conf = sig.get("confidence", 1.0)
 
+        # Build detail line with fund/weekly if available
+        detail_parts = [
+            f"RSI: {_fmt(sig.get('rsi_value'))}",
+            f"Disp: {_fmt(sig.get('disparity_value'))}%",
+        ]
+        fund_score = sig.get("fundamental_score")
+        if fund_score and fund_score != 0:
+            detail_parts.append(f"Fund: {fund_score:+.0f}")
+        wk_trend = sig.get("weekly_trend")
+        if wk_trend and wk_trend != "neutral":
+            tf_m = sig.get("timeframe_multiplier", 1.0)
+            detail_parts.append(f"Wk: {wk_trend}(×{tf_m:.1f})")
+
         signal_fields.append({
             "name": f"{emoji} {name}{hl_tag}",
             "value": (
                 f"**{sig['final_signal']}** (score: {sig['raw_score']:+.1f})\n"
-                f"RSI: {_fmt(sig.get('rsi_value'))} | "
-                f"Disp: {_fmt(sig.get('disparity_value'))}%\n"
+                f"{' | '.join(detail_parts)}\n"
                 f"Conf: {conf:.0%}"
             ),
             "inline": True,

@@ -12,6 +12,8 @@ from app.database import repositories as repo
 from app.pipeline.base import BaseStage, StageResult
 from app.pipeline.stages.s1_data_collection import DataCollectionStage
 from app.pipeline.stages.s2_technical_analysis import TechnicalAnalysisStage
+from app.pipeline.stages.s2b_fundamental import FundamentalAnalysisStage
+from app.pipeline.stages.s2c_weekly import WeeklyAnalysisStage
 from app.pipeline.stages.s3_macro_analysis import MacroAnalysisStage
 from app.pipeline.stages.s4_fund_flow import FundFlowStage
 from app.pipeline.stages.s5_hard_limit import HardLimitStage
@@ -28,6 +30,8 @@ class PipelineOrchestrator:
         self.stages: list[BaseStage] = [
             DataCollectionStage(config, collector_registry),
             TechnicalAnalysisStage(config),
+            FundamentalAnalysisStage(config),
+            WeeklyAnalysisStage(config),
             MacroAnalysisStage(config),
             FundFlowStage(config, collector_registry),
             HardLimitStage(config),

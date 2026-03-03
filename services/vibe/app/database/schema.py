@@ -254,6 +254,58 @@ TABLES = [
         UNIQUE(symbol, market)
     )
     """,
+    # ── Fundamental Data (Phase C) ──
+    """
+    CREATE TABLE IF NOT EXISTS fundamental_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        trade_date TEXT NOT NULL,
+        per REAL,
+        pbr REAL,
+        eps REAL,
+        roe REAL,
+        operating_margin REAL,
+        div_yield REAL,
+        market_cap REAL,
+        fundamental_score REAL,
+        value_score REAL,
+        quality_score REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(symbol, market, trade_date)
+    )
+    """,
+    # ── Weekly Indicators (Phase C) ──
+    """
+    CREATE TABLE IF NOT EXISTS weekly_indicators (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        week_ending TEXT NOT NULL,
+        rsi_14_weekly REAL,
+        ma_5_weekly REAL,
+        ma_20_weekly REAL,
+        macd_weekly REAL,
+        trend_direction TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(symbol, market, week_ending)
+    )
+    """,
+    # ── Screening Candidates (Phase C) ──
+    """
+    CREATE TABLE IF NOT EXISTS screening_candidates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        detected_date TEXT NOT NULL,
+        trigger_type TEXT NOT NULL,
+        trigger_value REAL,
+        trigger_description TEXT,
+        status TEXT NOT NULL DEFAULT 'new',
+        added_to_watchlist INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES = [
@@ -267,6 +319,9 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_signal_performance_tracking ON signal_performance(return_t20)",
     "CREATE INDEX IF NOT EXISTS idx_event_calendar_lookup ON event_calendar(event_date, market)",
     "CREATE INDEX IF NOT EXISTS idx_symbol_metadata_lookup ON symbol_metadata(symbol, market)",
+    "CREATE INDEX IF NOT EXISTS idx_fundamental_lookup ON fundamental_data(symbol, market, trade_date)",
+    "CREATE INDEX IF NOT EXISTS idx_weekly_indicators_lookup ON weekly_indicators(symbol, market, week_ending)",
+    "CREATE INDEX IF NOT EXISTS idx_screening_candidates_lookup ON screening_candidates(market, status, detected_date)",
 ]
 
 
