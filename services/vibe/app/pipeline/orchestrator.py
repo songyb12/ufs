@@ -16,6 +16,7 @@ from app.pipeline.stages.s3_macro_analysis import MacroAnalysisStage
 from app.pipeline.stages.s4_fund_flow import FundFlowStage
 from app.pipeline.stages.s5_hard_limit import HardLimitStage
 from app.pipeline.stages.s6_signal_generation import SignalGenerationStage
+from app.pipeline.stages.s6b_risk_sizing import RiskSizingStage
 from app.pipeline.stages.s7_red_team import RedTeamStage
 
 logger = logging.getLogger("vibe.pipeline")
@@ -31,6 +32,7 @@ class PipelineOrchestrator:
             FundFlowStage(config, collector_registry),
             HardLimitStage(config),
             SignalGenerationStage(config),
+            RiskSizingStage(config),
             RedTeamStage(config),
         ]
 

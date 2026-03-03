@@ -727,3 +727,84 @@ async def get_signal_id_for_performance(run_id: str, symbol: str, market: str) -
         return row["id"] if row else None
     finally:
         await db.close()
+
+
+# ── Event Calendar (Phase B) ──
+
+
+async def insert_events(events: list[dict]) -> int:
+    db = await get_db()
+    try:
+        count = 0
+        for e in events:
+            try:
+                cursor = await db.execute(
+                    """INSERT OR IGNORE INTO event_calendar
+                       (event_date, event_type, market, symbol, description, impact_level)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (e["event_date"], e["event_type"], e.get("market"),
+                     e.get("symbol") or "", e["description"], e.get("impact_level", "medium")),
+                )
+                count += cursor.rowcount
+            except Exception:
+                pass  # Ignore duplicates
+        await db.commit()
+        return count
+    finally:
+        await db.close()
+
+
+async def get_upcoming_events(
+    market: str, symbol: str | None = None, days_ahead: int = 3,
+) -> list[dict]:
+    db = await get_db()
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        future = (datetime.now(timezone.utc) + __import__("datetime").timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        query = """SELECT * FROM event_calendar
+                   WHERE event_date BETWEEN ? AND ?
+                   AND (market IS NULL OR market = ?)"""
+        params: list = [today, future, market]
+        if symbol:
+            query += " AND (symbol = '' OR symbol IS NULL OR symbol = ?)"
+            params.append(symbol)
+        query += " ORDER BY event_date"
+        cursor = await db.execute(query, params)
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+# ── Portfolio State (Phase B) ──
+
+
+async def get_portfolio_state(market: str | None = None) -> list[dict]:
+    db = await get_db()
+    try:
+        query = "SELECT * FROM portfolio_state WHERE position_size > 0"
+        params: list = []
+        if market:
+            query += " AND market = ?"
+            params.append(market)
+        cursor = await db.execute(query, params)
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def upsert_portfolio_position(symbol: str, market: str, data: dict) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT OR REPLACE INTO portfolio_state
+               (symbol, market, position_size, entry_date, entry_price, sector, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (symbol, market, data.get("position_size", 0),
+             data.get("entry_date"), data.get("entry_price"),
+             data.get("sector")),
+        )
+        await db.commit()
+    finally:
+        await db.close()

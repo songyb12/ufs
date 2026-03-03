@@ -94,6 +94,63 @@ def build_dashboard_payload(context: dict[str, Any]) -> dict:
             "fields": signal_fields[:25],  # Discord limit
         })
 
+    # ── Embed 2b: Position Sizing (from S6b) ──
+    s6b = context.get("s6b_risk_sizing")
+    s6b_data = s6b.data if s6b and s6b.status == "success" else {}
+    sizing_fields = []
+    for symbol, sig in per_symbol.items():
+        rec = sig.get("position_recommendation")
+        if rec and sig["final_signal"] == "BUY":
+            name = symbol_names.get(symbol, symbol)
+            amt = rec.get("recommended_amount", 0)
+            pct = rec.get("recommended_pct", 0) * 100
+            sizing_fields.append({
+                "name": f"📊 {name}",
+                "value": (
+                    f"Size: **₩{amt:,.0f}**\n"
+                    f"Weight: {pct:.1f}% | "
+                    f"Sector: {rec.get('sector', 'N/A')}"
+                ),
+                "inline": True,
+            })
+    if sizing_fields:
+        embeds.append({
+            "title": "Position Sizing",
+            "color": 0x00CC88,
+            "fields": sizing_fields[:25],
+        })
+
+    # ── Embed 2c: Event Warnings ──
+    event_warnings = []
+    for symbol, sig in per_symbol.items():
+        ew = sig.get("event_warning")
+        if ew:
+            name = symbol_names.get(symbol, symbol)
+            event_warnings.append(f"⚠️ **{name}**: {ew}")
+    global_events = s6b_data.get("global_events", []) if s6b_data else []
+    if global_events:
+        for ev in global_events[:5]:
+            event_warnings.insert(0, f"🗓️ {ev}")
+    if event_warnings:
+        embeds.append({
+            "title": "Event Calendar Warnings",
+            "description": "\n".join(event_warnings[:15]),
+            "color": 0xFFAA00,
+        })
+
+    # ── Embed 2d: Correlation Warnings ──
+    corr_warnings = []
+    for symbol, sig in per_symbol.items():
+        cw = sig.get("correlation_warning")
+        if cw:
+            corr_warnings.append(f"🔗 {cw}")
+    if corr_warnings:
+        embeds.append({
+            "title": "Correlation Alerts",
+            "description": "\n".join(set(corr_warnings[:10])),
+            "color": 0xFF6600,
+        })
+
     # ── Embed 3: Hard Limit Alerts ──
     hl_alerts = [
         (sym, sig) for sym, sig in per_symbol.items()

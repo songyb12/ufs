@@ -15,7 +15,7 @@ from app.config import settings
 from app.database.connection import set_db_path
 from app.database.schema import init_db
 from app.database.seed import seed_watchlist
-from app.routers import backtest, dashboard, pipeline, signals, watchlist
+from app.routers import backtest, dashboard, pipeline, risk, signals, watchlist
 from app.scheduler.jobs import register_jobs
 from app.scheduler.runner import create_scheduler
 
@@ -74,6 +74,7 @@ app.include_router(pipeline.router)
 app.include_router(signals.router)
 app.include_router(dashboard.router)
 app.include_router(backtest.router)
+app.include_router(risk.router)
 
 
 @app.get("/health")
@@ -112,5 +113,9 @@ async def root():
             "/backtest/run/sync",
             "/backtest/results",
             "/backtest/optimize",
+            "/risk/portfolio",
+            "/risk/events",
+            "/risk/events/seed",
+            "/risk/sectors",
         ],
     }

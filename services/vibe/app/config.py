@@ -53,6 +53,16 @@ class Settings(BaseSettings):
     # Signal Performance Tracking
     PERFORMANCE_TRACKING_ENABLED: bool = True
 
+    # Position Sizing (Phase B)
+    PORTFOLIO_TOTAL: float = 100_000_000  # 1억 KRW
+    MAX_SINGLE_POSITION_PCT: float = 0.10  # 10% max per symbol
+    MAX_SECTOR_EXPOSURE_PCT: float = 0.30  # 30% max per sector
+    POSITION_SIZING_METHOD: str = "fixed_fraction"  # 'kelly' or 'fixed_fraction'
+
+    # Event Calendar (Phase B)
+    EVENT_SUPPRESS_DAYS: int = 3  # D-3 event warning window
+    EVENT_SUPPRESS_ENABLED: bool = True
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

@@ -212,6 +212,48 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    # ── Symbol Metadata (Phase B) ──
+    """
+    CREATE TABLE IF NOT EXISTS symbol_metadata (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        sector TEXT,
+        industry TEXT,
+        market_cap REAL,
+        next_earnings_date TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(symbol, market)
+    )
+    """,
+    # ── Event Calendar (Phase B) ──
+    """
+    CREATE TABLE IF NOT EXISTS event_calendar (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_date TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        market TEXT,
+        symbol TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL,
+        impact_level TEXT NOT NULL DEFAULT 'medium',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(event_date, event_type, symbol)
+    )
+    """,
+    # ── Portfolio State (Phase B) ──
+    """
+    CREATE TABLE IF NOT EXISTS portfolio_state (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        position_size REAL NOT NULL DEFAULT 0,
+        entry_date TEXT,
+        entry_price REAL,
+        sector TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(symbol, market)
+    )
+    """,
 ]
 
 INDEXES = [
@@ -223,6 +265,8 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_backtest_trades_lookup ON backtest_trades(backtest_id, symbol)",
     "CREATE INDEX IF NOT EXISTS idx_signal_performance_lookup ON signal_performance(symbol, market, signal_date)",
     "CREATE INDEX IF NOT EXISTS idx_signal_performance_tracking ON signal_performance(return_t20)",
+    "CREATE INDEX IF NOT EXISTS idx_event_calendar_lookup ON event_calendar(event_date, market)",
+    "CREATE INDEX IF NOT EXISTS idx_symbol_metadata_lookup ON symbol_metadata(symbol, market)",
 ]
 
 
