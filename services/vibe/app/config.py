@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     # Red-Team (Stage 7)
     RED_TEAM_ENABLED: bool = True
 
+    # Backtesting
+    BACKTEST_DEFAULT_DAYS: int = 365
+    BACKTEST_TRADE_EXIT_DAYS: int = 20  # Max hold period before forced close
+    BACKTEST_STOP_LOSS_PCT: float = -5.0  # -5% stop loss
+
+    # Signal Performance Tracking
+    PERFORMANCE_TRACKING_ENABLED: bool = True
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

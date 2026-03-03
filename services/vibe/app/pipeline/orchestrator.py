@@ -165,3 +165,27 @@ class PipelineOrchestrator:
         if signal_rows:
             count = await repo.insert_signals(signal_rows)
             logger.info("Stored %d signals to DB", count)
+
+            # Seed performance tracking records for BUY/SELL signals
+            if self.config.PERFORMANCE_TRACKING_ENABLED:
+                from app.backtesting.tracker import SignalPerformanceTracker
+
+                tracker = SignalPerformanceTracker()
+                s1 = context.get("s1_data_collection")
+                for row in signal_rows:
+                    if row["final_signal"] in ("BUY", "SELL"):
+                        entry_price = None
+                        if s1 and s1.data.get("ohlcv_data"):
+                            ohlcv_df = s1.data["ohlcv_data"].get(row["symbol"])
+                            if ohlcv_df is not None and not ohlcv_df.empty:
+                                entry_price = float(ohlcv_df.iloc[-1]["close"])
+                        if entry_price:
+                            await tracker.create_performance_record(
+                                run_id=row["run_id"],
+                                symbol=row["symbol"],
+                                market=row["market"],
+                                signal_date=row["signal_date"],
+                                signal_type=row["final_signal"],
+                                signal_score=row["raw_score"],
+                                entry_price=entry_price,
+                            )

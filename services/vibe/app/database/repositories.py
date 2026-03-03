@@ -420,3 +420,310 @@ async def get_latest_dashboard(market: str | None = None) -> dict | None:
         return None
     finally:
         await db.close()
+
+
+# ── Backtest Runs ──
+
+
+async def insert_backtest_run(
+    backtest_id: str, market: str, start_date: str, end_date: str, config_snapshot: dict,
+) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT INTO backtest_runs
+               (backtest_id, market, start_date, end_date, config_snapshot, status, started_at)
+               VALUES (?, ?, ?, ?, ?, 'running', ?)""",
+            (backtest_id, market, start_date, end_date,
+             json.dumps(config_snapshot), datetime.now(timezone.utc).isoformat()),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def update_backtest_run(backtest_id: str, status: str, metrics: dict | None = None) -> None:
+    db = await get_db()
+    try:
+        completed_at = datetime.now(timezone.utc).isoformat() if status != "running" else None
+        if metrics:
+            await db.execute(
+                """UPDATE backtest_runs
+                   SET status = ?, completed_at = ?, total_trades = ?,
+                       hit_rate = ?, avg_return = ?, sharpe_ratio = ?,
+                       max_drawdown = ?, profit_factor = ?, win_loss_ratio = ?,
+                       total_return = ?, results_json = ?
+                   WHERE backtest_id = ?""",
+                (status, completed_at,
+                 metrics.get("total_trades", 0),
+                 metrics.get("hit_rate"), metrics.get("avg_return"),
+                 metrics.get("sharpe_ratio"), metrics.get("max_drawdown"),
+                 metrics.get("profit_factor"), metrics.get("win_loss_ratio"),
+                 metrics.get("total_return"),
+                 json.dumps(metrics, default=str),
+                 backtest_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE backtest_runs SET status = ?, completed_at = ? WHERE backtest_id = ?",
+                (status, completed_at, backtest_id),
+            )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_backtest_runs(limit: int = 20) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM backtest_runs ORDER BY started_at DESC LIMIT ?", (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_backtest_run(backtest_id: str) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM backtest_runs WHERE backtest_id = ?", (backtest_id,),
+        )
+        row = await cursor.fetchone()
+        if row:
+            result = dict(row)
+            if result.get("results_json"):
+                result["results_json"] = json.loads(result["results_json"])
+            return result
+        return None
+    finally:
+        await db.close()
+
+
+async def insert_backtest_trades(trades: list[dict]) -> int:
+    db = await get_db()
+    try:
+        count = 0
+        for t in trades:
+            cursor = await db.execute(
+                """INSERT INTO backtest_trades
+                   (backtest_id, symbol, market, entry_date, entry_price,
+                    entry_signal, entry_score, exit_date, exit_price,
+                    exit_reason, return_pct, holding_days)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (t["backtest_id"], t["symbol"], t["market"],
+                 t["entry_date"], t["entry_price"],
+                 t["entry_signal"], t["entry_score"],
+                 t.get("exit_date"), t.get("exit_price"),
+                 t.get("exit_reason"), t.get("return_pct"), t.get("holding_days")),
+            )
+            count += cursor.rowcount
+        await db.commit()
+        return count
+    finally:
+        await db.close()
+
+
+async def get_backtest_trades(backtest_id: str) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM backtest_trades WHERE backtest_id = ? ORDER BY entry_date",
+            (backtest_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+# ── Signal Performance ──
+
+
+async def insert_signal_performance(record: dict) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT OR IGNORE INTO signal_performance
+               (signal_id, symbol, market, signal_date, signal_type,
+                signal_score, entry_price)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (record["signal_id"], record["symbol"], record["market"],
+             record["signal_date"], record["signal_type"],
+             record["signal_score"], record["entry_price"]),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_pending_performance_tracking(days_horizon: int = 20) -> list[dict]:
+    """Get signals that still need T+1/5/20 performance tracking."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT sp.*, s.run_id FROM signal_performance sp
+               JOIN signals s ON sp.signal_id = s.id
+               WHERE (sp.return_t1 IS NULL OR sp.return_t5 IS NULL OR sp.return_t20 IS NULL)
+               AND sp.signal_type IN ('BUY', 'SELL')
+               ORDER BY sp.signal_date""",
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def update_signal_performance(signal_id: int, updates: dict) -> None:
+    db = await get_db()
+    try:
+        set_clauses = []
+        params = []
+        for key, val in updates.items():
+            set_clauses.append(f"{key} = ?")
+            params.append(val)
+        set_clauses.append("tracked_at = ?")
+        params.append(datetime.now(timezone.utc).isoformat())
+        params.append(signal_id)
+        await db.execute(
+            f"UPDATE signal_performance SET {', '.join(set_clauses)} WHERE signal_id = ?",
+            params,
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_performance_summary(market: str | None = None, since_date: str | None = None) -> dict:
+    """Get aggregate performance statistics."""
+    db = await get_db()
+    try:
+        where_clauses = ["signal_type IN ('BUY', 'SELL')"]
+        params: list = []
+        if market:
+            where_clauses.append("market = ?")
+            params.append(market)
+        if since_date:
+            where_clauses.append("signal_date >= ?")
+            params.append(since_date)
+        where = " AND ".join(where_clauses)
+
+        cursor = await db.execute(
+            f"""SELECT
+                COUNT(*) as total_signals,
+                COALESCE(SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END), 0) as buy_signals,
+                COALESCE(SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END), 0) as sell_signals,
+                AVG(CASE WHEN is_correct_t5 IS NOT NULL THEN is_correct_t5 END) as hit_rate_t5,
+                AVG(CASE WHEN is_correct_t20 IS NOT NULL THEN is_correct_t20 END) as hit_rate_t20,
+                AVG(return_t5) as avg_return_t5,
+                AVG(return_t20) as avg_return_t20
+            FROM signal_performance WHERE {where}""",
+            params,
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else {"total_signals": 0, "buy_signals": 0, "sell_signals": 0}
+    finally:
+        await db.close()
+
+
+# ── Price History (extended queries for backtesting) ──
+
+
+async def get_price_at_date(symbol: str, market: str, target_date: str) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM price_history
+               WHERE symbol = ? AND market = ? AND trade_date <= ?
+               ORDER BY trade_date DESC LIMIT 1""",
+            (symbol, market, target_date),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_price_range(
+    symbol: str, market: str, start_date: str, end_date: str,
+) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM price_history
+               WHERE symbol = ? AND market = ? AND trade_date BETWEEN ? AND ?
+               ORDER BY trade_date ASC""",
+            (symbol, market, start_date, end_date),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_all_price_range(
+    market: str, start_date: str, end_date: str,
+) -> list[dict]:
+    """Get price data for ALL active symbols in a market within date range."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT ph.* FROM price_history ph
+               JOIN watchlist w ON ph.symbol = w.symbol AND ph.market = w.market
+               WHERE ph.market = ? AND ph.trade_date BETWEEN ? AND ?
+               AND w.is_active = 1
+               ORDER BY ph.symbol, ph.trade_date ASC""",
+            (market, start_date, end_date),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_macro_range(start_date: str, end_date: str) -> list[dict]:
+    """Get macro indicators for a date range."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM macro_indicators
+               WHERE indicator_date BETWEEN ? AND ?
+               ORDER BY indicator_date ASC""",
+            (start_date, end_date),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_fund_flow_range(symbol: str, start_date: str, end_date: str) -> list[dict]:
+    """Get fund flow data for a symbol within date range."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM fund_flow_kr
+               WHERE symbol = ? AND trade_date BETWEEN ? AND ?
+               ORDER BY trade_date ASC""",
+            (symbol, start_date, end_date),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_signal_id_for_performance(run_id: str, symbol: str, market: str) -> int | None:
+    """Get signal row id for creating performance tracking record."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id FROM signals WHERE run_id = ? AND symbol = ? AND market = ?",
+            (run_id, symbol, market),
+        )
+        row = await cursor.fetchone()
+        return row["id"] if row else None
+    finally:
+        await db.close()

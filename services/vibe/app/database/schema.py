@@ -146,6 +146,72 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    # ── Backtest Runs ──
+    """
+    CREATE TABLE IF NOT EXISTS backtest_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        backtest_id TEXT NOT NULL UNIQUE,
+        market TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        config_snapshot TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        total_trades INTEGER DEFAULT 0,
+        hit_rate REAL,
+        avg_return REAL,
+        sharpe_ratio REAL,
+        max_drawdown REAL,
+        profit_factor REAL,
+        win_loss_ratio REAL,
+        total_return REAL,
+        results_json TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    # ── Backtest Trades ──
+    """
+    CREATE TABLE IF NOT EXISTS backtest_trades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        backtest_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        entry_date TEXT NOT NULL,
+        entry_price REAL NOT NULL,
+        entry_signal TEXT NOT NULL,
+        entry_score REAL NOT NULL,
+        exit_date TEXT,
+        exit_price REAL,
+        exit_reason TEXT,
+        return_pct REAL,
+        holding_days INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    # ── Signal Performance Tracking ──
+    """
+    CREATE TABLE IF NOT EXISTS signal_performance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_id INTEGER NOT NULL UNIQUE,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        signal_date TEXT NOT NULL,
+        signal_type TEXT NOT NULL,
+        signal_score REAL NOT NULL,
+        entry_price REAL NOT NULL,
+        price_t1 REAL,
+        price_t5 REAL,
+        price_t20 REAL,
+        return_t1 REAL,
+        return_t5 REAL,
+        return_t20 REAL,
+        is_correct_t5 INTEGER,
+        is_correct_t20 INTEGER,
+        tracked_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES = [
@@ -154,6 +220,9 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_signals_date ON signals(signal_date, market)",
     "CREATE INDEX IF NOT EXISTS idx_fund_flow_lookup ON fund_flow_kr(symbol, trade_date)",
     "CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status, started_at)",
+    "CREATE INDEX IF NOT EXISTS idx_backtest_trades_lookup ON backtest_trades(backtest_id, symbol)",
+    "CREATE INDEX IF NOT EXISTS idx_signal_performance_lookup ON signal_performance(symbol, market, signal_date)",
+    "CREATE INDEX IF NOT EXISTS idx_signal_performance_tracking ON signal_performance(return_t20)",
 ]
 
 

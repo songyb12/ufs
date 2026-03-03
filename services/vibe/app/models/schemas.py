@@ -116,3 +116,59 @@ class HealthResponse(BaseModel):
     db_connected: bool = False
     scheduler_running: bool = False
     last_pipeline_run: str | None = None
+
+
+# ── Backtesting ──
+
+
+class BacktestRequest(BaseModel):
+    market: Market
+    start_date: str | None = None
+    end_date: str | None = None
+    config_overrides: dict | None = None
+
+
+class BacktestRunResponse(BaseModel):
+    backtest_id: str
+    status: str
+    message: str
+
+
+class BacktestResultResponse(BaseModel):
+    backtest_id: str
+    market: str
+    start_date: str
+    end_date: str
+    status: str
+    total_trades: int = 0
+    hit_rate: float | None = None
+    avg_return: float | None = None
+    sharpe_ratio: float | None = None
+    max_drawdown: float | None = None
+    profit_factor: float | None = None
+    win_loss_ratio: float | None = None
+    total_return: float | None = None
+
+
+class BacktestTradeResponse(BaseModel):
+    symbol: str
+    market: str
+    entry_date: str
+    entry_price: float
+    entry_signal: str
+    entry_score: float
+    exit_date: str | None = None
+    exit_price: float | None = None
+    exit_reason: str | None = None
+    return_pct: float | None = None
+    holding_days: int | None = None
+
+
+class SignalPerformanceResponse(BaseModel):
+    total_signals: int = 0
+    buy_signals: int = 0
+    sell_signals: int = 0
+    hit_rate_t5: float | None = None
+    hit_rate_t20: float | None = None
+    avg_return_t5: float | None = None
+    avg_return_t20: float | None = None

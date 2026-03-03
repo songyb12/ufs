@@ -4,6 +4,7 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from app.backtesting.tracker import SignalPerformanceTracker
 from app.collectors.registry import CollectorRegistry
 from app.config import Settings
 from app.database import repositories as repo
@@ -68,6 +69,26 @@ def register_jobs(
         name="US Daily Pipeline",
         replace_existing=True,
     )
+
+    # Signal performance tracking (1 hour after KR pipeline)
+    if config.PERFORMANCE_TRACKING_ENABLED:
+        async def track_signal_performance():
+            try:
+                tracker = SignalPerformanceTracker()
+                updated = await tracker.track_pending()
+                logger.info("Signal performance tracker: updated %d records", updated)
+            except Exception as e:
+                logger.exception("Signal performance tracking failed: %s", e)
+
+        scheduler.add_job(
+            track_signal_performance,
+            trigger="cron",
+            hour=(config.KR_PIPELINE_HOUR_UTC + 1) % 24,
+            minute=0,
+            id="signal_performance_tracker",
+            name="Signal Performance Tracker",
+            replace_existing=True,
+        )
 
     logger.info(
         "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC",
