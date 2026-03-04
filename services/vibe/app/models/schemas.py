@@ -172,3 +172,21 @@ class SignalPerformanceResponse(BaseModel):
     hit_rate_t20: float | None = None
     avg_return_t5: float | None = None
     avg_return_t20: float | None = None
+
+
+# ── Portfolio (Phase E) ──
+
+
+class PortfolioPositionCreate(BaseModel):
+    symbol: str
+    market: Market
+    position_size: float
+    entry_date: str | None = None
+    entry_price: float | None = None
+    sector: str | None = None
+
+
+class PortfolioScenarioResponse(BaseModel):
+    held_scenarios: list[dict] = []
+    entry_scenarios: list[dict] = []
+    total: int = 0

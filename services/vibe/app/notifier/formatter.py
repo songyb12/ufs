@@ -214,6 +214,71 @@ def build_dashboard_payload(context: dict[str, Any]) -> dict:
             "color": 0xFF6600,
         })
 
+    # ── Embed: AI Signal Analysis (Korean) ──
+    s8 = context.get("s8_explanation")
+    if s8 and s8.status == "success":
+        s8_per_symbol = s8.data.get("per_symbol", {})
+        explain_lines = []
+        for symbol, exp_data in s8_per_symbol.items():
+            # Prefer LLM explanation, fall back to rule-based
+            text = exp_data.get("explanation_llm") or exp_data.get("explanation_rule", "")
+            if text:
+                emoji = _signal_emoji(exp_data.get("final_signal", "HOLD"))
+                explain_lines.append(f"{emoji} {text}")
+
+        if explain_lines:
+            embeds.append({
+                "title": "\U0001f4dd AI \ubd84\uc11d \uc694\uc57d",
+                "description": "\n\n".join(explain_lines)[:4096],
+                "color": 0x5865F2,
+            })
+
+    # ── Embed: Portfolio Holdings Status ──
+    s9 = context.get("s9_portfolio_scenarios")
+    if s9 and s9.status == "success":
+        held = s9.data.get("held_scenarios", {})
+        if held:
+            held_fields = []
+            for symbol, scenario in held.items():
+                name = scenario.get("name", symbol_names.get(symbol, symbol))
+                pnl = scenario.get("pnl_pct", 0)
+                pnl_emoji = "\U0001f7e2" if pnl > 0 else "\U0001f534"
+                text = scenario.get("scenario_llm") or scenario.get("scenario_rule", "")
+                targets = scenario.get("target_prices", {})
+                held_fields.append({
+                    "name": f"{pnl_emoji} {name} ({pnl:+.1f}%)",
+                    "value": (
+                        f"\u2193\u00a0\u00a0\u2193 \u00a0\u00a0\u2193\n"
+                        f"\u25b6 \u2193\u00a0\u00a0{text[:180]}\n"
+                        f"SL: \u20a9{targets.get('stop_loss', 0):,.0f} | "
+                        f"TP: \u20a9{targets.get('target_10pct', 0):,.0f}"
+                    ),
+                    "inline": True,
+                })
+            embeds.append({
+                "title": "\U0001f4bc \ubcf4\uc720 \uc885\ubaa9 \ud604\ud669",
+                "color": 0x9B59B6,
+                "fields": held_fields[:25],
+            })
+
+        # ── Embed: New Entry Opportunities ──
+        entry = s9.data.get("entry_scenarios", {})
+        if entry:
+            entry_fields = []
+            for symbol, scenario in entry.items():
+                name = scenario.get("name", symbol_names.get(symbol, symbol))
+                text = scenario.get("scenario_llm") or scenario.get("scenario_rule", "")
+                entry_fields.append({
+                    "name": f"\U0001f7e2 {name} (NEW BUY)",
+                    "value": text[:200],
+                    "inline": True,
+                })
+            embeds.append({
+                "title": "\U0001f195 \uc2e0\uaddc \uc9c4\uc785 \uae30\ud68c",
+                "color": 0x2ECC71,
+                "fields": entry_fields[:25],
+            })
+
     # ── Embed 5: Footer ──
     buy_count = sum(1 for s in per_symbol.values() if s["final_signal"] == "BUY")
     sell_count = sum(1 for s in per_symbol.values() if s["final_signal"] == "SELL")

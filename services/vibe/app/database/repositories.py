@@ -329,8 +329,8 @@ async def insert_signals(rows: list[dict]) -> int:
                     raw_signal, raw_score, hard_limit_triggered, hard_limit_reason,
                     final_signal, confidence, red_team_warning,
                     rsi_value, disparity_value, macro_score, technical_score, fund_flow_score,
-                    rationale)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rationale, explanation_rule, explanation_llm)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     r["run_id"], r["symbol"], r["market"], r["signal_date"],
                     r["raw_signal"], r["raw_score"],
@@ -339,7 +339,7 @@ async def insert_signals(rows: list[dict]) -> int:
                     r["final_signal"], r.get("confidence"), r.get("red_team_warning"),
                     r.get("rsi_value"), r.get("disparity_value"),
                     r.get("macro_score"), r.get("technical_score"), r.get("fund_flow_score"),
-                    r.get("rationale"),
+                    r.get("rationale"), r.get("explanation_rule"), r.get("explanation_llm"),
                 ),
             )
             count += cursor.rowcount
@@ -952,6 +952,61 @@ async def insert_us_fund_flow(data: dict) -> int:
 
 
 # ── LLM Reviews (Phase D) ──
+
+
+async def insert_portfolio_scenarios(scenarios: list[dict]) -> int:
+    db = await get_db()
+    try:
+        count = 0
+        for s in scenarios:
+            cursor = await db.execute(
+                """INSERT INTO portfolio_scenarios
+                   (run_id, symbol, market, scenario_date, scenario_type,
+                    current_price, entry_price, pnl_pct,
+                    scenarios_json, scenario_rule, scenario_llm, target_prices_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (s["run_id"], s["symbol"], s["market"], s["scenario_date"],
+                 s["scenario_type"], s.get("current_price"), s.get("entry_price"),
+                 s.get("pnl_pct"), s.get("scenarios_json"),
+                 s.get("scenario_rule"), s.get("scenario_llm"),
+                 s.get("target_prices_json")),
+            )
+            count += cursor.rowcount
+        await db.commit()
+        return count
+    finally:
+        await db.close()
+
+
+async def get_latest_portfolio_scenarios(market: str | None = None) -> list[dict]:
+    db = await get_db()
+    try:
+        # Get latest run_id that has scenarios
+        sub_query = "SELECT run_id FROM portfolio_scenarios"
+        params: list = []
+        if market:
+            sub_query += " WHERE market = ?"
+            params.append(market)
+        sub_query += " ORDER BY created_at DESC LIMIT 1"
+
+        cursor = await db.execute(sub_query, params)
+        row = await cursor.fetchone()
+        if not row:
+            return []
+
+        run_id = row["run_id"]
+        query = "SELECT * FROM portfolio_scenarios WHERE run_id = ?"
+        q_params: list = [run_id]
+        if market:
+            query += " AND market = ?"
+            q_params.append(market)
+        query += " ORDER BY scenario_type, symbol"
+
+        cursor = await db.execute(query, q_params)
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
 
 
 async def insert_llm_review(data: dict) -> int:

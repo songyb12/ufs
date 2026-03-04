@@ -129,6 +129,8 @@ TABLES = [
         technical_score REAL,
         fund_flow_score REAL,
         rationale TEXT,
+        explanation_rule TEXT,
+        explanation_llm TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE(run_id, symbol, market)
     )
@@ -345,6 +347,25 @@ TABLES = [
         UNIQUE(symbol, market, report_date)
     )
     """,
+    # ── Portfolio Scenarios (Phase E) ──
+    """
+    CREATE TABLE IF NOT EXISTS portfolio_scenarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        scenario_date TEXT NOT NULL,
+        scenario_type TEXT NOT NULL,
+        current_price REAL,
+        entry_price REAL,
+        pnl_pct REAL,
+        scenarios_json TEXT,
+        scenario_rule TEXT,
+        scenario_llm TEXT,
+        target_prices_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
     # ── LLM Reviews (Phase D) ──
     """
     CREATE TABLE IF NOT EXISTS llm_reviews (
@@ -378,6 +399,7 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_fundamental_lookup ON fundamental_data(symbol, market, trade_date)",
     "CREATE INDEX IF NOT EXISTS idx_weekly_indicators_lookup ON weekly_indicators(symbol, market, week_ending)",
     "CREATE INDEX IF NOT EXISTS idx_screening_candidates_lookup ON screening_candidates(market, status, detected_date)",
+    "CREATE INDEX IF NOT EXISTS idx_portfolio_scenarios_lookup ON portfolio_scenarios(run_id, market, scenario_type)",
 ]
 
 

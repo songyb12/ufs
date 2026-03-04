@@ -22,6 +22,8 @@ from app.pipeline.stages.s5_hard_limit import HardLimitStage
 from app.pipeline.stages.s6_signal_generation import SignalGenerationStage
 from app.pipeline.stages.s6b_risk_sizing import RiskSizingStage
 from app.pipeline.stages.s7_red_team import LLMRedTeamStage
+from app.pipeline.stages.s8_explanation import SignalExplanationStage
+from app.pipeline.stages.s9_portfolio_scenarios import PortfolioScenarioStage
 
 logger = logging.getLogger("vibe.pipeline")
 
@@ -42,6 +44,8 @@ class PipelineOrchestrator:
             SignalGenerationStage(config),
             RiskSizingStage(config),
             LLMRedTeamStage(config),
+            SignalExplanationStage(config),
+            PortfolioScenarioStage(config),
         ]
 
     async def run(
@@ -149,6 +153,16 @@ class PipelineOrchestrator:
             return
 
         per_symbol = source.data.get("per_symbol", {})
+
+        # Merge S8 explanation data if available
+        s8 = context.get("s8_explanation")
+        if s8 and s8.status == "success":
+            s8_data = s8.data.get("per_symbol", {})
+            for symbol, exp in s8_data.items():
+                if symbol in per_symbol:
+                    per_symbol[symbol]["explanation_rule"] = exp.get("explanation_rule")
+                    per_symbol[symbol]["explanation_llm"] = exp.get("explanation_llm")
+
         signal_rows = []
 
         for symbol, data in per_symbol.items():

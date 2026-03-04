@@ -76,6 +76,15 @@ class Settings(BaseSettings):
     # US Fund Flow (Phase D)
     US_FUND_FLOW_ENABLED: bool = True
 
+    # Korean Explanation (Phase E)
+    EXPLANATION_ALWAYS_ENABLED: bool = True  # Rule-based always on
+    LLM_EXPLANATION_ENABLED: bool = False  # LLM-enhanced explanation
+    LLM_EXPLANATION_MODEL: str = ""  # Empty = use LLM_MODEL
+
+    # Portfolio Scenarios (Phase E)
+    PORTFOLIO_SCENARIOS_ENABLED: bool = True  # Rule-based scenarios
+    LLM_SCENARIO_ENABLED: bool = False  # LLM-enhanced scenarios
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
