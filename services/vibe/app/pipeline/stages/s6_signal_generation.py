@@ -55,6 +55,12 @@ class SignalGenerationStage(BaseStage):
         if s2c and s2c.status not in ("skipped", "failed"):
             weekly_data = s2c.data.get("per_symbol", {})
 
+        # Sentiment score (from S3b, Phase D)
+        sentiment_score = 0.0
+        s3b = context.get("s3b_sentiment_analysis")
+        if s3b and s3b.status == "success":
+            sentiment_score = s3b.data.get("sentiment_score", 0.0)
+
         per_symbol_signals: dict[str, dict] = {}
 
         for symbol, indicators in tech_data.items():
@@ -84,6 +90,7 @@ class SignalGenerationStage(BaseStage):
                 market=market,
                 config=self.config,
                 fundamental_score=fund_score,
+                sentiment_score=sentiment_score,
                 timeframe_multiplier=1.0,
             )
 
@@ -98,6 +105,7 @@ class SignalGenerationStage(BaseStage):
                 market=market,
                 config=self.config,
                 fundamental_score=fund_score,
+                sentiment_score=sentiment_score,
                 timeframe_multiplier=tf_multiplier,
             )
 

@@ -126,6 +126,9 @@ async def root():
             "/sentiment/latest",
             "/portfolio",
             "/portfolio/position",
+            "/portfolio/quick",
+            "/portfolio/bulk",
+            "/portfolio/seed",
             "/portfolio/scenarios",
         ],
     }

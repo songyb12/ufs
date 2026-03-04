@@ -25,6 +25,20 @@ async def get_watchlist(market: str | None = None, active_only: bool = True) -> 
         await db.close()
 
 
+async def get_watchlist_item(symbol: str, market: str) -> dict | None:
+    """Get a single watchlist item by symbol and market."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM watchlist WHERE symbol = ? AND market = ?",
+            (symbol, market),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
 async def add_watchlist_item(symbol: str, name: str, market: str, asset_type: str = "stock") -> dict | None:
     db = await get_db()
     try:

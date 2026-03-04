@@ -65,7 +65,7 @@ class Settings(BaseSettings):
 
     # Sentiment (Phase D)
     SENTIMENT_FETCH_ENABLED: bool = True
-    WEIGHT_SENTIMENT: float = 0.0  # Enable after validation
+    WEIGHT_SENTIMENT: float = 0.10  # Sentiment impact on signal scoring
 
     # LLM Red-Team (Phase D)
     LLM_RED_TEAM_ENABLED: bool = False  # Enable after API key setup

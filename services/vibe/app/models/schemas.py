@@ -186,6 +186,22 @@ class PortfolioPositionCreate(BaseModel):
     sector: str | None = None
 
 
+class PortfolioQuickAdd(BaseModel):
+    """Minimal portfolio entry — symbol + market + size only.
+
+    entry_price is auto-filled from the latest DB price.
+    entry_date defaults to today.
+    """
+    symbol: str
+    market: Market
+    position_size: float
+
+
+class PortfolioBulkCreate(BaseModel):
+    """Register multiple portfolio positions at once."""
+    items: list[PortfolioPositionCreate]
+
+
 class PortfolioScenarioResponse(BaseModel):
     held_scenarios: list[dict] = []
     entry_scenarios: list[dict] = []
