@@ -1,5 +1,6 @@
-"""Pipeline Orchestrator - Runs all 7 stages sequentially."""
+"""Pipeline Orchestrator - Runs all stages sequentially with per-market locking."""
 
+import asyncio
 import logging
 import time
 from datetime import date
@@ -10,6 +11,15 @@ from app.collectors.registry import CollectorRegistry
 from app.config import Settings
 from app.database import repositories as repo
 from app.pipeline.base import BaseStage, StageResult
+
+# Per-market locks prevent concurrent pipeline runs (manual + scheduled overlap)
+_pipeline_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_lock(market: str) -> asyncio.Lock:
+    if market not in _pipeline_locks:
+        _pipeline_locks[market] = asyncio.Lock()
+    return _pipeline_locks[market]
 from app.pipeline.stages.s1_data_collection import DataCollectionStage
 from app.pipeline.stages.s2_technical_analysis import TechnicalAnalysisStage
 from app.pipeline.stages.s2b_fundamental import FundamentalAnalysisStage
@@ -56,10 +66,28 @@ class PipelineOrchestrator:
         symbols: list[str],
         run_type: str = "manual",
     ) -> dict[str, Any]:
-        """Execute the full 7-stage pipeline.
+        """Execute the full pipeline with per-market locking.
 
         Returns context dict with all stage results.
+        Raises RuntimeError if another run for the same market is in progress.
         """
+        lock = _get_lock(market)
+        if lock.locked():
+            raise RuntimeError(
+                f"Pipeline for {market} is already running. "
+                "Wait for the current run to complete."
+            )
+
+        async with lock:
+            return await self._run_locked(market, symbols, run_type)
+
+    async def _run_locked(
+        self,
+        market: str,
+        symbols: list[str],
+        run_type: str,
+    ) -> dict[str, Any]:
+        """Internal pipeline execution (called under lock)."""
         run_id = str(uuid4())
         start_time = time.time()
 
@@ -186,6 +214,8 @@ class PipelineOrchestrator:
                 "technical_score": data.get("technical_score"),
                 "fund_flow_score": data.get("fund_flow_score"),
                 "rationale": data.get("rationale"),
+                "explanation_rule": data.get("explanation_rule"),
+                "explanation_llm": data.get("explanation_llm"),
             })
 
         if signal_rows:

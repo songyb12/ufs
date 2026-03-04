@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     API_KEY: str = ""  # Set via .env; empty = no auth required
     API_AUTH_ENABLED: bool = False  # Enable API key authentication
 
+    # CORS (comma-separated extra origins for external access)
+    CORS_EXTRA_ORIGINS: str = ""  # e.g. "https://vibe.example.com"
+
+    # Signal Thresholds (was hardcoded, now configurable)
+    SIGNAL_BUY_THRESHOLD: float = 15.0  # raw_score > this → BUY
+    SIGNAL_SELL_THRESHOLD: float = -15.0  # raw_score < this → SELL
+
     # News Analysis (Phase F)
     NEWS_ENABLED: bool = True
     WEIGHT_NEWS: float = 0.0  # News weight in signal scoring (0=disabled in scoring)

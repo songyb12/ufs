@@ -124,7 +124,8 @@ class USMarketCollector(BaseCollector):
 
         try:
             info = await self._run_sync(_get_info)
-        except Exception:
+        except Exception as e:
+            logger.warning("[US] %s: fundamentals fetch failed - %s", symbol, e)
             return {}
 
         return {

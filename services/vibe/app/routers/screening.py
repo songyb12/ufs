@@ -1,10 +1,13 @@
 """Screening API endpoints."""
 
+import logging
+
 from fastapi import APIRouter
 
 from app.database import repositories as repo
 from app.screening.scanner import DynamicScreener
 
+logger = logging.getLogger("vibe.routers.screening")
 router = APIRouter(prefix="/screening", tags=["screening"])
 
 
@@ -20,8 +23,8 @@ async def run_scan(market: str = "KR", days_back: int = 5):
         try:
             await repo.insert_screening_candidate(c)
             count += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to store screening candidate %s: %s", c.get("symbol"), e)
 
     return {
         "market": market,

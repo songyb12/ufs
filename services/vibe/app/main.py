@@ -73,9 +73,17 @@ app = FastAPI(
 )
 
 # CORS middleware (for dashboard frontend)
+_cors_origins = [
+    "http://localhost:5173",   # Vite dev
+    "http://localhost:8001",   # Self (embedded dashboard)
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8001",
+]
+if settings.CORS_EXTRA_ORIGINS:
+    _cors_origins.extend(settings.CORS_EXTRA_ORIGINS.split(","))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -137,8 +145,8 @@ async def health():
                 if run_time.tzinfo is None:
                     run_time = run_time.replace(tzinfo=timezone.utc)
                 age = round((now - run_time).total_seconds() / 3600, 1)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Pipeline timestamp parse error: %s", e)
         return {
             "status": run.get("status", "unknown"),
             "last_run": completed,
@@ -168,8 +176,8 @@ async def health():
             signal_count = (await c.fetchone())[0]
         finally:
             await db.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Health check data count query failed: %s", e)
 
     overall = "healthy" if db_ok else "degraded"
 

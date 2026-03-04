@@ -104,6 +104,8 @@ class TestComputeAggregateSignal:
         config.WEIGHT_FUNDAMENTAL = overrides.get("wfund", 0.20)
         config.WEIGHT_SENTIMENT = overrides.get("ws", 0.10)
         config.WEIGHT_NEWS = overrides.get("wn", 0.0)
+        config.SIGNAL_BUY_THRESHOLD = overrides.get("buy_th", 15.0)
+        config.SIGNAL_SELL_THRESHOLD = overrides.get("sell_th", -15.0)
         return config
 
     def test_strong_buy_signal(self):

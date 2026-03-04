@@ -1,7 +1,10 @@
 """Stage 1: Data Collection - Fetch OHLCV and store to DB."""
 
 import logging
+from datetime import datetime, timedelta
 from typing import Any
+
+import pandas as pd
 
 from app.collectors.registry import CollectorRegistry
 from app.config import Settings
@@ -70,6 +73,23 @@ class DataCollectionStage(BaseStage):
                 logger.error("[S1] Macro collection failed: %s", e)
 
         failed_symbols = [s for s in symbols if s not in collected_symbols]
+
+        # Stale data detection: warn if latest data is older than 5 trading days
+        stale_warnings = []
+        now = datetime.now()
+        stale_cutoff = now - timedelta(days=7)  # ~5 trading days
+        for symbol, df in ohlcv_data.items():
+            if df is not None and not df.empty:
+                latest_date = pd.to_datetime(df.index[-1])
+                if latest_date < stale_cutoff:
+                    days_old = (now - latest_date).days
+                    stale_warnings.append(f"{symbol}: {days_old}d old")
+        if stale_warnings:
+            logger.warning(
+                "[S1] Stale data (%d symbols): %s",
+                len(stale_warnings), ", ".join(stale_warnings[:10]),
+            )
+
         status = "success" if not failed_symbols else "partial"
 
         result_data: dict[str, Any] = {
@@ -77,6 +97,7 @@ class DataCollectionStage(BaseStage):
             "failed_symbols": failed_symbols,
             "total_rows": total_rows,
             "ohlcv_data": ohlcv_data,  # Pass raw DataFrames to next stage
+            "stale_symbols": [w.split(":")[0] for w in stale_warnings],
         }
         if macro_data:
             result_data["macro_data"] = macro_data

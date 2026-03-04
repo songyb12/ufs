@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from app.config import Settings
+from app.database import repositories as repo
 from app.indicators.weekly import compute_weekly_indicators
 from app.pipeline.base import BaseStage, StageResult
 
@@ -50,6 +51,24 @@ class WeeklyAnalysisStage(BaseStage):
             except Exception as e:
                 logger.error("[S2c] %s: weekly analysis failed - %s", symbol, e)
                 per_symbol[symbol] = {"trend_direction": "neutral"}
+
+        # Persist to weekly_indicators table
+        db_rows = []
+        for symbol, data in per_symbol.items():
+            if data.get("week_ending"):
+                db_rows.append({
+                    "symbol": symbol,
+                    "market": market,
+                    "week_ending": data["week_ending"],
+                    "rsi_14_weekly": data.get("rsi_14_weekly"),
+                    "ma_5_weekly": data.get("ma_5_weekly"),
+                    "ma_20_weekly": data.get("ma_20_weekly"),
+                    "macd_weekly": data.get("macd_weekly"),
+                    "trend_direction": data.get("trend_direction"),
+                })
+        if db_rows:
+            stored = await repo.upsert_weekly_indicators(db_rows)
+            logger.info("[S2c] Stored %d weekly indicator rows", stored)
 
         logger.info("[S2c] Weekly analysis for %d symbols", len(per_symbol))
 

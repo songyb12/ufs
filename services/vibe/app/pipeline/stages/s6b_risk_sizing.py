@@ -112,8 +112,8 @@ class RiskSizingStage(BaseStage):
                     f"{e['event_type'].upper()}: {e['description']} ({e['event_date']})"
                     for e in market_events[:5]
                 ]
-            except Exception:
-                pass  # Already handled above
+            except Exception as e:
+                logger.warning("[S6b] Event calendar check failed: %s", e)
 
         return StageResult(
             stage_name=self.name,

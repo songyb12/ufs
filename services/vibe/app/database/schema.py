@@ -330,7 +330,8 @@ TABLES = [
         value REAL,
         description TEXT,
         source TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(symbol, trade_date, data_type)
     )
     """,
     # ── Short Interest (Phase D) ──

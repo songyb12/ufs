@@ -92,8 +92,8 @@ async def fetch_put_call_ratio() -> dict[str, Any]:
                             "puts_volume": int(puts_vol),
                             "calls_volume": int(calls_vol),
                         }
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("SPY options chain parsing failed: %s", e)
 
             return {}
         except Exception as e:

@@ -78,7 +78,8 @@ async def fetch_etf_flow_proxy() -> dict[str, Any]:
                         "volume_ratio": round(vol_ratio, 2),
                         "latest_close": round(float(latest["Close"]), 2),
                     }
-                except Exception:
+                except Exception as e:
+                    logger.debug("ETF %s data fetch failed: %s", ticker_sym, e)
                     continue
 
             # Compute risk appetite score

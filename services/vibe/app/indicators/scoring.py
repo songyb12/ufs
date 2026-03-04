@@ -54,8 +54,8 @@ def compute_technical_score(indicators: dict) -> float:
     disparity = indicators.get("disparity_20")
     if disparity is not None:
         deviation = disparity - 100  # 0 = at MA20
-        score -= deviation * 3  # Overextended = negative
-        score = max(min(score, score), score)  # Keep total bounded
+        disp_contribution = max(-15, min(15, -deviation * 3))  # Bound ±15
+        score += disp_contribution
         count += 1
 
     # Volume ratio scoring (-15 to +15)
@@ -159,10 +159,10 @@ def compute_aggregate_signal(
 
     raw_score = round(raw_score, 2)
 
-    # Signal thresholds
-    if raw_score > 15:
+    # Signal thresholds (configurable)
+    if raw_score > config.SIGNAL_BUY_THRESHOLD:
         signal = SignalType.BUY
-    elif raw_score < -15:
+    elif raw_score < config.SIGNAL_SELL_THRESHOLD:
         signal = SignalType.SELL
     else:
         signal = SignalType.HOLD

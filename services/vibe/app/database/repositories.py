@@ -760,8 +760,9 @@ async def insert_events(events: list[dict]) -> int:
                      e.get("symbol") or "", e["description"], e.get("impact_level", "medium")),
                 )
                 count += cursor.rowcount
-            except Exception:
-                pass  # Ignore duplicates
+            except Exception as e:
+                import logging
+                logging.getLogger("vibe.repo").debug("Event insert skipped: %s", e)
         await db.commit()
         return count
     finally:
@@ -844,6 +845,29 @@ async def upsert_fundamental_data(data: dict) -> None:
              data.get("quality_score")),
         )
         await db.commit()
+    finally:
+        await db.close()
+
+
+async def upsert_weekly_indicators(rows: list[dict]) -> int:
+    """Persist weekly indicator data."""
+    db = await get_db()
+    try:
+        count = 0
+        for r in rows:
+            cursor = await db.execute(
+                """INSERT OR REPLACE INTO weekly_indicators
+                   (symbol, market, week_ending, rsi_14_weekly,
+                    ma_5_weekly, ma_20_weekly, macd_weekly, trend_direction)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (r["symbol"], r["market"], r["week_ending"],
+                 r.get("rsi_14_weekly"), r.get("ma_5_weekly"),
+                 r.get("ma_20_weekly"), r.get("macd_weekly"),
+                 r.get("trend_direction")),
+            )
+            count += cursor.rowcount
+        await db.commit()
+        return count
     finally:
         await db.close()
 
@@ -953,7 +977,7 @@ async def insert_us_fund_flow(data: dict) -> int:
     db = await get_db()
     try:
         cursor = await db.execute(
-            """INSERT INTO us_fund_flow
+            """INSERT OR REPLACE INTO us_fund_flow
                (symbol, trade_date, data_type, value, description, source)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (data["symbol"], data["trade_date"], data["data_type"],
