@@ -116,8 +116,64 @@ def register_jobs(
         replace_existing=True,
     )
 
+    # Weekly report (Sunday 06:00 UTC = 15:00 KST)
+    async def send_weekly_report():
+        try:
+            from app.notifier.weekly_report import build_weekly_report_payloads
+
+            payloads = await build_weekly_report_payloads()
+            if payloads and config.DISCORD_WEBHOOK_URL:
+                import asyncio
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    for payload in payloads:
+                        resp = await client.post(
+                            config.DISCORD_WEBHOOK_URL,
+                            json=payload,
+                            timeout=15.0,
+                        )
+                        if resp.status_code == 204:
+                            logger.info("Weekly report sent to Discord")
+                        else:
+                            logger.error("Weekly report Discord failed: %d", resp.status_code)
+                        await asyncio.sleep(1.0)
+            else:
+                logger.info("Weekly report generated but no webhook configured")
+        except Exception as e:
+            logger.exception("Weekly report failed: %s", e)
+
+    scheduler.add_job(
+        send_weekly_report,
+        trigger="cron",
+        day_of_week="sun",
+        hour=6,
+        minute=0,
+        id="weekly_report",
+        name="Weekly Report",
+        replace_existing=True,
+    )
+
+    # Price alert check (every 2 hours during market hours)
+    async def check_price_alerts():
+        try:
+            from app.notifier.alerts import check_and_send_alerts
+            await check_and_send_alerts(config)
+        except Exception as e:
+            logger.exception("Price alert check failed: %s", e)
+
+    scheduler.add_job(
+        check_price_alerts,
+        trigger="cron",
+        hour="7,9,11,13,22",  # During KR/US market hours
+        minute=30,
+        id="price_alert_check",
+        name="Price Alert Check",
+        replace_existing=True,
+    )
+
     logger.info(
-        "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC, Backup=04:00 UTC",
+        "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC, Backup=04:00, Weekly=Sun 06:00",
         config.KR_PIPELINE_HOUR_UTC, config.KR_PIPELINE_MINUTE,
         config.US_PIPELINE_HOUR_UTC, config.US_PIPELINE_MINUTE,
     )

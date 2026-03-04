@@ -68,6 +68,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# API Key authentication middleware
+if settings.API_AUTH_ENABLED and settings.API_KEY:
+    from app.middleware.auth import APIKeyMiddleware
+    app.add_middleware(APIKeyMiddleware, api_key=settings.API_KEY)
+    logger.info("API authentication enabled")
+
 # Register routers
 app.include_router(watchlist.router)
 app.include_router(pipeline.router)
