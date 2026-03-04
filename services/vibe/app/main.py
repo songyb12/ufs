@@ -8,7 +8,11 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.collectors.registry import CollectorRegistry
 from app.config import settings
@@ -66,6 +70,15 @@ app = FastAPI(
     title="UFS VIBE",
     version=settings.VERSION,
     lifespan=lifespan,
+)
+
+# CORS middleware (for dashboard frontend)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # API Key authentication middleware
@@ -244,3 +257,9 @@ async def trigger_backup():
             "size_mb": round(size_mb, 2),
         }
     return {"status": "failed", "error": "Backup creation failed"}
+
+
+# Serve React dashboard static files (if built)
+_static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+if os.path.isdir(_static_dir):
+    app.mount("/ui", StaticFiles(directory=_static_dir, html=True), name="dashboard")
