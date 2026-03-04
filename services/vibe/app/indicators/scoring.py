@@ -104,6 +104,7 @@ def compute_aggregate_signal(
     config: Settings,
     fundamental_score: float = 0.0,
     sentiment_score: float = 0.0,
+    news_score: float = 0.0,
     timeframe_multiplier: float = 1.0,
 ) -> tuple[SignalType, float]:
     """Compute final weighted signal.
@@ -111,10 +112,11 @@ def compute_aggregate_signal(
     Returns (signal_type, raw_score).
 
     Weight distribution:
-    - When fund_flow data available (KR): tech + macro + fund_flow + fundamental + sentiment
+    - When fund_flow data available (KR): tech + macro + fund_flow + fundamental + sentiment + news
     - When fund_flow unavailable (US, or KR w/o data): redistribute fund_flow weight
     """
     sentiment_w = config.WEIGHT_SENTIMENT
+    news_w = config.WEIGHT_NEWS
 
     has_fund_flow = fund_flow_score is not None and fund_flow_score != 0.0
 
@@ -126,6 +128,7 @@ def compute_aggregate_signal(
             "fund_flow": config.WEIGHT_FUND_FLOW,
             "fundamental": config.WEIGHT_FUNDAMENTAL,
             "sentiment": sentiment_w,
+            "news": news_w,
         }
         fund_flow_val = fund_flow_score
     else:
@@ -137,6 +140,7 @@ def compute_aggregate_signal(
             "fund_flow": 0.0,
             "fundamental": config.WEIGHT_FUNDAMENTAL + ff_w * 0.20,
             "sentiment": sentiment_w + ff_w * 0.10,
+            "news": news_w,
         }
         fund_flow_val = 0.0
 
@@ -147,6 +151,7 @@ def compute_aggregate_signal(
         + fund_flow_val * weights["fund_flow"]
         + fundamental_score * weights["fundamental"]
         + sentiment_score * weights["sentiment"]
+        + news_score * weights["news"]
     )
 
     # Apply timeframe multiplier (weekly alignment)

@@ -10,6 +10,7 @@ from app.config import Settings
 from app.database import repositories as repo
 from app.notifier.discord import DiscordNotifier
 from app.pipeline.orchestrator import PipelineOrchestrator
+from app.utils.backup import backup_database
 
 logger = logging.getLogger("vibe.scheduler.jobs")
 
@@ -90,8 +91,33 @@ def register_jobs(
             replace_existing=True,
         )
 
+    # Daily database backup (04:00 UTC = 13:00 KST, before any pipeline)
+    async def run_db_backup():
+        try:
+            result = await backup_database(
+                db_path=config.DB_PATH,
+                backup_dir=config.DB_BACKUP_DIR,
+                keep_days=config.DB_BACKUP_KEEP_DAYS,
+            )
+            if result:
+                logger.info("Scheduled backup completed: %s", result)
+            else:
+                logger.error("Scheduled backup failed")
+        except Exception as e:
+            logger.exception("Backup job failed: %s", e)
+
+    scheduler.add_job(
+        run_db_backup,
+        trigger="cron",
+        hour=4,
+        minute=0,
+        id="daily_db_backup",
+        name="Daily DB Backup",
+        replace_existing=True,
+    )
+
     logger.info(
-        "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC",
+        "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC, Backup=04:00 UTC",
         config.KR_PIPELINE_HOUR_UTC, config.KR_PIPELINE_MINUTE,
         config.US_PIPELINE_HOUR_UTC, config.US_PIPELINE_MINUTE,
     )

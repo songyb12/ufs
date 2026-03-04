@@ -61,6 +61,12 @@ class SignalGenerationStage(BaseStage):
         if s3b and s3b.status == "success":
             sentiment_score = s3b.data.get("sentiment_score", 0.0)
 
+        # News data (from S3c, Phase F)
+        news_data = {}
+        s3c = context.get("s3c_news_analysis")
+        if s3c and s3c.status not in ("skipped", "failed"):
+            news_data = s3c.data.get("per_symbol", {})
+
         per_symbol_signals: dict[str, dict] = {}
 
         for symbol, indicators in tech_data.items():
@@ -82,6 +88,13 @@ class SignalGenerationStage(BaseStage):
             if symbol in weekly_data:
                 weekly_trend = weekly_data[symbol].get("trend_direction", "neutral")
 
+            # News score (Phase F)
+            news_score = 0.0
+            news_count = 0
+            if symbol in news_data:
+                news_score = news_data[symbol].get("news_score", 0.0)
+                news_count = news_data[symbol].get("article_count", 0)
+
             # First pass: get preliminary signal for timeframe alignment
             prelim_signal, _ = compute_aggregate_signal(
                 technical_score=tech_score,
@@ -91,6 +104,7 @@ class SignalGenerationStage(BaseStage):
                 config=self.config,
                 fundamental_score=fund_score,
                 sentiment_score=sentiment_score,
+                news_score=news_score,
                 timeframe_multiplier=1.0,
             )
 
@@ -106,6 +120,7 @@ class SignalGenerationStage(BaseStage):
                 config=self.config,
                 fundamental_score=fund_score,
                 sentiment_score=sentiment_score,
+                news_score=news_score,
                 timeframe_multiplier=tf_multiplier,
             )
 
@@ -130,12 +145,14 @@ class SignalGenerationStage(BaseStage):
                 "macro_score": macro_score_normalized,
                 "fund_flow_score": ff_score,
                 "fundamental_score": fund_score,
+                "news_score": news_score,
+                "news_count": news_count,
                 "weekly_trend": weekly_trend,
                 "timeframe_multiplier": tf_multiplier,
                 "rationale": _build_rationale(
                     symbol, raw_signal, final_signal,
                     tech_score, macro_score_normalized, ff_score,
-                    fund_score, weekly_trend, tf_multiplier, hl,
+                    fund_score, news_score, weekly_trend, tf_multiplier, hl,
                 ),
             }
 
@@ -165,6 +182,7 @@ def _build_rationale(
     macro_score: float,
     ff_score: float | None,
     fund_score: float,
+    news_score: float,
     weekly_trend: str,
     tf_multiplier: float,
     hard_limit: dict,
@@ -174,6 +192,8 @@ def _build_rationale(
         parts.append(f"FundFlow={ff_score:+.1f}")
     if fund_score != 0:
         parts.append(f"Fund={fund_score:+.1f}")
+    if news_score != 0:
+        parts.append(f"News={news_score:+.1f}")
     if weekly_trend != "neutral":
         parts.append(f"WkTrend={weekly_trend}(×{tf_multiplier:.1f})")
 

@@ -965,7 +965,49 @@ async def insert_us_fund_flow(data: dict) -> int:
         await db.close()
 
 
-# ── LLM Reviews (Phase D) ──
+# ── News Data (Phase F) ──
+
+
+async def insert_news_data(rows: list[dict]) -> int:
+    """Store news analysis data."""
+    db = await get_db()
+    try:
+        count = 0
+        for r in rows:
+            cursor = await db.execute(
+                """INSERT INTO news_data
+                   (run_id, symbol, market, trade_date, news_score,
+                    article_count, bullish_count, bearish_count, headlines_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (r["run_id"], r["symbol"], r["market"], r["trade_date"],
+                 r.get("news_score"), r.get("article_count"),
+                 r.get("bullish_count"), r.get("bearish_count"),
+                 r.get("headlines_json")),
+            )
+            count += cursor.rowcount
+        await db.commit()
+        return count
+    finally:
+        await db.close()
+
+
+async def get_latest_news(symbol: str, market: str) -> dict | None:
+    """Get latest news data for a symbol."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM news_data
+               WHERE symbol = ? AND market = ?
+               ORDER BY trade_date DESC LIMIT 1""",
+            (symbol, market),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+# ── Portfolio Scenarios (Phase E) ──
 
 
 async def insert_portfolio_scenarios(scenarios: list[dict]) -> int:

@@ -11,14 +11,16 @@ class Settings(BaseSettings):
 
     # Database
     DB_PATH: str = "/app/data/vibe.db"
+    DB_BACKUP_DIR: str = "/app/data/backups"
+    DB_BACKUP_KEEP_DAYS: int = 7  # Keep backups for 7 days
 
     # Discord
     DISCORD_WEBHOOK_URL: str = ""
 
-    # Hard Limit thresholds
+    # Hard Limit thresholds (grid search optimized: aggressive)
     RSI_HARD_LIMIT: float = 65.0
-    RSI_BUY_THRESHOLD_KR: float = 50.0  # 국장
-    RSI_BUY_THRESHOLD_US: float = 55.0  # 미장
+    RSI_BUY_THRESHOLD_KR: float = 45.0  # 국장 (Sharpe 1.49, Hit 55.6%)
+    RSI_BUY_THRESHOLD_US: float = 50.0  # 미장 (비례 조정)
     DISPARITY_HARD_LIMIT: float = 105.0  # 20일선 이격도 %
 
     # Scheduler
@@ -48,7 +50,7 @@ class Settings(BaseSettings):
     # Backtesting
     BACKTEST_DEFAULT_DAYS: int = 365
     BACKTEST_TRADE_EXIT_DAYS: int = 20  # Max hold period before forced close
-    BACKTEST_STOP_LOSS_PCT: float = -5.0  # -5% stop loss
+    BACKTEST_STOP_LOSS_PCT: float = -7.0  # -7% stop loss (grid optimized)
 
     # Signal Performance Tracking
     PERFORMANCE_TRACKING_ENABLED: bool = True
@@ -84,6 +86,11 @@ class Settings(BaseSettings):
     # Portfolio Scenarios (Phase E)
     PORTFOLIO_SCENARIOS_ENABLED: bool = True  # Rule-based scenarios
     LLM_SCENARIO_ENABLED: bool = False  # LLM-enhanced scenarios
+
+    # News Analysis (Phase F)
+    NEWS_ENABLED: bool = True
+    WEIGHT_NEWS: float = 0.0  # News weight in signal scoring (0=disabled in scoring)
+    NEWS_MAX_ARTICLES: int = 5  # Max articles per symbol
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

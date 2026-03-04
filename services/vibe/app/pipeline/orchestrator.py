@@ -16,6 +16,7 @@ from app.pipeline.stages.s2b_fundamental import FundamentalAnalysisStage
 from app.pipeline.stages.s2c_weekly import WeeklyAnalysisStage
 from app.pipeline.stages.s3_macro_analysis import MacroAnalysisStage
 from app.pipeline.stages.s3b_sentiment import SentimentAnalysisStage
+from app.pipeline.stages.s3c_news_analysis import NewsAnalysisStage
 from app.pipeline.stages.s4_fund_flow import FundFlowStage
 from app.pipeline.stages.s4b_us_fund_flow import USFundFlowStage
 from app.pipeline.stages.s5_hard_limit import HardLimitStage
@@ -38,6 +39,7 @@ class PipelineOrchestrator:
             WeeklyAnalysisStage(config),
             MacroAnalysisStage(config),
             SentimentAnalysisStage(config),
+            NewsAnalysisStage(config),
             FundFlowStage(config, collector_registry),
             USFundFlowStage(config),
             HardLimitStage(config),

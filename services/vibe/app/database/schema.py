@@ -366,6 +366,22 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    # ── News Data (Phase F) ──
+    """
+    CREATE TABLE IF NOT EXISTS news_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        market TEXT NOT NULL,
+        trade_date TEXT NOT NULL,
+        news_score REAL,
+        article_count INTEGER DEFAULT 0,
+        bullish_count INTEGER DEFAULT 0,
+        bearish_count INTEGER DEFAULT 0,
+        headlines_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
     # ── LLM Reviews (Phase D) ──
     """
     CREATE TABLE IF NOT EXISTS llm_reviews (
@@ -400,6 +416,7 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_weekly_indicators_lookup ON weekly_indicators(symbol, market, week_ending)",
     "CREATE INDEX IF NOT EXISTS idx_screening_candidates_lookup ON screening_candidates(market, status, detected_date)",
     "CREATE INDEX IF NOT EXISTS idx_portfolio_scenarios_lookup ON portfolio_scenarios(run_id, market, scenario_type)",
+    "CREATE INDEX IF NOT EXISTS idx_news_data_lookup ON news_data(symbol, market, trade_date)",
 ]
 
 

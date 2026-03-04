@@ -242,6 +242,31 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
                 "color": 0x2ECC71,
             })
 
+    # ── Embed: News Headlines ──
+    s3c = context.get("s3c_news_analysis")
+    if s3c and s3c.status == "success":
+        s3c_per_symbol = s3c.data.get("per_symbol", {})
+        news_lines = []
+        # Show news for BUY/SELL signals only (most relevant)
+        for symbol, sig in per_symbol.items():
+            if sig["final_signal"] in ("BUY", "SELL") and symbol in s3c_per_symbol:
+                ns = s3c_per_symbol[symbol]
+                if ns.get("article_count", 0) > 0:
+                    name = symbol_names.get(symbol, symbol)
+                    score = ns.get("news_score", 0)
+                    emoji = "\U0001f7e2" if score > 0 else "\U0001f534" if score < 0 else "\U0001f7e1"
+                    headlines = ns.get("headlines", [])
+                    top_headline = headlines[0]["title"][:60] if headlines else ""
+                    news_lines.append(
+                        f"{emoji} **{name}** ({score:+.0f}): {top_headline}"
+                    )
+        if news_lines:
+            all_embeds.append({
+                "title": "\U0001f4f0 뉴스",
+                "description": "\n".join(news_lines[:8])[:4096],
+                "color": 0x1DA1F2,
+            })
+
     # ── Footer embed ──
     buy_count = sum(1 for s in per_symbol.values() if s["final_signal"] == "BUY")
     sell_count = sum(1 for s in per_symbol.values() if s["final_signal"] == "SELL")

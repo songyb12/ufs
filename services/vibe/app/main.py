@@ -82,13 +82,97 @@ app.include_router(portfolio.router)
 
 @app.get("/health")
 async def health():
+    from app.database import repositories as repo
+
     scheduler = getattr(app.state, "scheduler", None)
+    now = datetime.now(timezone.utc)
+
+    # DB connectivity check
+    db_ok = False
+    db_tables = 0
+    try:
+        from app.database.connection import get_db
+        db = await get_db()
+        try:
+            cursor = await db.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            row = await cursor.fetchone()
+            db_tables = row[0] if row else 0
+            db_ok = db_tables > 0
+        finally:
+            await db.close()
+    except Exception:
+        db_ok = False
+
+    # Last pipeline run freshness
+    last_kr = await repo.get_latest_pipeline_run("KR")
+    last_us = await repo.get_latest_pipeline_run("US")
+
+    def _pipeline_info(run):
+        if not run:
+            return {"status": "never_run", "age_hours": None}
+        completed = run.get("completed_at") or run.get("started_at")
+        age = None
+        if completed:
+            try:
+                run_time = datetime.fromisoformat(completed.replace("Z", "+00:00"))
+                if run_time.tzinfo is None:
+                    run_time = run_time.replace(tzinfo=timezone.utc)
+                age = round((now - run_time).total_seconds() / 3600, 1)
+            except Exception:
+                pass
+        return {
+            "status": run.get("status", "unknown"),
+            "last_run": completed,
+            "age_hours": age,
+        }
+
+    # Scheduler jobs
+    scheduler_jobs = []
+    if scheduler and scheduler.running:
+        for job in scheduler.get_jobs():
+            scheduler_jobs.append({
+                "id": job.id,
+                "name": job.name,
+                "next_run": str(job.next_run_time) if job.next_run_time else None,
+            })
+
+    # Data freshness
+    price_count = 0
+    signal_count = 0
+    try:
+        from app.database.connection import get_db
+        db = await get_db()
+        try:
+            c = await db.execute("SELECT COUNT(*) FROM price_history")
+            price_count = (await c.fetchone())[0]
+            c = await db.execute("SELECT COUNT(*) FROM signals")
+            signal_count = (await c.fetchone())[0]
+        finally:
+            await db.close()
+    except Exception:
+        pass
+
+    overall = "healthy" if db_ok else "degraded"
+
     return {
         "service": settings.SERVICE_NAME,
-        "status": "healthy",
+        "status": overall,
         "version": settings.VERSION,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "scheduler_running": scheduler is not None and scheduler.running if scheduler else False,
+        "timestamp": now.isoformat(),
+        "database": {
+            "connected": db_ok,
+            "tables": db_tables,
+            "prices": price_count,
+            "signals": signal_count,
+        },
+        "scheduler": {
+            "running": scheduler is not None and scheduler.running if scheduler else False,
+            "jobs": scheduler_jobs,
+        },
+        "pipelines": {
+            "KR": _pipeline_info(last_kr),
+            "US": _pipeline_info(last_us),
+        },
     }
 
 
@@ -130,5 +214,27 @@ async def root():
             "/portfolio/bulk",
             "/portfolio/seed",
             "/portfolio/scenarios",
+            "/admin/backup",
         ],
     }
+
+
+@app.post("/admin/backup")
+async def trigger_backup():
+    """Manually trigger a database backup."""
+    from app.utils.backup import backup_database
+
+    result = await backup_database(
+        db_path=settings.DB_PATH,
+        backup_dir=settings.DB_BACKUP_DIR,
+        keep_days=settings.DB_BACKUP_KEEP_DAYS,
+    )
+    if result:
+        import os
+        size_mb = os.path.getsize(result) / (1024 * 1024)
+        return {
+            "status": "success",
+            "backup_path": result,
+            "size_mb": round(size_mb, 2),
+        }
+    return {"status": "failed", "error": "Backup creation failed"}
