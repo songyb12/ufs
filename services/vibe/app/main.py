@@ -267,6 +267,20 @@ async def trigger_backup():
     return {"status": "failed", "error": "Backup creation failed"}
 
 
+@app.post("/admin/retention")
+async def trigger_retention():
+    """Manually trigger data retention cleanup."""
+    from app.utils.retention import run_retention
+
+    results = await run_retention(settings)
+    total = sum(results.values())
+    return {
+        "status": "success",
+        "total_deleted": total,
+        "details": results,
+    }
+
+
 # Serve React dashboard static files (if built)
 _static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.isdir(_static_dir):

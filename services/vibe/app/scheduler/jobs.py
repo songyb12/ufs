@@ -172,6 +172,50 @@ def register_jobs(
         replace_existing=True,
     )
 
+    # Weekly data retention cleanup (Sunday 03:00 UTC, before backup)
+    async def run_data_retention():
+        try:
+            from app.utils.retention import run_retention
+            results = await run_retention(config)
+            if results:
+                logger.info("Data retention completed: %s", results)
+            else:
+                logger.info("Data retention: no rows to prune")
+        except Exception as e:
+            logger.exception("Data retention failed: %s", e)
+
+    scheduler.add_job(
+        run_data_retention,
+        trigger="cron",
+        day_of_week="sun",
+        hour=3,
+        minute=0,
+        id="weekly_data_retention",
+        name="Weekly Data Retention",
+        replace_existing=True,
+    )
+
+    # Weekly event calendar refresh (Sunday 05:00 UTC)
+    async def refresh_event_calendar():
+        try:
+            from app.risk.events import EventCalendar
+            calendar = EventCalendar(config)
+            count = await calendar.seed_static_events()
+            logger.info("Event calendar refreshed: %d events", count)
+        except Exception as e:
+            logger.exception("Event calendar refresh failed: %s", e)
+
+    scheduler.add_job(
+        refresh_event_calendar,
+        trigger="cron",
+        day_of_week="sun",
+        hour=5,
+        minute=0,
+        id="weekly_event_refresh",
+        name="Weekly Event Calendar Refresh",
+        replace_existing=True,
+    )
+
     logger.info(
         "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC, Backup=04:00, Weekly=Sun 06:00",
         config.KR_PIPELINE_HOUR_UTC, config.KR_PIPELINE_MINUTE,

@@ -14,4 +14,7 @@ async def get_db() -> aiosqlite.Connection:
     db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA journal_mode=WAL")
     await db.execute("PRAGMA foreign_keys=ON")
+    await db.execute("PRAGMA busy_timeout=5000")  # Wait up to 5s on lock
+    await db.execute("PRAGMA cache_size=-8000")  # 8MB page cache
+    await db.execute("PRAGMA synchronous=NORMAL")  # Faster writes with WAL
     return db

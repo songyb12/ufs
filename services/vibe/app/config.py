@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     SIGNAL_BUY_THRESHOLD: float = 15.0  # raw_score > this → BUY
     SIGNAL_SELL_THRESHOLD: float = -15.0  # raw_score < this → SELL
 
+    # Data Retention
+    RETENTION_PRICE_DAYS: int = 400  # Keep price_history for ~2 years
+    RETENTION_SIGNAL_DAYS: int = 365  # Keep signals for 1 year
+    RETENTION_NEWS_DAYS: int = 90  # Keep news data for 3 months
+    RETENTION_PIPELINE_RUNS_DAYS: int = 90
+
     # News Analysis (Phase F)
     NEWS_ENABLED: bool = True
     WEIGHT_NEWS: float = 0.0  # News weight in signal scoring (0=disabled in scoring)
