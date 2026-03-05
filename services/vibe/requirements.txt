@@ -17,3 +17,7 @@ ta>=0.11.0
 # Scheduling
 APScheduler>=3.10.0,<4.0
 pytz>=2024.1
+
+# LLM Providers (optional, required when LLM features enabled)
+anthropic>=0.40.0
+openai>=1.40.0

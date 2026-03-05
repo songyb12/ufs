@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     LLM_RED_TEAM_ENABLED: bool = False  # Enable after API key setup
     LLM_PROVIDER: str = "anthropic"  # 'anthropic' or 'openai'
     LLM_API_KEY: str = ""
-    LLM_MODEL: str = "claude-3-haiku-20240307"
+    LLM_MODEL: str = "claude-3-5-haiku-20241022"
 
     # US Fund Flow (Phase D)
     US_FUND_FLOW_ENABLED: bool = True

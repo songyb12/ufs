@@ -32,7 +32,9 @@ services:
   # Level 1: Sub-Projects
   # ============================================
   vibe:
-    build: ./services/vibe
+    build:
+      context: ./services/vibe
+      target: production
     container_name: ufs-vibe
     ports:
       - "8001:8001"

@@ -221,55 +221,49 @@ Challenge this BUY recommendation. Find 3 reasons it could fail."""
             return None
 
     async def _call_anthropic(self, prompt: str) -> dict | None:
-        """Call Anthropic Claude API."""
-        import asyncio
+        """Call Anthropic Claude API (native async)."""
+        text = ""
+        try:
+            import anthropic
 
-        def _call():
-            try:
-                import anthropic
-                client = anthropic.Anthropic(api_key=self.config.LLM_API_KEY)
-                response = client.messages.create(
-                    model=self.config.LLM_MODEL,
-                    max_tokens=500,
-                    system=RED_TEAM_SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                text = response.content[0].text
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return {"concern_level": "LOW", "risk_flags": [], "reasoning": text[:200]}
-            except Exception as e:
-                logger.error("Anthropic API call failed: %s", e)
-                return None
-
-        return await asyncio.to_thread(_call)
+            client = anthropic.AsyncAnthropic(api_key=self.config.LLM_API_KEY)
+            response = await client.messages.create(
+                model=self.config.LLM_MODEL,
+                max_tokens=500,
+                system=RED_TEAM_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"concern_level": "LOW", "risk_flags": [], "reasoning": text[:200]}
+        except Exception as e:
+            logger.error("Anthropic API call failed: %s", e)
+            return None
 
     async def _call_openai(self, prompt: str) -> dict | None:
-        """Call OpenAI API."""
-        import asyncio
+        """Call OpenAI API (native async)."""
+        text = ""
+        try:
+            import openai
 
-        def _call():
-            try:
-                import openai
-                client = openai.OpenAI(api_key=self.config.LLM_API_KEY)
-                response = client.chat.completions.create(
-                    model=self.config.LLM_MODEL,
-                    messages=[
-                        {"role": "system", "content": RED_TEAM_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_tokens=500,
-                    response_format={"type": "json_object"},
-                )
-                text = response.choices[0].message.content
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return {"concern_level": "LOW", "risk_flags": [], "reasoning": text[:200]}
-            except Exception as e:
-                logger.error("OpenAI API call failed: %s", e)
-                return None
-
-        return await asyncio.to_thread(_call)
+            client = openai.AsyncOpenAI(api_key=self.config.LLM_API_KEY)
+            response = await client.chat.completions.create(
+                model=self.config.LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": RED_TEAM_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=500,
+                response_format={"type": "json_object"},
+            )
+            text = response.choices[0].message.content
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"concern_level": "LOW", "risk_flags": [], "reasoning": text[:200]}
+        except Exception as e:
+            logger.error("OpenAI API call failed: %s", e)
+            return None
 
     def _build_llm_context(self, signal: dict, context: dict) -> dict:
         """Build context dict for LLM review."""

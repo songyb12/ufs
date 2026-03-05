@@ -151,65 +151,51 @@ class SignalExplanationStage(BaseStage):
             return None
 
     async def _call_anthropic(self, prompt: str) -> dict[str, str] | None:
-        """Call Anthropic Claude API for batch explanation."""
-        import asyncio
+        """Call Anthropic Claude API for batch explanation (native async)."""
+        try:
+            import anthropic
 
-        config = self.config
-
-        def _call():
-            try:
-                import anthropic
-
-                client = anthropic.Anthropic(api_key=config.LLM_API_KEY)
-                model = config.LLM_EXPLANATION_MODEL or config.LLM_MODEL
-                response = client.messages.create(
-                    model=model,
-                    max_tokens=4000,
-                    system=EXPLANATION_SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                text = response.content[0].text
-                return json.loads(text)
-            except json.JSONDecodeError:
-                logger.warning("[S8] LLM response not valid JSON, skipping")
-                return None
-            except Exception as e:
-                logger.error("[S8] Anthropic API call failed: %s", e)
-                return None
-
-        return await asyncio.to_thread(_call)
+            client = anthropic.AsyncAnthropic(api_key=self.config.LLM_API_KEY)
+            model = self.config.LLM_EXPLANATION_MODEL or self.config.LLM_MODEL
+            response = await client.messages.create(
+                model=model,
+                max_tokens=4000,
+                system=EXPLANATION_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text
+            return json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning("[S8] LLM response not valid JSON, skipping")
+            return None
+        except Exception as e:
+            logger.error("[S8] Anthropic API call failed: %s", e)
+            return None
 
     async def _call_openai(self, prompt: str) -> dict[str, str] | None:
-        """Call OpenAI API for batch explanation."""
-        import asyncio
+        """Call OpenAI API for batch explanation (native async)."""
+        try:
+            import openai
 
-        config = self.config
-
-        def _call():
-            try:
-                import openai
-
-                client = openai.OpenAI(api_key=config.LLM_API_KEY)
-                model = config.LLM_EXPLANATION_MODEL or config.LLM_MODEL
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": EXPLANATION_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_tokens=4000,
-                    response_format={"type": "json_object"},
-                )
-                text = response.choices[0].message.content
-                return json.loads(text)
-            except json.JSONDecodeError:
-                logger.warning("[S8] LLM response not valid JSON, skipping")
-                return None
-            except Exception as e:
-                logger.error("[S8] OpenAI API call failed: %s", e)
-                return None
-
-        return await asyncio.to_thread(_call)
+            client = openai.AsyncOpenAI(api_key=self.config.LLM_API_KEY)
+            model = self.config.LLM_EXPLANATION_MODEL or self.config.LLM_MODEL
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": EXPLANATION_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=4000,
+                response_format={"type": "json_object"},
+            )
+            text = response.choices[0].message.content
+            return json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning("[S8] LLM response not valid JSON, skipping")
+            return None
+        except Exception as e:
+            logger.error("[S8] OpenAI API call failed: %s", e)
+            return None
 
 
 def _generate_rule_based_explanation(

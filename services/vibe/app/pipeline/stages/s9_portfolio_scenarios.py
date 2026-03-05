@@ -219,60 +219,48 @@ class PortfolioScenarioStage(BaseStage):
         return None
 
     async def _call_anthropic(self, prompt: str) -> dict | None:
-        import asyncio
+        """Call Anthropic Claude API (native async)."""
+        try:
+            import anthropic
 
-        config = self.config
-
-        def _call():
-            try:
-                import anthropic
-
-                client = anthropic.Anthropic(api_key=config.LLM_API_KEY)
-                response = client.messages.create(
-                    model=config.LLM_MODEL,
-                    max_tokens=4000,
-                    system=SCENARIO_SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                text = response.content[0].text
-                return json.loads(text)
-            except json.JSONDecodeError:
-                logger.warning("[S9] LLM response not valid JSON")
-                return None
-            except Exception as e:
-                logger.error("[S9] Anthropic API failed: %s", e)
-                return None
-
-        return await asyncio.to_thread(_call)
+            client = anthropic.AsyncAnthropic(api_key=self.config.LLM_API_KEY)
+            response = await client.messages.create(
+                model=self.config.LLM_MODEL,
+                max_tokens=4000,
+                system=SCENARIO_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text
+            return json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning("[S9] LLM response not valid JSON")
+            return None
+        except Exception as e:
+            logger.error("[S9] Anthropic API failed: %s", e)
+            return None
 
     async def _call_openai(self, prompt: str) -> dict | None:
-        import asyncio
+        """Call OpenAI API (native async)."""
+        try:
+            import openai
 
-        config = self.config
-
-        def _call():
-            try:
-                import openai
-
-                client = openai.OpenAI(api_key=config.LLM_API_KEY)
-                response = client.chat.completions.create(
-                    model=config.LLM_MODEL,
-                    messages=[
-                        {"role": "system", "content": SCENARIO_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_tokens=4000,
-                    response_format={"type": "json_object"},
-                )
-                text = response.choices[0].message.content
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return None
-            except Exception as e:
-                logger.error("[S9] OpenAI API failed: %s", e)
-                return None
-
-        return await asyncio.to_thread(_call)
+            client = openai.AsyncOpenAI(api_key=self.config.LLM_API_KEY)
+            response = await client.chat.completions.create(
+                model=self.config.LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": SCENARIO_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=4000,
+                response_format={"type": "json_object"},
+            )
+            text = response.choices[0].message.content
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        except Exception as e:
+            logger.error("[S9] OpenAI API failed: %s", e)
+            return None
 
 
 def _get_current_price(s1, symbol: str) -> float | None:
