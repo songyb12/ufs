@@ -242,10 +242,22 @@ TABLES = [
         UNIQUE(event_date, event_type, symbol)
     )
     """,
-    # ── Portfolio State (Phase B) ──
+    # ── Portfolio Groups (Phase G) ──
+    """
+    CREATE TABLE IF NOT EXISTS portfolio_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    # ── Portfolio State (Phase B, updated Phase G) ──
     """
     CREATE TABLE IF NOT EXISTS portfolio_state (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        portfolio_id INTEGER NOT NULL DEFAULT 1,
         symbol TEXT NOT NULL,
         market TEXT NOT NULL,
         position_size REAL NOT NULL DEFAULT 0,
@@ -253,7 +265,8 @@ TABLES = [
         entry_price REAL,
         sector TEXT,
         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-        UNIQUE(symbol, market)
+        UNIQUE(portfolio_id, symbol, market),
+        FOREIGN KEY (portfolio_id) REFERENCES portfolio_groups(id)
     )
     """,
     # ── Fundamental Data (Phase C) ──
@@ -454,7 +467,7 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_news_data_lookup ON news_data(symbol, market, trade_date)",
     "CREATE INDEX IF NOT EXISTS idx_signals_run_id ON signals(run_id)",
     "CREATE INDEX IF NOT EXISTS idx_watchlist_active_market ON watchlist(market, is_active)",
-    "CREATE INDEX IF NOT EXISTS idx_portfolio_state_active ON portfolio_state(market, position_size)",
+    "CREATE INDEX IF NOT EXISTS idx_portfolio_state_active ON portfolio_state(portfolio_id, market, position_size)",
     "CREATE INDEX IF NOT EXISTS idx_alert_history_fired ON alert_history(fired_at)",
     "CREATE INDEX IF NOT EXISTS idx_alert_config_key ON alert_config(key)",
     "CREATE INDEX IF NOT EXISTS idx_monthly_reports_lookup ON monthly_reports(report_month, market)",
@@ -468,4 +481,60 @@ async def init_db() -> None:
         await db.execute(ddl)
     for idx in INDEXES:
         await db.execute(idx)
+    await db.commit()
+
+    # ── Migration: portfolio_groups + portfolio_id (Phase G) ──
+    await _migrate_portfolio_groups(db)
+
+
+async def _migrate_portfolio_groups(db) -> None:
+    """Add portfolio_id column to legacy portfolio_state if needed."""
+    import logging
+    logger = logging.getLogger("vibe.schema.migrate")
+
+    # Ensure default group exists
+    c = await db.execute("SELECT COUNT(*) FROM portfolio_groups")
+    if (await c.fetchone())[0] == 0:
+        await db.execute(
+            """INSERT INTO portfolio_groups (id, name, description, is_default)
+               VALUES (1, '기본 포트폴리오', '기본 포트폴리오 그룹', 1)"""
+        )
+        logger.info("Created default portfolio group (id=1)")
+
+    # Check if portfolio_state has portfolio_id column
+    c = await db.execute("PRAGMA table_info(portfolio_state)")
+    columns = [row[1] for row in await c.fetchall()]
+    if "portfolio_id" not in columns:
+        # Legacy table — needs migration
+        logger.info("Migrating portfolio_state: adding portfolio_id column")
+        await db.execute(
+            """CREATE TABLE portfolio_state_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                portfolio_id INTEGER NOT NULL DEFAULT 1,
+                symbol TEXT NOT NULL,
+                market TEXT NOT NULL,
+                position_size REAL NOT NULL DEFAULT 0,
+                entry_date TEXT,
+                entry_price REAL,
+                sector TEXT,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(portfolio_id, symbol, market),
+                FOREIGN KEY (portfolio_id) REFERENCES portfolio_groups(id)
+            )"""
+        )
+        await db.execute(
+            """INSERT INTO portfolio_state_new
+               (id, portfolio_id, symbol, market, position_size,
+                entry_date, entry_price, sector, updated_at)
+               SELECT id, 1, symbol, market, position_size,
+                      entry_date, entry_price, sector, updated_at
+               FROM portfolio_state"""
+        )
+        await db.execute("DROP TABLE portfolio_state")
+        await db.execute("ALTER TABLE portfolio_state_new RENAME TO portfolio_state")
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_portfolio_state_active "
+            "ON portfolio_state(portfolio_id, market, position_size)"
+        )
+        logger.info("portfolio_state migration complete")
     await db.commit()

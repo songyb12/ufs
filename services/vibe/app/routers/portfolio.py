@@ -3,11 +3,13 @@
 import logging
 from datetime import date
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.database import repositories as repo
 from app.models.schemas import (
     PortfolioBulkCreate,
+    PortfolioGroupCreate,
+    PortfolioGroupUpdate,
     PortfolioPositionCreate,
     PortfolioQuickAdd,
 )
@@ -20,17 +22,59 @@ router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 # Users can edit this list and call POST /portfolio/seed to register all at once.
 PORTFOLIO_SEED: list[dict] = [
     # 예시: {"symbol": "005930", "market": "KR", "position_size": 5000000, "entry_price": 56000, "entry_date": "2025-12-01", "sector": "Semiconductor"},
-    # {"symbol": "000660", "market": "KR", "position_size": 3000000, "entry_price": 200000, "entry_date": "2025-11-15", "sector": "Semiconductor"},
 ]
 
 
+# ── Portfolio Groups ──
+
+
+@router.get("/groups")
+async def get_groups():
+    """Get all portfolio groups."""
+    groups = await repo.get_portfolio_groups()
+    return {"groups": groups, "count": len(groups)}
+
+
+@router.post("/groups")
+async def create_group(payload: PortfolioGroupCreate):
+    """Create a new portfolio group."""
+    group_id = await repo.create_portfolio_group(payload.name, payload.description)
+    return {"status": "ok", "id": group_id, "name": payload.name}
+
+
+@router.put("/groups/{group_id}")
+async def update_group(group_id: int, payload: PortfolioGroupUpdate):
+    """Update a portfolio group."""
+    ok = await repo.update_portfolio_group(group_id, payload.name, payload.description)
+    if not ok:
+        raise HTTPException(404, "Portfolio group not found")
+    return {"status": "ok", "id": group_id}
+
+
+@router.delete("/groups/{group_id}")
+async def delete_group(group_id: int):
+    """Delete a portfolio group (cannot delete default)."""
+    ok = await repo.delete_portfolio_group(group_id)
+    if not ok:
+        raise HTTPException(400, "Cannot delete default group or group not found")
+    return {"status": "deleted", "id": group_id}
+
+
+# ── Portfolio Positions ──
+
+
 @router.get("")
-async def get_portfolio(market: str | None = None):
+async def get_portfolio(
+    market: str | None = None,
+    portfolio_id: int = Query(1, alias="portfolio_id"),
+):
     """Get current portfolio positions."""
     positions = await repo.get_portfolio_state(
+        portfolio_id=portfolio_id,
         market=market.upper() if market else None,
     )
     return {
+        "portfolio_id": portfolio_id,
         "positions": positions,
         "count": len(positions),
     }
@@ -48,27 +92,26 @@ async def add_position(position: PortfolioPositionCreate):
             "entry_price": position.entry_price,
             "sector": position.sector,
         },
+        portfolio_id=position.portfolio_id,
     )
     logger.info(
-        "Portfolio position updated: %s/%s size=%.0f",
-        position.market, position.symbol, position.position_size,
+        "Portfolio position updated: group=%d %s/%s size=%.0f",
+        position.portfolio_id, position.market, position.symbol, position.position_size,
     )
-    return {"status": "ok", "symbol": position.symbol, "market": position.market}
+    return {"status": "ok", "symbol": position.symbol, "market": position.market,
+            "portfolio_id": position.portfolio_id}
 
 
 @router.post("/quick")
-async def quick_add(items: list[PortfolioQuickAdd]):
+async def quick_add(
+    items: list[PortfolioQuickAdd],
+    portfolio_id: int = Query(1, alias="portfolio_id"),
+):
     """Quickly register positions with minimal info.
 
     Only symbol, market, position_size required.
     entry_price is auto-filled from the latest price in DB.
     entry_date defaults to today.
-
-    Example request body:
-    [
-        {"symbol": "005930", "market": "KR", "position_size": 5000000},
-        {"symbol": "000660", "market": "KR", "position_size": 3000000}
-    ]
     """
     results = []
     today = date.today().strftime("%Y-%m-%d")
@@ -101,6 +144,7 @@ async def quick_add(items: list[PortfolioQuickAdd]):
                 "entry_price": entry_price,
                 "sector": None,
             },
+            portfolio_id=portfolio_id,
         )
         results.append({
             "symbol": item.symbol,
@@ -111,13 +155,14 @@ async def quick_add(items: list[PortfolioQuickAdd]):
             "entry_date": today,
         })
         logger.info(
-            "Quick add: %s (%s) size=%.0f price=%s",
-            name, item.symbol, item.position_size,
+            "Quick add: %s (%s) group=%d size=%.0f price=%s",
+            name, item.symbol, portfolio_id, item.position_size,
             f"{entry_price:,.0f}" if entry_price else "N/A",
         )
 
     return {
         "status": "ok",
+        "portfolio_id": portfolio_id,
         "registered": len(results),
         "positions": results,
     }
@@ -125,16 +170,7 @@ async def quick_add(items: list[PortfolioQuickAdd]):
 
 @router.post("/bulk")
 async def bulk_add(payload: PortfolioBulkCreate):
-    """Register multiple portfolio positions at once.
-
-    Example request body:
-    {
-        "items": [
-            {"symbol": "005930", "market": "KR", "position_size": 5000000, "entry_price": 56000, "entry_date": "2025-12-01"},
-            {"symbol": "000660", "market": "KR", "position_size": 3000000, "entry_price": 200000, "entry_date": "2025-11-15"}
-        ]
-    }
-    """
+    """Register multiple portfolio positions at once."""
     results = []
     for item in payload.items:
         await repo.upsert_portfolio_position(
@@ -146,27 +182,25 @@ async def bulk_add(payload: PortfolioBulkCreate):
                 "entry_price": item.entry_price,
                 "sector": item.sector,
             },
+            portfolio_id=payload.portfolio_id,
         )
         results.append({"symbol": item.symbol, "market": str(item.market)})
         logger.info(
-            "Bulk add: %s/%s size=%.0f",
-            item.market, item.symbol, item.position_size,
+            "Bulk add: group=%d %s/%s size=%.0f",
+            payload.portfolio_id, item.market, item.symbol, item.position_size,
         )
 
     return {
         "status": "ok",
+        "portfolio_id": payload.portfolio_id,
         "registered": len(results),
         "positions": results,
     }
 
 
 @router.post("/seed")
-async def seed_portfolio():
-    """Register all positions from the PORTFOLIO_SEED list.
-
-    Edit PORTFOLIO_SEED in app/routers/portfolio.py to define your holdings,
-    then call this endpoint to register them all.
-    """
+async def seed_portfolio(portfolio_id: int = Query(1)):
+    """Register all positions from the PORTFOLIO_SEED list."""
     if not PORTFOLIO_SEED:
         return {
             "status": "empty",
@@ -192,15 +226,19 @@ async def seed_portfolio():
                 "entry_price": item.get("entry_price"),
                 "sector": item.get("sector"),
             },
+            portfolio_id=portfolio_id,
         )
         count += 1
-        logger.info("Seed portfolio: %s/%s", item["market"], item["symbol"])
+        logger.info("Seed portfolio: group=%d %s/%s", portfolio_id, item["market"], item["symbol"])
 
-    return {"status": "ok", "seeded": count}
+    return {"status": "ok", "portfolio_id": portfolio_id, "seeded": count}
 
 
 @router.delete("/position/{market}/{symbol}")
-async def remove_position(market: str, symbol: str):
+async def remove_position(
+    market: str, symbol: str,
+    portfolio_id: int = Query(1),
+):
     """Remove a position (set size to 0)."""
     await repo.upsert_portfolio_position(
         symbol=symbol,
@@ -211,17 +249,24 @@ async def remove_position(market: str, symbol: str):
             "entry_price": None,
             "sector": None,
         },
+        portfolio_id=portfolio_id,
     )
-    logger.info("Portfolio position removed: %s/%s", market.upper(), symbol)
-    return {"status": "removed", "symbol": symbol, "market": market.upper()}
+    logger.info("Portfolio position removed: group=%d %s/%s", portfolio_id, market.upper(), symbol)
+    return {"status": "removed", "symbol": symbol, "market": market.upper(),
+            "portfolio_id": portfolio_id}
 
 
 @router.delete("/all")
-async def clear_all_positions(market: str | None = None):
-    """Remove all positions (optionally filtered by market)."""
+async def clear_all_positions(
+    market: str | None = None,
+    portfolio_id: int = Query(1),
+):
+    """Remove all positions in a group (optionally filtered by market)."""
     market_upper = market.upper() if market else None
-    count = await repo.clear_portfolio_positions(market=market_upper)
-    return {"status": "cleared", "removed": count}
+    count = await repo.clear_portfolio_positions(
+        portfolio_id=portfolio_id, market=market_upper,
+    )
+    return {"status": "cleared", "portfolio_id": portfolio_id, "removed": count}
 
 
 @router.get("/scenarios")

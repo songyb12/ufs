@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   getSummary, getPortfolio, getPortfolioScenarios, getWatchlist,
   addPosition, deletePosition, quickAddPositions, exportPortfolioCSV,
+  getPortfolioGroups, createPortfolioGroup, deletePortfolioGroup,
 } from '../api'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
@@ -16,6 +17,12 @@ export default function Portfolio({ onNavigate }) {
   const [watchlist, setWatchlist] = useState([])
   const [loading, setLoading] = useState(true)
 
+  // Portfolio group state
+  const [groups, setGroups] = useState([])
+  const [activeGroupId, setActiveGroupId] = useState(1)
+  const [showGroupForm, setShowGroupForm] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
+
   // CRUD state
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingSymbol, setEditingSymbol] = useState(null)
@@ -29,9 +36,24 @@ export default function Portfolio({ onNavigate }) {
   const [error, setError] = useState(null)
   const [selectedSymbol, setSelectedSymbol] = useState(null)
 
-  const loadData = useCallback(() => {
+  const loadGroups = useCallback(() => {
+    return getPortfolioGroups()
+      .then(data => {
+        const g = data?.groups || []
+        setGroups(g)
+        // If activeGroupId not in groups, reset to first
+        if (g.length > 0 && !g.find(x => x.id === activeGroupId)) {
+          setActiveGroupId(g[0].id)
+        }
+        return g
+      })
+      .catch(err => { console.error('Groups load error:', err) })
+  }, [activeGroupId])
+
+  const loadData = useCallback((groupId) => {
+    const gid = groupId || activeGroupId
     setLoading(true)
-    Promise.all([getSummary(), getPortfolio(), getPortfolioScenarios(), getWatchlist()])
+    Promise.all([getSummary(gid), getPortfolio(null, gid), getPortfolioScenarios(), getWatchlist()])
       .then(([s, p, sc, wl]) => {
         setSummary(s)
         setPositions(p?.positions || [])
@@ -41,13 +63,57 @@ export default function Portfolio({ onNavigate }) {
       })
       .catch(err => { console.error(err); setError(err.message) })
       .finally(() => setLoading(false))
-  }, [])
+  }, [activeGroupId])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => {
+    loadGroups().then(() => loadData())
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload data when group changes
+  const switchGroup = (gid) => {
+    setActiveGroupId(gid)
+    loadData(gid)
+  }
 
   const showMessage = (text, type = 'success') => {
     setMessage({ text, type })
     setTimeout(() => setMessage(null), 3000)
+  }
+
+  // ---- 그룹 추가 ----
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return
+    setSubmitting(true)
+    try {
+      const res = await createPortfolioGroup(newGroupName.trim())
+      showMessage(`포트폴리오 "${newGroupName}" 생성 완료`)
+      setNewGroupName('')
+      setShowGroupForm(false)
+      await loadGroups()
+      switchGroup(res.id)
+    } catch (err) {
+      showMessage(`생성 실패: ${err.message}`, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // ---- 그룹 삭제 ----
+  const handleDeleteGroup = async (gid) => {
+    const g = groups.find(x => x.id === gid)
+    if (!g || g.is_default) return
+    if (!confirm(`"${g.name}" 포트폴리오를 삭제하시겠습니까?\n포함된 모든 종목이 함께 삭제됩니다.`)) return
+    setSubmitting(true)
+    try {
+      await deletePortfolioGroup(gid)
+      showMessage(`"${g.name}" 삭제 완료`)
+      await loadGroups()
+      switchGroup(1) // back to default
+    } catch (err) {
+      showMessage(`삭제 실패: ${err.message}`, 'error')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   // ---- 종목 추가 ----
@@ -64,13 +130,14 @@ export default function Portfolio({ onNavigate }) {
           entry_price: parseFloat(formData.entry_price),
           entry_date: formData.entry_date || undefined,
           sector: formData.sector || undefined,
+          portfolio_id: activeGroupId,
         })
       } else {
         await quickAddPositions([{
           symbol: formData.symbol,
           market: formData.market,
           position_size: parseFloat(formData.position_size),
-        }])
+        }], activeGroupId)
       }
       showMessage(`${formData.symbol} 추가 완료`)
       setFormData({ symbol: '', market: 'KR', position_size: '', entry_price: '', entry_date: '', sector: '' })
@@ -88,7 +155,7 @@ export default function Portfolio({ onNavigate }) {
     if (!confirm(`${symbol} (${market}) 종목을 삭제하시겠습니까?`)) return
     setSubmitting(true)
     try {
-      await deletePosition(market, symbol)
+      await deletePosition(market, symbol, activeGroupId)
       showMessage(`${symbol} 삭제 완료`)
       loadData()
     } catch (err) {
@@ -122,6 +189,7 @@ export default function Portfolio({ onNavigate }) {
         entry_price: editData.entry_price ? parseFloat(editData.entry_price) : p.entry_price,
         entry_date: p.entry_date,
         sector: p.sector,
+        portfolio_id: activeGroupId,
       })
       showMessage(`${p.symbol} 수정 완료`)
       setEditingSymbol(null)
@@ -149,6 +217,7 @@ export default function Portfolio({ onNavigate }) {
   if (error) return <div className="loading" style={{ color: 'var(--red)' }}>Error: {error}</div>
 
   const pnlPct = summary?.portfolio?.total_pnl_pct || 0
+  const activeGroup = groups.find(g => g.id === activeGroupId)
 
   // P&L chart data
   const pnlData = positions.map(p => ({
@@ -185,12 +254,20 @@ export default function Portfolio({ onNavigate }) {
   const wlKR = watchlist.filter(w => w.market === 'KR')
   const wlUS = watchlist.filter(w => w.market === 'US')
 
+  const inputStyle = {
+    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
+    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+    color: 'var(--text-primary)', fontSize: '0.8125rem',
+  }
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h2>{'\uD83D\uDCBC'} 포트폴리오</h2>
-          <p className="subtitle">{positions.length}개 보유 종목</p>
+          <p className="subtitle">
+            {activeGroup?.name || '기본 포트폴리오'} — {positions.length}개 보유 종목
+          </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <button
@@ -212,6 +289,68 @@ export default function Portfolio({ onNavigate }) {
             {pnlPct >= 0 ? '+' : ''}{pnlPct}%
           </div>
           <HelpButton section="portfolio" onNavigate={onNavigate} />
+        </div>
+      </div>
+
+      {/* Portfolio Group Selector */}
+      <div className="card" style={{ marginBottom: '1rem', padding: '0.75rem 1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+            포트폴리오 그룹:
+          </span>
+          {groups.map(g => (
+            <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <button
+                className={`guide-tab ${g.id === activeGroupId ? 'active' : ''}`}
+                onClick={() => switchGroup(g.id)}
+                style={{ padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}
+              >
+                {g.name}
+                {g.is_default ? '' : ` (${g.id})`}
+              </button>
+              {!g.is_default && g.id === activeGroupId && (
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={() => handleDeleteGroup(g.id)}
+                  style={{ color: 'var(--red)', borderColor: 'var(--red)', padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
+                  title="그룹 삭제"
+                >
+                  {'\u2716'}
+                </button>
+              )}
+            </div>
+          ))}
+          {showGroupForm ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              <input
+                type="text"
+                placeholder="그룹 이름"
+                value={newGroupName}
+                onChange={e => setNewGroupName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCreateGroup()}
+                style={{
+                  padding: '0.375rem 0.625rem', borderRadius: '0.375rem',
+                  background: 'var(--bg-primary)', border: '1px solid var(--accent)',
+                  color: 'var(--text-primary)', fontSize: '0.8rem', width: '140px',
+                }}
+                autoFocus
+              />
+              <button className="btn btn-primary btn-sm" onClick={handleCreateGroup} disabled={submitting}>
+                {submitting ? '...' : '생성'}
+              </button>
+              <button className="btn btn-outline btn-sm" onClick={() => { setShowGroupForm(false); setNewGroupName('') }}>
+                취소
+              </button>
+            </div>
+          ) : (
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => setShowGroupForm(true)}
+              style={{ fontSize: '0.8rem' }}
+            >
+              + 새 그룹
+            </button>
+          )}
         </div>
       </div>
 
@@ -247,7 +386,7 @@ export default function Portfolio({ onNavigate }) {
       {/* 종목 추가 폼 */}
       {showAddForm && (
         <div className="card" style={{ marginBottom: '1.5rem', padding: '1.5rem' }}>
-          <h3 style={{ marginBottom: '1rem' }}>종목 추가</h3>
+          <h3 style={{ marginBottom: '1rem' }}>종목 추가 ({activeGroup?.name || '기본'})</h3>
           <form onSubmit={handleAdd}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
               {/* Watchlist 드롭다운 */}
@@ -258,11 +397,7 @@ export default function Portfolio({ onNavigate }) {
                 <select
                   value={formData.symbol ? `${formData.symbol}|${formData.market}` : ''}
                   onChange={handleWatchlistSelect}
-                  style={{
-                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
-                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                    color: 'var(--text-primary)', fontSize: '0.8125rem',
-                  }}
+                  style={inputStyle}
                   required
                 >
                   <option value="">종목을 선택하세요</option>
@@ -294,11 +429,7 @@ export default function Portfolio({ onNavigate }) {
                 <select
                   value={formData.market}
                   onChange={e => setFormData(prev => ({ ...prev, market: e.target.value }))}
-                  style={{
-                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
-                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                    color: 'var(--text-primary)', fontSize: '0.8125rem',
-                  }}
+                  style={inputStyle}
                 >
                   <option value="KR">KR</option>
                   <option value="US">US</option>
@@ -314,11 +445,7 @@ export default function Portfolio({ onNavigate }) {
                   placeholder="5000000"
                   value={formData.position_size}
                   onChange={e => setFormData(prev => ({ ...prev, position_size: e.target.value }))}
-                  style={{
-                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
-                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                    color: 'var(--text-primary)', fontSize: '0.8125rem',
-                  }}
+                  style={inputStyle}
                   required
                 />
               </div>
@@ -334,11 +461,7 @@ export default function Portfolio({ onNavigate }) {
                   placeholder="자동 조회"
                   value={formData.entry_price}
                   onChange={e => setFormData(prev => ({ ...prev, entry_price: e.target.value }))}
-                  style={{
-                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
-                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                    color: 'var(--text-primary)', fontSize: '0.8125rem',
-                  }}
+                  style={inputStyle}
                 />
               </div>
               {/* 매입일 */}
@@ -350,11 +473,7 @@ export default function Portfolio({ onNavigate }) {
                   type="date"
                   value={formData.entry_date}
                   onChange={e => setFormData(prev => ({ ...prev, entry_date: e.target.value }))}
-                  style={{
-                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
-                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                    color: 'var(--text-primary)', fontSize: '0.8125rem',
-                  }}
+                  style={inputStyle}
                 />
               </div>
               {/* 섹터 */}
@@ -367,11 +486,7 @@ export default function Portfolio({ onNavigate }) {
                   placeholder="Semiconductor"
                   value={formData.sector}
                   onChange={e => setFormData(prev => ({ ...prev, sector: e.target.value }))}
-                  style={{
-                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
-                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                    color: 'var(--text-primary)', fontSize: '0.8125rem',
-                  }}
+                  style={inputStyle}
                 />
               </div>
             </div>

@@ -174,7 +174,19 @@ class SignalPerformanceResponse(BaseModel):
     avg_return_t20: float | None = None
 
 
-# ── Portfolio (Phase E) ──
+# ── Portfolio (Phase E, updated Phase G) ──
+
+
+class PortfolioGroupCreate(BaseModel):
+    """Create a new portfolio group."""
+    name: str
+    description: str | None = None
+
+
+class PortfolioGroupUpdate(BaseModel):
+    """Update a portfolio group."""
+    name: str
+    description: str | None = None
 
 
 class PortfolioPositionCreate(BaseModel):
@@ -184,6 +196,7 @@ class PortfolioPositionCreate(BaseModel):
     entry_date: str | None = None
     entry_price: float | None = None
     sector: str | None = None
+    portfolio_id: int = 1
 
 
 class PortfolioQuickAdd(BaseModel):
@@ -200,6 +213,7 @@ class PortfolioQuickAdd(BaseModel):
 class PortfolioBulkCreate(BaseModel):
     """Register multiple portfolio positions at once."""
     items: list[PortfolioPositionCreate]
+    portfolio_id: int = 1
 
 
 class PortfolioScenarioResponse(BaseModel):

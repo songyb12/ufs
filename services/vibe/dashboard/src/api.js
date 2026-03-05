@@ -14,8 +14,8 @@ async function fetchJSON(path) {
   return res.json()
 }
 
-export async function getSummary() {
-  return fetchJSON('/dashboard/summary')
+export async function getSummary(portfolioId = 1) {
+  return fetchJSON(`/dashboard/summary?portfolio_id=${portfolioId}`)
 }
 
 export async function getSignals(market = null) {
@@ -34,8 +34,9 @@ export async function getSignalPerformance(market = null) {
   return fetchJSON(`/signals/performance${q}`)
 }
 
-export async function getPortfolio(market = null) {
-  const q = market ? `?market=${market}` : ''
+export async function getPortfolio(market = null, portfolioId = 1) {
+  let q = `?portfolio_id=${portfolioId}`
+  if (market) q += `&market=${market}`
   return fetchJSON(`/portfolio${q}`)
 }
 
@@ -43,6 +44,43 @@ export async function getPortfolioScenarios(market = null) {
   const q = market ? `?market=${market}` : ''
   return fetchJSON(`/portfolio/scenarios${q}`)
 }
+
+// ── Portfolio Groups ──
+
+export async function getPortfolioGroups() {
+  return fetchJSON('/portfolio/groups')
+}
+
+export async function createPortfolioGroup(name, description = null) {
+  const res = await fetch(`${BASE}/portfolio/groups`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ name, description }),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export async function updatePortfolioGroup(groupId, name, description = null) {
+  const res = await fetch(`${BASE}/portfolio/groups/${groupId}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({ name, description }),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export async function deletePortfolioGroup(groupId) {
+  const res = await fetch(`${BASE}/portfolio/groups/${groupId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+// ── General ──
 
 export async function getHealth() {
   return fetchJSON('/health')
@@ -140,15 +178,15 @@ export async function addPosition(data) {
   return res.json()
 }
 
-export async function deletePosition(market, symbol) {
+export async function deletePosition(market, symbol, portfolioId = 1) {
   const opts = { method: 'DELETE', headers: authHeaders() }
-  const res = await fetch(`${BASE}/portfolio/position/${market}/${symbol}`, opts)
+  const res = await fetch(`${BASE}/portfolio/position/${market}/${symbol}?portfolio_id=${portfolioId}`, opts)
   if (!res.ok) throw new Error(`API error: ${res.status}`)
   return res.json()
 }
 
-export async function quickAddPositions(items) {
-  const res = await fetch(`${BASE}/portfolio/quick`, {
+export async function quickAddPositions(items, portfolioId = 1) {
+  const res = await fetch(`${BASE}/portfolio/quick?portfolio_id=${portfolioId}`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(items),

@@ -704,13 +704,71 @@ async def get_upcoming_events(
     return [dict(r) for r in rows]
 
 
-# ── Portfolio State (Phase B) ──
+# ── Portfolio Groups (Phase G) ──
 
 
-async def get_portfolio_state(market: str | None = None) -> list[dict]:
+async def get_portfolio_groups() -> list[dict]:
+    """Get all portfolio groups."""
     db = await get_db()
-    query = "SELECT * FROM portfolio_state WHERE position_size > 0"
-    params: list = []
+    cursor = await db.execute("SELECT * FROM portfolio_groups ORDER BY is_default DESC, id")
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_portfolio_group(group_id: int) -> dict | None:
+    """Get a single portfolio group by id."""
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM portfolio_groups WHERE id = ?", (group_id,))
+    row = await cursor.fetchone()
+    return dict(row) if row else None
+
+
+async def create_portfolio_group(name: str, description: str | None = None) -> int:
+    """Create a new portfolio group. Returns the new group id."""
+    db = await get_db()
+    cursor = await db.execute(
+        """INSERT INTO portfolio_groups (name, description) VALUES (?, ?)""",
+        (name, description),
+    )
+    await db.commit()
+    return cursor.lastrowid or 0
+
+
+async def update_portfolio_group(group_id: int, name: str, description: str | None = None) -> bool:
+    """Update a portfolio group name/description."""
+    db = await get_db()
+    cursor = await db.execute(
+        """UPDATE portfolio_groups SET name = ?, description = ?, updated_at = datetime('now')
+           WHERE id = ?""",
+        (name, description, group_id),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def delete_portfolio_group(group_id: int) -> bool:
+    """Delete a portfolio group and all its positions. Cannot delete default group."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT is_default FROM portfolio_groups WHERE id = ?", (group_id,),
+    )
+    row = await cursor.fetchone()
+    if not row or row["is_default"]:
+        return False
+    await db.execute("DELETE FROM portfolio_state WHERE portfolio_id = ?", (group_id,))
+    await db.execute("DELETE FROM portfolio_groups WHERE id = ?", (group_id,))
+    await db.commit()
+    return True
+
+
+# ── Portfolio State (Phase B, updated Phase G) ──
+
+
+async def get_portfolio_state(
+    portfolio_id: int = 1, market: str | None = None,
+) -> list[dict]:
+    db = await get_db()
+    query = "SELECT * FROM portfolio_state WHERE portfolio_id = ? AND position_size > 0"
+    params: list = [portfolio_id]
     if market:
         query += " AND market = ?"
         params.append(market)
@@ -719,40 +777,41 @@ async def get_portfolio_state(market: str | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-async def upsert_portfolio_position(symbol: str, market: str, data: dict) -> None:
+async def upsert_portfolio_position(
+    symbol: str, market: str, data: dict, portfolio_id: int = 1,
+) -> None:
     db = await get_db()
     await db.execute(
-        """INSERT OR REPLACE INTO portfolio_state
-           (symbol, market, position_size, entry_date, entry_price, sector, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
-        (symbol, market, data.get("position_size", 0),
+        """INSERT INTO portfolio_state
+           (portfolio_id, symbol, market, position_size, entry_date, entry_price, sector, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(portfolio_id, symbol, market) DO UPDATE SET
+           position_size = excluded.position_size,
+           entry_date = COALESCE(excluded.entry_date, portfolio_state.entry_date),
+           entry_price = COALESCE(excluded.entry_price, portfolio_state.entry_price),
+           sector = COALESCE(excluded.sector, portfolio_state.sector),
+           updated_at = datetime('now')""",
+        (portfolio_id, symbol, market, data.get("position_size", 0),
          data.get("entry_date"), data.get("entry_price"),
          data.get("sector")),
     )
     await db.commit()
 
 
-async def clear_portfolio_positions(market: str | None = None) -> int:
-    """Set position_size=0 for all positions (optionally filtered by market).
-
-    Returns number of positions cleared.
-    """
+async def clear_portfolio_positions(
+    portfolio_id: int = 1, market: str | None = None,
+) -> int:
+    """Set position_size=0 for positions in a group (optionally filtered by market)."""
     db = await get_db()
+    query = """UPDATE portfolio_state SET position_size = 0,
+               entry_date = NULL, entry_price = NULL, sector = NULL,
+               updated_at = datetime('now')
+               WHERE portfolio_id = ? AND position_size > 0"""
+    params: list = [portfolio_id]
     if market:
-        cursor = await db.execute(
-            """UPDATE portfolio_state SET position_size = 0,
-               entry_date = NULL, entry_price = NULL, sector = NULL,
-               updated_at = datetime('now')
-               WHERE market = ? AND position_size > 0""",
-            (market,),
-        )
-    else:
-        cursor = await db.execute(
-            """UPDATE portfolio_state SET position_size = 0,
-               entry_date = NULL, entry_price = NULL, sector = NULL,
-               updated_at = datetime('now')
-               WHERE position_size > 0""",
-        )
+        query += " AND market = ?"
+        params.append(market)
+    cursor = await db.execute(query, params)
     await db.commit()
     return cursor.rowcount
 

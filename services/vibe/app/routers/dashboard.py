@@ -27,7 +27,7 @@ async def get_dashboard(market: str | None = None):
 
 
 @router.get("/summary")
-async def get_dashboard_summary():
+async def get_dashboard_summary(portfolio_id: int = Query(1)):
     """Aggregated KPI summary for the web dashboard."""
     db = await get_db()
 
@@ -50,7 +50,7 @@ async def get_dashboard_summary():
     )
     hl_count = (await c.fetchone())[0]
 
-    # Portfolio P&L — use JOIN instead of correlated subquery (L12 fix)
+    # Portfolio P&L — filtered by portfolio_id
     c = await db.execute(
         """SELECT ps.symbol, ps.market, ps.entry_price, ps.position_size,
                   w.name, lp.close as current_price
@@ -65,7 +65,8 @@ async def get_dashboard_summary():
                    GROUP BY symbol, market
                )
            ) lp ON ps.symbol = lp.symbol AND ps.market = lp.market
-           WHERE ps.position_size > 0"""
+           WHERE ps.position_size > 0 AND ps.portfolio_id = ?""",
+        (portfolio_id,),
     )
     positions = [dict(r) for r in await c.fetchall()]
     total_invested = 0.0
