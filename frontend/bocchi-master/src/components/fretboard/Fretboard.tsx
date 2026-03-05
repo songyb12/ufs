@@ -10,6 +10,7 @@ interface FretboardProps {
   highlightedNotes?: Note[]
   scaleNoteNames?: NoteName[]
   rootNote?: NoteName
+  voicingPositions?: number[]  // per-string fret array. -1=mute, 0=open, 1+=fret
   onNoteClick?: (note: Note, stringIndex: number, fret: number) => void
 }
 
@@ -26,6 +27,7 @@ export function Fretboard({
   highlightedNotes = [],
   scaleNoteNames = [],
   rootNote,
+  voicingPositions,
   onNoteClick,
 }: FretboardProps) {
   const { stringCount, fretCount, tuning } = instrument
@@ -59,6 +61,26 @@ export function Fretboard({
   )
 
   const scaleSet = useMemo(() => new Set(scaleNoteNames), [scaleNoteNames])
+
+  // Voicing mode: check if a specific (stringIndex, fret) is in the voicing
+  const hasVoicing = voicingPositions != null && voicingPositions.length > 0
+  const isVoicingPosition = useCallback(
+    (stringIndex: number, fret: number): boolean => {
+      if (!voicingPositions) return false
+      return voicingPositions[stringIndex] === fret
+    },
+    [voicingPositions],
+  )
+
+  // Muted strings in voicing mode
+  const mutedStrings = useMemo(() => {
+    if (!voicingPositions) return new Set<number>()
+    const muted = new Set<number>()
+    voicingPositions.forEach((fret, idx) => {
+      if (fret === -1) muted.add(idx)
+    })
+    return muted
+  }, [voicingPositions])
 
   const yCenter = PADDING_TOP + fretboardHeight / 2
   const dotSpread = fretboardHeight * 0.3
@@ -131,16 +153,48 @@ export function Fretboard({
           />
         ))}
 
+        {/* Mute markers (X) for muted strings in voicing mode */}
+        {hasVoicing &&
+          tuning.map((_, stringIndex) => {
+            if (!mutedStrings.has(stringIndex)) return null
+            const y = getStringY(stringIndex)
+            const x = PADDING_LEFT - 20 // same x as open string position
+            return (
+              <text
+                key={`mute-${stringIndex}`}
+                x={x}
+                y={y}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={14}
+                fontWeight={700}
+                fill="#ef4444"
+                opacity={0.8}
+              >
+                X
+              </text>
+            )
+          })}
+
         {/* Note labels (open string + each fret) */}
         {tuning.map((openNote, stringIndex) => {
           const y = getStringY(stringIndex)
 
           return Array.from({ length: fretCount + 1 }, (_, fret) => {
+            // In voicing mode, skip rendering label on muted strings
+            // (X marker is shown instead at open position)
+            if (hasVoicing && mutedStrings.has(stringIndex) && fret === 0) {
+              return null
+            }
+
             const note = getNoteAtFret(openNote, fret)
             const x = getFretCenterX(fret)
             const highlighted = isNoteHighlighted(note)
-            const inScale = scaleSet.has(note.name)
-            const isRoot = rootNote === note.name
+            const inScale = hasVoicing ? false : scaleSet.has(note.name)
+            const isRoot = hasVoicing
+              ? isVoicingPosition(stringIndex, fret) && rootNote === note.name
+              : rootNote === note.name
+            const isVoicing = hasVoicing && isVoicingPosition(stringIndex, fret)
 
             return (
               <NoteLabel
@@ -151,6 +205,7 @@ export function Fretboard({
                 isHighlighted={highlighted}
                 isInScale={inScale}
                 isRoot={isRoot}
+                isVoicing={isVoicing}
                 onClick={() => onNoteClick?.(note, stringIndex, fret)}
               />
             )

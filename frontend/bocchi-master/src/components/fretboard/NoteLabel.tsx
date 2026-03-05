@@ -8,15 +8,18 @@ interface NoteLabelProps {
   isHighlighted: boolean
   isInScale?: boolean
   isRoot?: boolean
+  isVoicing?: boolean
   onClick?: () => void
 }
 
 /**
  * Color priority:
- * 1. Click highlight — orange solid
- * 2. Root note      — sky-blue solid + thick stroke
- * 3. Scale/chord    — sky-blue translucent
- * 4. Default        — transparent
+ * 1. Click highlight     — orange solid
+ * 2. Voicing root        — emerald solid + thick stroke
+ * 3. Voicing chord tone  — emerald translucent
+ * 4. Root note           — sky-blue solid + thick stroke
+ * 5. Scale/chord         — sky-blue translucent
+ * 6. Default             — transparent
  */
 export const NoteLabel = memo(function NoteLabel({
   note,
@@ -25,13 +28,14 @@ export const NoteLabel = memo(function NoteLabel({
   isHighlighted,
   isInScale = false,
   isRoot = false,
+  isVoicing = false,
   onClick,
 }: NoteLabelProps) {
   const radius = 12
   const isSharp = note.name.includes('#')
 
   // Determine visual state
-  const isVisible = isHighlighted || isInScale || isRoot
+  const isVisible = isHighlighted || isVoicing || isInScale || isRoot
 
   let fillColor = 'transparent'
   let strokeColor = '#475569'
@@ -48,6 +52,23 @@ export const NoteLabel = memo(function NoteLabel({
     fillOpacity = 1
     textColor = '#fff'
     textWeight = 700
+    textOpacity = 1
+  } else if (isVoicing && isRoot) {
+    // Voicing root — solid emerald + thick stroke
+    fillColor = '#34d399'
+    strokeColor = '#10b981'
+    strokeWidth = 2
+    fillOpacity = 1
+    textColor = '#0f172a'
+    textWeight = 700
+    textOpacity = 1
+  } else if (isVoicing) {
+    // Voicing chord tone — emerald
+    fillColor = '#34d399'
+    strokeColor = '#34d399'
+    fillOpacity = 0.6
+    textColor = '#a7f3d0'
+    textWeight = 600
     textOpacity = 1
   } else if (isRoot) {
     // Root note — solid sky-blue

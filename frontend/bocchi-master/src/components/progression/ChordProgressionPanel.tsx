@@ -7,6 +7,9 @@ import {
   type ResolvedChord,
 } from '../../utils/chordProgression'
 
+export type VoicingMode = 'all' | 'voicing'
+export type VoicingSource = 'caged' | 'auto'
+
 interface ChordProgressionPanelProps {
   progressionKey: NoteName | null
   progressionPreset: ProgressionPreset | null
@@ -15,6 +18,18 @@ interface ChordProgressionPanelProps {
   onKeyChange: (key: NoteName | null) => void
   onPresetChange: (preset: ProgressionPreset | null) => void
   onChordClick: (index: number) => void
+  // Voicing controls
+  voicingMode: VoicingMode
+  onVoicingModeChange: (mode: VoicingMode) => void
+  voicingSource: VoicingSource
+  onVoicingSourceChange: (source: VoicingSource) => void
+  voicingIndex: number
+  onVoicingIndexChange: (index: number) => void
+  voicingCount: number
+  voicingName: string
+  // Voice leading optimization
+  isOptimized: boolean
+  onOptimizedChange: (optimized: boolean) => void
 }
 
 export function ChordProgressionPanel({
@@ -25,6 +40,16 @@ export function ChordProgressionPanel({
   onKeyChange,
   onPresetChange,
   onChordClick,
+  voicingMode,
+  onVoicingModeChange,
+  voicingSource,
+  onVoicingSourceChange,
+  voicingIndex,
+  onVoicingIndexChange,
+  voicingCount,
+  voicingName,
+  isOptimized,
+  onOptimizedChange,
 }: ChordProgressionPanelProps) {
   // Resolve progression into concrete chords
   const resolvedChords: ResolvedChord[] =
@@ -36,6 +61,8 @@ export function ChordProgressionPanel({
     onKeyChange(null)
     onPresetChange(null)
   }
+
+  const hasChords = resolvedChords.length > 0
 
   return (
     <div className="bg-slate-800 rounded-lg px-4 py-3 flex flex-col gap-3">
@@ -104,7 +131,7 @@ export function ChordProgressionPanel({
       </div>
 
       {/* Chord sequence blocks */}
-      {resolvedChords.length > 0 && (
+      {hasChords && (
         <div className="flex gap-2 flex-wrap">
           {resolvedChords.map((chord, index) => {
             const isActive = index === activeChordIndex
@@ -144,8 +171,114 @@ export function ChordProgressionPanel({
         </div>
       )}
 
+      {/* Voicing controls — shown when chords are active */}
+      {hasChords && (
+        <div className="flex items-center gap-3 flex-wrap border-t border-slate-700 pt-3">
+          {/* Mode toggle: All Notes ↔ Voicing */}
+          <div className="flex rounded overflow-hidden border border-slate-600">
+            <button
+              onClick={() => onVoicingModeChange('all')}
+              className={`px-3 py-1 text-xs font-semibold transition-colors ${
+                voicingMode === 'all'
+                  ? 'bg-slate-600 text-white'
+                  : 'bg-slate-750 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              All Notes
+            </button>
+            <button
+              onClick={() => onVoicingModeChange('voicing')}
+              className={`px-3 py-1 text-xs font-semibold transition-colors ${
+                voicingMode === 'voicing'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-750 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Voicing
+            </button>
+          </div>
+
+          {/* Source + Navigator (only in voicing mode) */}
+          {voicingMode === 'voicing' && (
+            <>
+              {/* Source selector: CAGED ↔ Auto */}
+              <div className="flex rounded overflow-hidden border border-slate-600">
+                <button
+                  onClick={() => onVoicingSourceChange('caged')}
+                  className={`px-2 py-1 text-xs font-semibold transition-colors ${
+                    voicingSource === 'caged'
+                      ? 'bg-slate-600 text-white'
+                      : 'bg-slate-750 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  CAGED
+                </button>
+                <button
+                  onClick={() => onVoicingSourceChange('auto')}
+                  className={`px-2 py-1 text-xs font-semibold transition-colors ${
+                    voicingSource === 'auto'
+                      ? 'bg-slate-600 text-white'
+                      : 'bg-slate-750 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Auto
+                </button>
+              </div>
+
+              {/* Voice leading optimization toggle */}
+              <button
+                onClick={() => onOptimizedChange(!isOptimized)}
+                className={`px-2 py-1 rounded text-xs font-semibold transition-colors border ${
+                  isOptimized
+                    ? 'border-amber-500/50 bg-amber-500/20 text-amber-400'
+                    : 'border-slate-600 bg-slate-750 text-slate-500 hover:text-slate-300'
+                }`}
+                title="Voice leading optimization: selects voicings that minimize hand movement between chord changes"
+              >
+                Optimize
+              </button>
+
+              {/* Voicing navigator */}
+              {voicingCount > 0 ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() =>
+                      onVoicingIndexChange(
+                        (voicingIndex - 1 + voicingCount) % voicingCount,
+                      )
+                    }
+                    className="w-6 h-6 rounded bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center justify-center text-xs font-bold"
+                  >
+                    &lt;
+                  </button>
+                  <span className="text-xs text-slate-300 min-w-[120px] text-center">
+                    <span className="text-slate-500">
+                      {voicingIndex + 1}/{voicingCount}
+                    </span>
+                    {' '}
+                    <span className="font-semibold">{voicingName}</span>
+                  </span>
+                  <button
+                    onClick={() =>
+                      onVoicingIndexChange((voicingIndex + 1) % voicingCount)
+                    }
+                    className="w-6 h-6 rounded bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center justify-center text-xs font-bold"
+                  >
+                    &gt;
+                  </button>
+                </div>
+              ) : (
+                <span className="text-xs text-slate-500 italic">
+                  No voicings available
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {/* Empty state */}
-      {resolvedChords.length === 0 && (
+      {!hasChords && (
         <p className="text-xs text-slate-600 text-center py-1">
           Select a key and progression preset to display chords
         </p>

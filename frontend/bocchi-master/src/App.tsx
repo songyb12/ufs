@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { InstrumentConfig, Note, NoteName } from './types/music'
 import { STANDARD_GUITAR } from './constants/tunings'
 import { AppShell } from './components/layout/AppShell'
@@ -6,7 +6,11 @@ import { Fretboard } from './components/fretboard/Fretboard'
 import { MetronomePanel } from './components/metronome/MetronomePanel'
 import { MidiStatus } from './components/midi/MidiStatus'
 import { ScaleSelector } from './components/scale/ScaleSelector'
-import { ChordProgressionPanel } from './components/progression/ChordProgressionPanel'
+import {
+  ChordProgressionPanel,
+  type VoicingMode,
+  type VoicingSource,
+} from './components/progression/ChordProgressionPanel'
 import { useMetronome } from './hooks/useMetronome'
 import {
   SCALES,
@@ -18,6 +22,9 @@ import {
   resolveProgression,
   type ProgressionPreset,
 } from './utils/chordProgression'
+import { getCAGEDVoicings, type ChordVoicing } from './utils/voicingLibrary'
+import { generateVoicings } from './utils/voicingGenerator'
+import { optimizeProgressionVoicings } from './utils/voicingOptimizer'
 
 export default function App() {
   const [instrument, setInstrument] =
@@ -40,21 +47,90 @@ export default function App() {
     useState<ProgressionPreset | null>(null)
   const [activeChordIndex, setActiveChordIndex] = useState(0)
 
+  // Voicing state
+  const [voicingMode, setVoicingMode] = useState<VoicingMode>('all')
+  const [voicingSource, setVoicingSource] = useState<VoicingSource>('caged')
+  const [voicingIndex, setVoicingIndex] = useState(0)
+  const [isOptimized, setIsOptimized] = useState(true)
+
   // Resolve progression chords
   const resolvedChords = useMemo(() => {
     if (!progressionKey || !progressionPreset) return []
     return resolveProgression(progressionKey, progressionPreset)
   }, [progressionKey, progressionPreset])
 
+  // Active chord info
+  const activeChord = resolvedChords[activeChordIndex] ?? null
+
+  // Compute available voicings for ALL chords in the progression
+  const allProgressionVoicings: ChordVoicing[][] = useMemo(() => {
+    return resolvedChords.map((chord) => {
+      if (voicingSource === 'caged') {
+        return getCAGEDVoicings(chord.root, chord.quality, instrument)
+      }
+      return generateVoicings(chord.root, chord.quality, instrument)
+    })
+  }, [resolvedChords, voicingSource, instrument])
+
+  // Available voicings for the currently active chord
+  const availableVoicings = allProgressionVoicings[activeChordIndex] ?? []
+
+  // DP-optimized voicing indices for the entire progression
+  const optimizedIndices = useMemo(() => {
+    if (allProgressionVoicings.length === 0) return []
+    return optimizeProgressionVoicings(allProgressionVoicings)
+  }, [allProgressionVoicings])
+
+  // Use a ref to track whether the chord change was from metronome/click (auto)
+  // vs manual ◀▶ navigation
+  const isAutoChordChange = useRef(false)
+
+  // When active chord changes, apply optimized index if optimization is ON
+  useEffect(() => {
+    if (isOptimized && optimizedIndices.length > 0) {
+      const optIdx = optimizedIndices[activeChordIndex] ?? 0
+      setVoicingIndex(optIdx)
+    } else if (isAutoChordChange.current) {
+      // Non-optimized: reset to 0 on auto chord change
+      setVoicingIndex(0)
+    }
+    isAutoChordChange.current = false
+  }, [activeChordIndex, isOptimized, optimizedIndices])
+
+  // When voicing source changes, reset index
+  useEffect(() => {
+    if (isOptimized && optimizedIndices.length > 0) {
+      const optIdx = optimizedIndices[activeChordIndex] ?? 0
+      setVoicingIndex(optIdx)
+    } else {
+      setVoicingIndex(0)
+    }
+  }, [voicingSource]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clamp voicingIndex when voicing list changes
+  useEffect(() => {
+    if (availableVoicings.length > 0 && voicingIndex >= availableVoicings.length) {
+      setVoicingIndex(0)
+    }
+  }, [availableVoicings.length, voicingIndex])
+
+  // Current voicing (if in voicing mode with available voicings)
+  const currentVoicing =
+    voicingMode === 'voicing' && availableVoicings.length > 0
+      ? availableVoicings[voicingIndex] ?? null
+      : null
+
   // Sync activeChordIndex with metronome measure
   useEffect(() => {
     if (resolvedChords.length > 0 && metronome.isPlaying) {
+      isAutoChordChange.current = true
       setActiveChordIndex(metronome.currentMeasure % resolvedChords.length)
     }
   }, [metronome.currentMeasure, metronome.isPlaying, resolvedChords.length])
 
   // Reset activeChordIndex when progression changes
   useEffect(() => {
+    isAutoChordChange.current = true
     setActiveChordIndex(0)
   }, [progressionKey, progressionPreset])
 
@@ -65,29 +141,42 @@ export default function App() {
   }, [selectedRoot, selectedDefinition])
 
   // Determine what to show on fretboard:
-  // Priority: active progression chord > scale selector
-  const { fretboardNoteNames, fretboardRootNote } = useMemo(() => {
-    const hasProgression = resolvedChords.length > 0
-    if (hasProgression) {
-      const chord = resolvedChords[activeChordIndex]
-      if (chord) {
+  // Priority: voicing positions > active progression chord > scale selector
+  const { fretboardNoteNames, fretboardRootNote, fretboardVoicingPositions } =
+    useMemo(() => {
+      const hasProgression = resolvedChords.length > 0
+
+      // When voicing mode is active with a valid voicing
+      if (hasProgression && currentVoicing) {
         return {
-          fretboardNoteNames: chord.notes,
-          fretboardRootNote: chord.root,
+          fretboardNoteNames: [] as NoteName[], // voicing mode uses positions, not names
+          fretboardRootNote: activeChord?.root,
+          fretboardVoicingPositions: currentVoicing.frets,
         }
       }
-    }
-    // Fallback to scale selector
-    return {
-      fretboardNoteNames: scaleSelectorNoteNames,
-      fretboardRootNote: selectedRoot ?? undefined,
-    }
-  }, [
-    resolvedChords,
-    activeChordIndex,
-    scaleSelectorNoteNames,
-    selectedRoot,
-  ])
+
+      // When progression is active but in "all notes" mode
+      if (hasProgression && activeChord) {
+        return {
+          fretboardNoteNames: activeChord.notes,
+          fretboardRootNote: activeChord.root,
+          fretboardVoicingPositions: undefined,
+        }
+      }
+
+      // Fallback to scale selector
+      return {
+        fretboardNoteNames: scaleSelectorNoteNames,
+        fretboardRootNote: selectedRoot ?? undefined,
+        fretboardVoicingPositions: undefined,
+      }
+    }, [
+      resolvedChords,
+      activeChord,
+      currentVoicing,
+      scaleSelectorNoteNames,
+      selectedRoot,
+    ])
 
   const handleNoteClick = useCallback(
     (note: Note) => {
@@ -108,6 +197,7 @@ export default function App() {
 
   const handleProgressionChordClick = useCallback(
     (index: number) => {
+      isAutoChordChange.current = true
       setActiveChordIndex(index)
     },
     [],
@@ -132,6 +222,7 @@ export default function App() {
           highlightedNotes={highlightedNotes}
           scaleNoteNames={fretboardNoteNames}
           rootNote={fretboardRootNote}
+          voicingPositions={fretboardVoicingPositions}
           onNoteClick={handleNoteClick}
         />
         {highlightedNotes.length > 0 && (
@@ -166,6 +257,16 @@ export default function App() {
         onKeyChange={setProgressionKey}
         onPresetChange={setProgressionPreset}
         onChordClick={handleProgressionChordClick}
+        voicingMode={voicingMode}
+        onVoicingModeChange={setVoicingMode}
+        voicingSource={voicingSource}
+        onVoicingSourceChange={setVoicingSource}
+        voicingIndex={voicingIndex}
+        onVoicingIndexChange={setVoicingIndex}
+        voicingCount={availableVoicings.length}
+        voicingName={currentVoicing?.name ?? ''}
+        isOptimized={isOptimized}
+        onOptimizedChange={setIsOptimized}
       />
 
       {/* Bottom controls */}
