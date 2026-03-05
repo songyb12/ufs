@@ -8,6 +8,8 @@ import json
 import logging
 from typing import Any
 
+from app.utils.formatting import fmt_float as _fmt
+
 from app.config import Settings
 from app.models.enums import SignalType
 from app.pipeline.base import BaseStage, StageResult
@@ -300,7 +302,3 @@ def _generate_rule_based_explanation(
         explanation += f" (확신도 {confidence:.0%}로 주의 필요)"
 
     return explanation
-
-
-def _fmt(val: float | None) -> str:
-    return f"{val:.1f}" if val is not None else "N/A"

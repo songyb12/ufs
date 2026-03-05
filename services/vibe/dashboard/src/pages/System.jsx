@@ -15,7 +15,7 @@ export default function System() {
   const [watchlist, setWatchlist] = useState([])
   const [wlFilter, setWlFilter] = useState('ALL')
   const [showWlAdd, setShowWlAdd] = useState(false)
-  const [wlForm, setWlForm] = useState({ symbol: '', name: '', market: 'KR', asset_type: 'STOCK' })
+  const [wlForm, setWlForm] = useState({ symbol: '', name: '', market: 'KR', asset_type: 'stock' })
   const [wlSubmitting, setWlSubmitting] = useState(false)
   const [wlMessage, setWlMessage] = useState(null)
 
@@ -57,7 +57,7 @@ export default function System() {
     try {
       await addWatchlistItem(wlForm)
       showWlMsg(`${wlForm.symbol} (${wlForm.name}) 추가 완료`)
-      setWlForm({ symbol: '', name: '', market: 'KR', asset_type: 'STOCK' })
+      setWlForm({ symbol: '', name: '', market: 'KR', asset_type: 'stock' })
       setShowWlAdd(false)
       const wl = await getWatchlist()
       setWatchlist(wl || [])
@@ -154,8 +154,8 @@ export default function System() {
             </tr>
           </thead>
           <tbody>
-            {(health?.scheduler?.jobs || []).map((job, i) => (
-              <tr key={i}>
+            {(health?.scheduler?.jobs || []).map((job) => (
+              <tr key={job.id}>
                 <td><code style={{ fontSize: '0.75rem' }}>{job.id}</code></td>
                 <td>{job.name}</td>
                 <td>
@@ -187,14 +187,14 @@ export default function System() {
             </tr>
           </thead>
           <tbody>
-            {runs.map((r, i) => {
+            {runs.map((r) => {
               let stages = 0
               try {
                 const parsed = typeof r.stages_completed === 'string' ? JSON.parse(r.stages_completed) : r.stages_completed
                 stages = Array.isArray(parsed) ? parsed.length : 0
               } catch {}
               return (
-                <tr key={i}>
+                <tr key={r.run_id}>
                   <td><code style={{ fontSize: '0.7rem' }}>{r.run_id?.slice(0, 8)}</code></td>
                   <td>{r.market}</td>
                   <td>
@@ -353,8 +353,8 @@ export default function System() {
             </tr>
           </thead>
           <tbody>
-            {filteredWl.map((w, i) => (
-              <tr key={i}>
+            {filteredWl.map((w) => (
+              <tr key={`${w.symbol}-${w.market}`}>
                 <td><code style={{ fontSize: '0.8rem' }}>{w.symbol}</code></td>
                 <td>{w.name}</td>
                 <td>

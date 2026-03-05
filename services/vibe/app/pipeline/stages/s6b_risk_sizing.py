@@ -46,6 +46,7 @@ class RiskSizingStage(BaseStage):
         current_positions: dict[str, float] = {}
 
         # ── Event Calendar Check ──
+        market_events: list = []
         if self.config.EVENT_SUPPRESS_ENABLED:
             market_events = await self.calendar.check_upcoming_events(market)
             if market_events:
@@ -103,17 +104,11 @@ class RiskSizingStage(BaseStage):
         for sym in per_symbol:
             per_symbol[sym]["sector"] = get_sector(sym)
 
-        # Collect global event descriptions for formatter
-        global_events = []
-        if self.config.EVENT_SUPPRESS_ENABLED:
-            try:
-                market_events = await self.calendar.check_upcoming_events(market)
-                global_events = [
-                    f"{e['event_type'].upper()}: {e['description']} ({e['event_date']})"
-                    for e in market_events[:5]
-                ]
-            except Exception as e:
-                logger.warning("[S6b] Event calendar check failed: %s", e)
+        # Collect global event descriptions for formatter (reuse cached market_events)
+        global_events = [
+            f"{e['event_type'].upper()}: {e['description']} ({e['event_date']})"
+            for e in market_events[:5]
+        ]
 
         return StageResult(
             stage_name=self.name,

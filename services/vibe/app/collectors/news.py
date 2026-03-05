@@ -11,7 +11,7 @@ No API keys required. All sources are free RSS/HTML scraping.
 import asyncio
 import logging
 import re
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
@@ -22,6 +22,32 @@ logger = logging.getLogger("vibe.collectors.news")
 
 # Korean stock name mapping for search
 KR_SYMBOL_NAMES = {}  # Populated from DB at runtime
+
+# Symbol format validation
+_SYMBOL_RE = re.compile(r'^[A-Z0-9.\-]{1,10}$', re.IGNORECASE)
+
+# Shared httpx client — reused across all news fetches within a session
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Get or create a shared httpx.AsyncClient instance."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            timeout=10.0,
+            follow_redirects=True,
+        )
+    return _http_client
+
+
+async def close_client() -> None:
+    """Close the shared httpx client. Call at application shutdown."""
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+    _http_client = None
 
 
 async def fetch_news_for_symbol(
@@ -119,16 +145,15 @@ async def _fetch_us_news(
 
 async def _fetch_naver_stock_news(symbol: str, max_articles: int) -> list[dict]:
     """Scrape Naver Finance news headlines for a KR stock."""
+    if not _SYMBOL_RE.match(symbol):
+        logger.warning("Invalid symbol format rejected: %s", symbol[:20])
+        return []
     url = f"https://finance.naver.com/item/news_news.naver?code={symbol}&page=1"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            url,
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        html = resp.text
+    client = _get_client()
+    resp = await client.get(url)
+    resp.raise_for_status()
+    html = resp.text
 
     articles = []
     # Parse title links from the news table
@@ -152,18 +177,15 @@ async def _fetch_naver_stock_news(symbol: str, max_articles: int) -> list[dict]:
 
 async def _fetch_finviz_news(symbol: str, max_articles: int) -> list[dict]:
     """Scrape Finviz news headlines for a US stock."""
+    if not _SYMBOL_RE.match(symbol):
+        logger.warning("Invalid symbol format rejected: %s", symbol[:20])
+        return []
     url = f"https://finviz.com/quote.ashx?t={symbol}"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            },
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        html = resp.text
+    client = _get_client()
+    resp = await client.get(url)
+    resp.raise_for_status()
+    html = resp.text
 
     articles = []
     # Find news table rows: <a href="..." class="tab-link-news">Title</a>
@@ -191,14 +213,10 @@ async def _fetch_google_news_rss(
     encoded = quote(query)
     url = f"https://news.google.com/rss/search?q={encoded}&hl=ko&gl=KR&ceid=KR:ko"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            url,
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        xml_text = resp.text
+    client = _get_client()
+    resp = await client.get(url)
+    resp.raise_for_status()
+    xml_text = resp.text
 
     articles = []
     try:

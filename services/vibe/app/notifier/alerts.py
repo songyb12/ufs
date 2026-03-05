@@ -73,50 +73,45 @@ async def _check_portfolio_stops(config: Settings) -> list[str]:
     """Check if any portfolio positions are near stop-loss."""
     alerts = []
     db = await get_db()
-    try:
-        # Get portfolio positions with latest prices
-        cursor = await db.execute(
-            """SELECT ps.symbol, ps.market, ps.entry_price, ps.position_size,
-                      w.name,
-                      (SELECT close FROM price_history ph
-                       WHERE ph.symbol = ps.symbol AND ph.market = ps.market
-                       ORDER BY trade_date DESC LIMIT 1) as current_price
-               FROM portfolio_state ps
-               LEFT JOIN watchlist w ON ps.symbol = w.symbol AND ps.market = w.market
-               WHERE ps.position_size > 0"""
-        )
-        rows = await cursor.fetchall()
 
-        stop_pct = config.BACKTEST_STOP_LOSS_PCT  # e.g., -7.0
+    # Get portfolio positions with latest prices
+    cursor = await db.execute(
+        """SELECT ps.symbol, ps.market, ps.entry_price, ps.position_size,
+                  w.name,
+                  (SELECT close FROM price_history ph
+                   WHERE ph.symbol = ps.symbol AND ph.market = ps.market
+                   ORDER BY trade_date DESC LIMIT 1) as current_price
+           FROM portfolio_state ps
+           LEFT JOIN watchlist w ON ps.symbol = w.symbol AND ps.market = w.market
+           WHERE ps.position_size > 0"""
+    )
+    rows = await cursor.fetchall()
 
-        for row in rows:
-            r = dict(row)
-            entry = r.get("entry_price")
-            current = r.get("current_price")
-            name = r.get("name", r["symbol"])
+    stop_pct = config.BACKTEST_STOP_LOSS_PCT  # e.g., -7.0
 
-            if not entry or not current:
-                continue
+    for row in rows:
+        r = dict(row)
+        entry = r.get("entry_price")
+        current = r.get("current_price")
+        name = r.get("name", r["symbol"])
 
-            pnl_pct = (current - entry) / entry * 100
-            stop_price = entry * (1 + stop_pct / 100)
-            distance_to_stop = (current - stop_price) / current * 100
+        if not entry or not current:
+            continue
 
-            if pnl_pct <= stop_pct:
-                # Already below stop loss
-                alerts.append(
-                    f"\U0001f6a8 **{name}**: 손절가 하회! "
-                    f"P&L {pnl_pct:+.1f}% (현재 \u20a9{current:,.0f})"
-                )
-            elif distance_to_stop <= 2.0:
-                # Within 2% of stop loss
-                alerts.append(
-                    f"\u26a0\ufe0f **{name}**: 손절가 접근 "
-                    f"(현재 {pnl_pct:+.1f}%, 손절까지 {distance_to_stop:.1f}%p)"
-                )
+        pnl_pct = (current - entry) / entry * 100
+        stop_price = entry * (1 + stop_pct / 100)
+        distance_to_stop = (current - stop_price) / current * 100
 
-    finally:
-        await db.close()
+        if pnl_pct <= stop_pct:
+            alerts.append(
+                f"\U0001f6a8 **{name}**: 손절가 하회! "
+                f"P&L {pnl_pct:+.1f}% (현재 \u20a9{current:,.0f})"
+            )
+        elif distance_to_stop <= 2.0:
+            alerts.append(
+                f"\u26a0\ufe0f **{name}**: 손절가 접근 "
+                f"(현재 {pnl_pct:+.1f}%, 손절까지 {distance_to_stop:.1f}%p)"
+            )
 
     return alerts
 
@@ -125,27 +120,24 @@ async def _check_rsi_alerts(config: Settings) -> list[str]:
     """Check for RSI approaching hard limit on recent BUY signals."""
     alerts = []
     db = await get_db()
-    try:
-        # Get latest signals with current RSI
-        cursor = await db.execute(
-            """SELECT s.symbol, s.market, s.final_signal, s.rsi_value, w.name
-               FROM signals s
-               LEFT JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
-               WHERE s.signal_date = (SELECT MAX(signal_date) FROM signals)
-               AND s.final_signal = 'BUY'
-               AND s.rsi_value > 58"""
+
+    # Get latest signals with current RSI
+    cursor = await db.execute(
+        """SELECT s.symbol, s.market, s.final_signal, s.rsi_value, w.name
+           FROM signals s
+           LEFT JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+           WHERE s.signal_date = (SELECT MAX(signal_date) FROM signals)
+           AND s.final_signal = 'BUY'
+           AND s.rsi_value > 58"""
+    )
+    rows = await cursor.fetchall()
+
+    for row in rows:
+        r = dict(row)
+        name = r.get("name", r["symbol"])
+        rsi = r.get("rsi_value", 0)
+        alerts.append(
+            f"\U0001f7e0 **{name}**: RSI {rsi:.0f} (Hard Limit 65 접근)"
         )
-        rows = await cursor.fetchall()
-
-        for row in rows:
-            r = dict(row)
-            name = r.get("name", r["symbol"])
-            rsi = r.get("rsi_value", 0)
-            alerts.append(
-                f"\U0001f7e0 **{name}**: RSI {rsi:.0f} (Hard Limit 65 접근)"
-            )
-
-    finally:
-        await db.close()
 
     return alerts

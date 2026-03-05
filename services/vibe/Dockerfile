@@ -21,7 +21,11 @@ FROM deps AS production
 COPY app/ ./app/
 COPY static/ ./static/
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && \
+    groupadd -r appuser && useradd -r -g appuser -d /app appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
 
 EXPOSE 8001
 

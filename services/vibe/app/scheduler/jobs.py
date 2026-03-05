@@ -119,25 +119,24 @@ def register_jobs(
     # Weekly report (Sunday 06:00 UTC = 15:00 KST)
     async def send_weekly_report():
         try:
+            import asyncio
+
+            from app.notifier.discord import _get_discord_client
             from app.notifier.weekly_report import build_weekly_report_payloads
 
             payloads = await build_weekly_report_payloads()
             if payloads and config.DISCORD_WEBHOOK_URL:
-                import asyncio
-                import httpx
-
-                async with httpx.AsyncClient() as client:
-                    for payload in payloads:
-                        resp = await client.post(
-                            config.DISCORD_WEBHOOK_URL,
-                            json=payload,
-                            timeout=15.0,
-                        )
-                        if resp.status_code == 204:
-                            logger.info("Weekly report sent to Discord")
-                        else:
-                            logger.error("Weekly report Discord failed: %d", resp.status_code)
-                        await asyncio.sleep(1.0)
+                client = _get_discord_client()
+                for payload in payloads:
+                    resp = await client.post(
+                        config.DISCORD_WEBHOOK_URL,
+                        json=payload,
+                    )
+                    if resp.status_code == 204:
+                        logger.info("Weekly report sent to Discord")
+                    else:
+                        logger.error("Weekly report Discord failed: %d", resp.status_code)
+                    await asyncio.sleep(1.0)
             else:
                 logger.info("Weekly report generated but no webhook configured")
         except Exception as e:

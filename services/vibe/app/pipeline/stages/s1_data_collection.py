@@ -1,7 +1,7 @@
 """Stage 1: Data Collection - Fetch OHLCV and store to DB."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
@@ -76,7 +76,7 @@ class DataCollectionStage(BaseStage):
 
         # Stale data detection: warn if latest data is older than 5 trading days
         stale_warnings = []
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         stale_cutoff = now - timedelta(days=7)  # ~5 trading days
         for symbol, df in ohlcv_data.items():
             if df is not None and not df.empty:

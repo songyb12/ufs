@@ -418,17 +418,17 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_screening_candidates_lookup ON screening_candidates(market, status, detected_date)",
     "CREATE INDEX IF NOT EXISTS idx_portfolio_scenarios_lookup ON portfolio_scenarios(run_id, market, scenario_type)",
     "CREATE INDEX IF NOT EXISTS idx_news_data_lookup ON news_data(symbol, market, trade_date)",
+    "CREATE INDEX IF NOT EXISTS idx_signals_run_id ON signals(run_id)",
+    "CREATE INDEX IF NOT EXISTS idx_watchlist_active_market ON watchlist(market, is_active)",
+    "CREATE INDEX IF NOT EXISTS idx_portfolio_state_active ON portfolio_state(market, position_size)",
 ]
 
 
 async def init_db() -> None:
     """Create all tables and indexes if they don't exist."""
     db = await get_db()
-    try:
-        for ddl in TABLES:
-            await db.execute(ddl)
-        for idx in INDEXES:
-            await db.execute(idx)
-        await db.commit()
-    finally:
-        await db.close()
+    for ddl in TABLES:
+        await db.execute(ddl)
+    for idx in INDEXES:
+        await db.execute(idx)
+    await db.commit()

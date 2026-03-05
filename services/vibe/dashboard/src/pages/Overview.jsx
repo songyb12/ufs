@@ -111,8 +111,8 @@ export default function Overview() {
                 dataKey="value"
                 label={({ name, value }) => `${name}: ${value}`}
               >
-                {pieData.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} />
+                {pieData.map((entry) => (
+                  <Cell key={entry.name} fill={entry.color} />
                 ))}
               </Pie>
               <Tooltip />
@@ -136,9 +136,9 @@ export default function Overview() {
                 contentStyle={{ background: '#1e293b', border: '1px solid #334155' }}
               />
               <Bar dataKey="score" radius={[0, 4, 4, 0]}>
-                {barData.map((entry, i) => (
+                {barData.map((entry) => (
                   <Cell
-                    key={i}
+                    key={entry.name}
                     fill={entry.signal === 'BUY' ? '#22c55e' : entry.signal === 'SELL' ? '#ef4444' : '#eab308'}
                   />
                 ))}
@@ -167,8 +167,8 @@ export default function Overview() {
             </tr>
           </thead>
           <tbody>
-            {signals.slice(0, 15).map((s, i) => (
-              <tr key={i}>
+            {signals.slice(0, 15).map((s) => (
+              <tr key={`${s.symbol}-${s.market}-${s.signal_date}`}>
                 <td>
                   <strong>{s.name || s.symbol}</strong>
                   <br />

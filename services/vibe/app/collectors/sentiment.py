@@ -3,20 +3,16 @@
 import logging
 from typing import Any
 
+import httpx
+
 logger = logging.getLogger("vibe.collectors.sentiment")
 
 
 async def fetch_fear_greed_index() -> dict[str, Any]:
     """Fetch CNN Fear & Greed Index from alternative.me API."""
-    import asyncio
-
-    def _fetch():
-        try:
-            import requests
-            resp = requests.get(
-                "https://api.alternative.me/fng/?limit=1",
-                timeout=10,
-            )
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get("https://api.alternative.me/fng/?limit=1")
             data = resp.json()
             if data.get("data"):
                 entry = data["data"][0]
@@ -25,11 +21,9 @@ async def fetch_fear_greed_index() -> dict[str, Any]:
                     "fear_greed_label": entry["value_classification"],
                     "timestamp": entry["timestamp"],
                 }
-        except Exception as e:
-            logger.warning("Fear & Greed fetch failed: %s", e)
-        return {}
-
-    return await asyncio.to_thread(_fetch)
+    except Exception as e:
+        logger.warning("Fear & Greed fetch failed: %s", e)
+    return {}
 
 
 async def fetch_vix_term_structure() -> dict[str, Any]:

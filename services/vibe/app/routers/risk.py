@@ -12,7 +12,9 @@ router = APIRouter(prefix="/risk", tags=["risk"])
 @router.get("/portfolio")
 async def get_portfolio(market: str | None = None):
     """Get current portfolio state and sector exposure."""
-    positions = await repo.get_portfolio_state(market=market)
+    positions = await repo.get_portfolio_state(
+        market=market.upper() if market else None,
+    )
     position_map = {p["symbol"]: p.get("position_size", 0) for p in positions}
     sector_exp = compute_sector_exposure(position_map)
     return {
@@ -25,7 +27,7 @@ async def get_portfolio(market: str | None = None):
 @router.get("/events")
 async def get_events(market: str = "KR", days_ahead: int = 7):
     """Get upcoming events within N days."""
-    events = await repo.get_upcoming_events(market, days_ahead=days_ahead)
+    events = await repo.get_upcoming_events(market.upper(), days_ahead=days_ahead)
     return {"events": events, "count": len(events)}
 
 

@@ -368,7 +368,3 @@ def _score_emoji(score: float) -> str:
         return "\U0001f7e0"
     else:
         return "\U0001f534"
-
-
-def _fmt(val: float | None) -> str:
-    return f"{val:.1f}" if val is not None else "N/A"

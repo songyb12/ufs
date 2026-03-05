@@ -34,38 +34,38 @@ async def run_retention(config) -> dict[str, int]:
     """
     results: dict[str, int] = {}
     db = await get_db()
-    try:
-        for table, date_col, config_key in RETENTION_TARGETS:
-            keep_days = getattr(config, config_key, 365)
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).strftime(
-                "%Y-%m-%d"
+
+    for table, date_col, config_key in RETENTION_TARGETS:
+        keep_days = getattr(config, config_key, 365)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).strftime(
+            "%Y-%m-%d"
+        )
+
+        try:
+            cursor = await db.execute(
+                f"DELETE FROM {table} WHERE {date_col} < ?",  # noqa: S608
+                (cutoff,),
             )
-
-            try:
-                cursor = await db.execute(
-                    f"DELETE FROM {table} WHERE {date_col} < ?",  # noqa: S608
-                    (cutoff,),
+            deleted = cursor.rowcount
+            if deleted > 0:
+                results[table] = deleted
+                logger.info(
+                    "[Retention] %s: deleted %d rows older than %s",
+                    table, deleted, cutoff,
                 )
-                deleted = cursor.rowcount
-                if deleted > 0:
-                    results[table] = deleted
-                    logger.info(
-                        "[Retention] %s: deleted %d rows older than %s",
-                        table, deleted, cutoff,
-                    )
-            except Exception as e:
-                logger.warning("[Retention] %s: skip - %s", table, e)
+        except Exception as e:
+            logger.warning("[Retention] %s: skip - %s", table, e)
 
-        await db.commit()
+    await db.commit()
 
-        # Reclaim disk space
-        await db.execute("VACUUM")
-        await db.commit()
-        logger.info("[Retention] VACUUM completed")
-
-    finally:
-        await db.close()
-
+    # Reclaim disk space only when significant data was pruned
     total = sum(results.values())
+    if total > 1000:
+        try:
+            await db.execute("VACUUM")
+            logger.info("[Retention] VACUUM completed (pruned %d rows)", total)
+        except Exception as e:
+            logger.warning("[Retention] VACUUM failed: %s", e)
+
     logger.info("[Retention] Total pruned: %d rows across %d tables", total, len(results))
     return results

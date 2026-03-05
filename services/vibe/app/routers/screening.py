@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.database import repositories as repo
 from app.screening.scanner import DynamicScreener
@@ -12,9 +12,11 @@ router = APIRouter(prefix="/screening", tags=["screening"])
 
 
 @router.post("/scan")
-async def run_scan(market: str = "KR", days_back: int = 5):
+async def run_scan(
+    market: str = Query("KR", pattern="^(KR|US)$"),
+    days_back: int = Query(5, ge=1, le=90),
+):
     """Run dynamic screening scan."""
-    days_back = min(max(days_back, 1), 90)
     screener = DynamicScreener()
     candidates = await screener.scan(market, days_back=days_back)
 

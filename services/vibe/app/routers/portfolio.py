@@ -82,6 +82,12 @@ async def quick_add(items: list[PortfolioQuickAdd]):
         if price_row:
             entry_price = price_row.get("close")
 
+        if entry_price is None:
+            logger.warning(
+                "No price data for %s/%s — entry_price will be null",
+                item.market, item.symbol,
+            )
+
         # Look up name from watchlist for logging
         watchlist = await repo.get_watchlist_item(item.symbol, item.market)
         name = watchlist.get("name", item.symbol) if watchlist else item.symbol
@@ -213,23 +219,8 @@ async def remove_position(market: str, symbol: str):
 @router.delete("/all")
 async def clear_all_positions(market: str | None = None):
     """Remove all positions (optionally filtered by market)."""
-    positions = await repo.get_portfolio_state(
-        market=market.upper() if market else None,
-    )
-    count = 0
-    for pos in positions:
-        await repo.upsert_portfolio_position(
-            symbol=pos["symbol"],
-            market=pos["market"],
-            data={
-                "position_size": 0,
-                "entry_date": None,
-                "entry_price": None,
-                "sector": None,
-            },
-        )
-        count += 1
-
+    market_upper = market.upper() if market else None
+    count = await repo.clear_portfolio_positions(market=market_upper)
     return {"status": "cleared", "removed": count}
 
 

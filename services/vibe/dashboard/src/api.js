@@ -62,6 +62,7 @@ export async function triggerPipeline(market = 'ALL') {
     headers: authHeaders(),
     body: JSON.stringify({ market }),
   })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
   return res.json()
 }
 
@@ -81,8 +82,7 @@ export async function addPosition(data) {
 }
 
 export async function deletePosition(market, symbol) {
-  const opts = { method: 'DELETE' }
-  if (API_KEY) opts.headers = { 'X-API-Key': API_KEY }
+  const opts = { method: 'DELETE', headers: authHeaders() }
   const res = await fetch(`${BASE}/portfolio/position/${market}/${symbol}`, opts)
   if (!res.ok) throw new Error(`API error: ${res.status}`)
   return res.json()
@@ -109,20 +109,27 @@ export async function addWatchlistItem(data) {
 }
 
 export async function removeWatchlistItem(symbol, market = 'KR') {
-  const opts = { method: 'DELETE' }
-  if (API_KEY) opts.headers = { 'X-API-Key': API_KEY }
+  const opts = { method: 'DELETE', headers: authHeaders() }
   const res = await fetch(`${BASE}/watchlist/${symbol}?market=${market}`, opts)
   if (!res.ok) throw new Error(`API error: ${res.status}`)
   return res.json()
 }
 
+function escapeCSV(val) {
+  const str = String(val ?? '')
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
+}
+
 export function exportPortfolioCSV(positions) {
   const headers = ['Symbol', 'Name', 'Market', 'Entry Price', 'Current Price', 'P&L %', 'Position Size', 'Entry Date', 'Sector']
   const rows = positions.map(p => [
-    p.symbol, p.name || p.symbol, p.market,
-    p.entry_price || '', p.current_price || '',
-    p.pnl_pct != null ? p.pnl_pct.toFixed(2) : '',
-    p.position_size || '', p.entry_date || '', p.sector || ''
+    escapeCSV(p.symbol), escapeCSV(p.name || p.symbol), escapeCSV(p.market),
+    escapeCSV(p.entry_price || ''), escapeCSV(p.current_price || ''),
+    escapeCSV(p.pnl_pct != null ? p.pnl_pct.toFixed(2) : ''),
+    escapeCSV(p.position_size || ''), escapeCSV(p.entry_date || ''), escapeCSV(p.sector || '')
   ])
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
@@ -137,9 +144,10 @@ export function exportPortfolioCSV(positions) {
 export function exportSignalsCSV(signals) {
   const headers = ['Date', 'Symbol', 'Name', 'Market', 'Signal', 'Score', 'RSI', 'Hard Limit', 'Rationale']
   const rows = signals.map(s => [
-    s.signal_date, s.symbol, s.name || s.symbol, s.market,
-    s.final_signal, s.raw_score?.toFixed(1), s.rsi_value?.toFixed(1),
-    s.hard_limit_triggered ? 'YES' : 'NO', `"${(s.rationale || '').replace(/"/g, '""')}"`
+    escapeCSV(s.signal_date), escapeCSV(s.symbol), escapeCSV(s.name || s.symbol),
+    escapeCSV(s.market), escapeCSV(s.final_signal),
+    escapeCSV(s.raw_score?.toFixed(1) ?? ''), escapeCSV(s.rsi_value?.toFixed(1) ?? ''),
+    escapeCSV(s.hard_limit_triggered ? 'YES' : 'NO'), escapeCSV(s.rationale || '')
   ])
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })

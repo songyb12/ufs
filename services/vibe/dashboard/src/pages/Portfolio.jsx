@@ -398,8 +398,8 @@ export default function Portfolio() {
                 formatter={v => [`${v.toFixed(2)}%`, 'P&L']}
               />
               <Bar dataKey="pnl" radius={[0, 4, 4, 0]}>
-                {pnlData.map((d, i) => (
-                  <Cell key={i} fill={d.pnl >= 0 ? '#22c55e' : '#ef4444'} />
+                {pnlData.map((d) => (
+                  <Cell key={d.name} fill={d.pnl >= 0 ? '#22c55e' : '#ef4444'} />
                 ))}
               </Bar>
             </BarChart>
@@ -426,11 +426,11 @@ export default function Portfolio() {
             </tr>
           </thead>
           <tbody>
-            {positions.map((p, i) => {
+            {positions.map((p) => {
               const sc = heldMap[p.symbol]
               const isEditing = editingSymbol === p.symbol
               return (
-                <tr key={i}>
+                <tr key={`${p.symbol}-${p.market}`}>
                   <td>
                     <strong>{p.name || p.symbol}</strong>
                     <br />
@@ -549,11 +549,11 @@ export default function Portfolio() {
               </tr>
             </thead>
             <tbody>
-              {Object.entries(entryMap).map(([sym, sc], i) => {
+              {Object.entries(entryMap).map(([sym, sc]) => {
                 let targets = {}
                 try { targets = typeof sc.target_prices_json === 'string' ? JSON.parse(sc.target_prices_json) : (sc.target_prices_json || {}) } catch {}
                 return (
-                  <tr key={i}>
+                  <tr key={`entry-${sym}-${sc.market}`}>
                     <td><strong>{sym}</strong></td>
                     <td>{sc.market}</td>
                     <td>{sc.current_price?.toLocaleString()}</td>

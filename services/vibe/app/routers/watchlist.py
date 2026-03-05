@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, HTTPException
 
 from app.database import repositories as repo
@@ -9,17 +11,23 @@ from app.models.schemas import (
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
+_SYMBOL_RE = re.compile(r'^[A-Z0-9.\-]{1,10}$', re.IGNORECASE)
+
 
 @router.get("", response_model=list[WatchlistItemResponse])
 async def get_watchlist(market: str | None = None, active_only: bool = True):
     """Get tracked symbols, optionally filtered by market."""
-    items = await repo.get_watchlist(market=market, active_only=active_only)
+    items = await repo.get_watchlist(
+        market=market.upper() if market else None, active_only=active_only,
+    )
     return items
 
 
 @router.post("", response_model=WatchlistItemResponse)
 async def add_symbol(item: WatchlistItemCreate):
     """Add a single symbol to the watchlist."""
+    if not _SYMBOL_RE.match(item.symbol):
+        raise HTTPException(status_code=400, detail="Invalid symbol format (1-10 alphanumeric chars)")
     result = await repo.add_watchlist_item(
         symbol=item.symbol,
         name=item.name,

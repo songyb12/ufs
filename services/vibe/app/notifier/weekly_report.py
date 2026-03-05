@@ -115,45 +115,43 @@ async def build_weekly_report_payloads() -> list[dict]:
 async def _gather_weekly_data(start_date: str, end_date: str) -> dict[str, Any]:
     """Gather all data needed for the weekly report."""
     db = await get_db()
-    try:
-        # Pipeline runs
-        cursor = await db.execute(
-            """SELECT market, status, started_at FROM pipeline_runs
-               WHERE started_at >= ? AND started_at <= ?
-               ORDER BY started_at""",
-            (start_date, end_date + "T23:59:59"),
-        )
-        pipeline_runs = [dict(r) for r in await cursor.fetchall()]
 
-        # Signals
-        cursor = await db.execute(
-            """SELECT s.*, w.name FROM signals s
-               LEFT JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
-               WHERE s.signal_date >= ? AND s.signal_date <= ?
-               ORDER BY s.raw_score DESC""",
-            (start_date, end_date),
-        )
-        signals = [dict(r) for r in await cursor.fetchall()]
+    # Pipeline runs
+    cursor = await db.execute(
+        """SELECT market, status, started_at FROM pipeline_runs
+           WHERE started_at >= ? AND started_at <= ?
+           ORDER BY started_at""",
+        (start_date, end_date + "T23:59:59"),
+    )
+    pipeline_runs = [dict(r) for r in await cursor.fetchall()]
 
-        # Performance
-        cursor = await db.execute(
-            """SELECT
-                COUNT(*) as total,
-                AVG(CASE WHEN is_correct_t5 IS NOT NULL THEN is_correct_t5 END) as hit_rate_t5,
-                AVG(CASE WHEN is_correct_t20 IS NOT NULL THEN is_correct_t20 END) as hit_rate_t20,
-                AVG(return_t5) as avg_return_t5,
-                AVG(return_t20) as avg_return_t20
-               FROM signal_performance
-               WHERE signal_date >= ? AND signal_date <= ?""",
-            (start_date, end_date),
-        )
-        perf_row = await cursor.fetchone()
-        performance = dict(perf_row) if perf_row else {"total": 0}
+    # Signals
+    cursor = await db.execute(
+        """SELECT s.*, w.name FROM signals s
+           LEFT JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+           WHERE s.signal_date >= ? AND s.signal_date <= ?
+           ORDER BY s.raw_score DESC""",
+        (start_date, end_date),
+    )
+    signals = [dict(r) for r in await cursor.fetchall()]
 
-        return {
-            "pipeline_runs": pipeline_runs,
-            "signals": signals,
-            "performance": performance,
-        }
-    finally:
-        await db.close()
+    # Performance
+    cursor = await db.execute(
+        """SELECT
+            COUNT(*) as total,
+            AVG(CASE WHEN is_correct_t5 IS NOT NULL THEN is_correct_t5 END) as hit_rate_t5,
+            AVG(CASE WHEN is_correct_t20 IS NOT NULL THEN is_correct_t20 END) as hit_rate_t20,
+            AVG(return_t5) as avg_return_t5,
+            AVG(return_t20) as avg_return_t20
+           FROM signal_performance
+           WHERE signal_date >= ? AND signal_date <= ?""",
+        (start_date, end_date),
+    )
+    perf_row = await cursor.fetchone()
+    performance = dict(perf_row) if perf_row else {"total": 0}
+
+    return {
+        "pipeline_runs": pipeline_runs,
+        "signals": signals,
+        "performance": performance,
+    }

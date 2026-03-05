@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.collectors.registry import CollectorRegistry
 from app.config import settings
-from app.database.connection import set_db_path
+from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.database.seed import seed_watchlist
 from app.routers import backtest, dashboard, pipeline, portfolio, risk, screening, sentiment, signals, watchlist
@@ -63,6 +63,13 @@ async def lifespan(app: FastAPI):
         app.state.scheduler.shutdown(wait=False)
         logger.info("Scheduler shut down")
 
+    # Close shared HTTP clients
+    from app.collectors.news import close_client as close_news_client
+    from app.notifier.discord import close_discord_client
+    await close_news_client()
+    await close_discord_client()
+
+    await close_db()
     logger.info("VIBE service shutting down")
 
 
@@ -120,13 +127,10 @@ async def health():
     try:
         from app.database.connection import get_db
         db = await get_db()
-        try:
-            cursor = await db.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
-            row = await cursor.fetchone()
-            db_tables = row[0] if row else 0
-            db_ok = db_tables > 0
-        finally:
-            await db.close()
+        cursor = await db.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+        row = await cursor.fetchone()
+        db_tables = row[0] if row else 0
+        db_ok = db_tables > 0
     except Exception as e:
         logger.warning("Health check DB connectivity failed: %s", e)
         db_ok = False
@@ -170,13 +174,10 @@ async def health():
     try:
         from app.database.connection import get_db
         db = await get_db()
-        try:
-            c = await db.execute("SELECT COUNT(*) FROM price_history")
-            price_count = (await c.fetchone())[0]
-            c = await db.execute("SELECT COUNT(*) FROM signals")
-            signal_count = (await c.fetchone())[0]
-        finally:
-            await db.close()
+        c = await db.execute("SELECT COUNT(*) FROM price_history")
+        price_count = (await c.fetchone())[0]
+        c = await db.execute("SELECT COUNT(*) FROM signals")
+        signal_count = (await c.fetchone())[0]
     except Exception as e:
         logger.warning("Health check data count query failed: %s", e)
 

@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+import pandas as pd
+
 from app.config import Settings
 from app.database import repositories as repo
 from app.indicators.technical import compute_all_indicators
@@ -32,6 +34,11 @@ class TechnicalAnalysisStage(BaseStage):
 
         for symbol, df in ohlcv_data.items():
             try:
+                if not isinstance(df, pd.DataFrame) or df.empty:
+                    logger.warning("[S2] %s: invalid OHLCV data (type=%s)", symbol, type(df).__name__)
+                    errors.append(f"{symbol}: invalid DataFrame")
+                    continue
+
                 # Ensure sorted ascending by date
                 df = df.sort_index()
 

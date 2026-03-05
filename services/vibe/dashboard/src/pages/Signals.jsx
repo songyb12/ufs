@@ -137,8 +137,8 @@ export default function Signals() {
               </tr>
             </thead>
             <tbody>
-              {signals.map((s, i) => (
-                <tr key={i}>
+              {signals.map((s) => (
+                <tr key={`${s.symbol}-${s.market}-${s.signal_date}`}>
                   <td style={{ whiteSpace: 'nowrap' }}>{s.signal_date}</td>
                   <td>
                     <strong>{s.name || s.symbol}</strong>

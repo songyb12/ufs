@@ -13,6 +13,25 @@ from app.notifier.formatter import build_dashboard_payloads
 logger = logging.getLogger("vibe.notifier")
 
 
+_discord_client: httpx.AsyncClient | None = None
+
+
+def _get_discord_client() -> httpx.AsyncClient:
+    """Get or create a shared httpx client for Discord webhook calls."""
+    global _discord_client
+    if _discord_client is None or _discord_client.is_closed:
+        _discord_client = httpx.AsyncClient(timeout=15.0)
+    return _discord_client
+
+
+async def close_discord_client() -> None:
+    """Close the shared Discord httpx client. Call at application shutdown."""
+    global _discord_client
+    if _discord_client is not None and not _discord_client.is_closed:
+        await _discord_client.aclose()
+    _discord_client = None
+
+
 class DiscordNotifier:
     def __init__(self, config: Settings):
         self.config = config
@@ -61,33 +80,32 @@ class DiscordNotifier:
     async def _send_payload(self, payload: dict) -> bool:
         """Send a single payload to Discord webhook."""
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    self.webhook_url,
-                    json=payload,
-                    timeout=15.0,
-                )
+            client = _get_discord_client()
+            resp = await client.post(
+                self.webhook_url,
+                json=payload,
+            )
 
-                if resp.status_code == 204:
-                    return True
-                elif resp.status_code == 429:
-                    # Rate limited — wait and retry once
-                    try:
-                        retry_after = resp.json().get("retry_after", 5)
-                    except Exception:
-                        retry_after = 5
-                    logger.warning("Discord rate limited, retrying in %.1fs", retry_after)
-                    await asyncio.sleep(retry_after)
-                    resp2 = await client.post(
-                        self.webhook_url, json=payload, timeout=15.0,
-                    )
-                    return resp2.status_code == 204
-                else:
-                    logger.error(
-                        "Discord send failed: status=%d body=%s",
-                        resp.status_code, resp.text[:300],
-                    )
-                    return False
+            if resp.status_code == 204:
+                return True
+            elif resp.status_code == 429:
+                # Rate limited — wait and retry once
+                try:
+                    retry_after = resp.json().get("retry_after", 5)
+                except Exception:
+                    retry_after = 5
+                logger.warning("Discord rate limited, retrying in %.1fs", retry_after)
+                await asyncio.sleep(retry_after)
+                resp2 = await client.post(
+                    self.webhook_url, json=payload,
+                )
+                return resp2.status_code == 204
+            else:
+                logger.error(
+                    "Discord send failed: status=%d body=%s",
+                    resp.status_code, resp.text[:300],
+                )
+                return False
 
         except httpx.TimeoutException:
             logger.error("Discord webhook timed out")

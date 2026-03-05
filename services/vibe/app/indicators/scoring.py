@@ -1,7 +1,20 @@
 """Signal scoring functions for Stage 6."""
 
+import math
+
 from app.config import Settings
 from app.models.enums import Market, SignalType
+
+
+def _safe_num(value) -> float | None:
+    """Return value if it's a valid finite number, else None."""
+    if value is None:
+        return None
+    try:
+        v = float(value)
+        return v if math.isfinite(v) else None
+    except (TypeError, ValueError):
+        return None
 
 
 def compute_technical_score(indicators: dict) -> float:
@@ -76,8 +89,8 @@ def compute_fund_flow_score(fund_flow: dict) -> float:
     """Score fund flow data (KR only). Range: -100 to +100."""
     score = 0.0
 
-    foreign = fund_flow.get("foreign_net_buy")
-    institution = fund_flow.get("institution_net_buy")
+    foreign = _safe_num(fund_flow.get("foreign_net_buy"))
+    institution = _safe_num(fund_flow.get("institution_net_buy"))
 
     # Foreign net buying is strongest signal
     if foreign is not None:
