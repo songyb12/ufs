@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react'
-import { getSummary, getPortfolioScenarios } from '../api'
+import { useState, useEffect, useCallback } from 'react'
+import {
+  getSummary, getPortfolio, getPortfolioScenarios, getWatchlist,
+  addPosition, deletePosition, quickAddPositions, exportPortfolioCSV,
+} from '../api'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
 } from 'recharts'
@@ -7,51 +10,379 @@ import {
 export default function Portfolio() {
   const [summary, setSummary] = useState(null)
   const [scenarios, setScenarios] = useState(null)
+  const [positions, setPositions] = useState([])
+  const [watchlist, setWatchlist] = useState([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    Promise.all([getSummary(), getPortfolioScenarios()])
-      .then(([s, sc]) => { setSummary(s); setScenarios(sc) })
+  // CRUD state
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [editingSymbol, setEditingSymbol] = useState(null)
+  const [editData, setEditData] = useState({})
+  const [submitting, setSubmitting] = useState(false)
+  const [message, setMessage] = useState(null)
+  const [formData, setFormData] = useState({
+    symbol: '', market: 'KR', position_size: '', entry_price: '', entry_date: '', sector: ''
+  })
+
+  const loadData = useCallback(() => {
+    setLoading(true)
+    Promise.all([getSummary(), getPortfolio(), getPortfolioScenarios(), getWatchlist()])
+      .then(([s, p, sc, wl]) => {
+        setSummary(s)
+        setPositions(p?.positions || [])
+        setScenarios(sc)
+        setWatchlist(wl || [])
+      })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => { loadData() }, [loadData])
+
+  const showMessage = (text, type = 'success') => {
+    setMessage({ text, type })
+    setTimeout(() => setMessage(null), 3000)
+  }
+
+  // ---- 종목 추가 ----
+  const handleAdd = async (e) => {
+    e.preventDefault()
+    if (!formData.symbol || !formData.position_size) return
+    setSubmitting(true)
+    try {
+      if (formData.entry_price) {
+        await addPosition({
+          symbol: formData.symbol,
+          market: formData.market,
+          position_size: parseFloat(formData.position_size),
+          entry_price: parseFloat(formData.entry_price),
+          entry_date: formData.entry_date || undefined,
+          sector: formData.sector || undefined,
+        })
+      } else {
+        await quickAddPositions([{
+          symbol: formData.symbol,
+          market: formData.market,
+          position_size: parseFloat(formData.position_size),
+        }])
+      }
+      showMessage(`${formData.symbol} 추가 완료`)
+      setFormData({ symbol: '', market: 'KR', position_size: '', entry_price: '', entry_date: '', sector: '' })
+      setShowAddForm(false)
+      loadData()
+    } catch (err) {
+      showMessage(`추가 실패: ${err.message}`, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // ---- 종목 삭제 ----
+  const handleDelete = async (market, symbol) => {
+    if (!confirm(`${symbol} (${market}) 종목을 삭제하시겠습니까?`)) return
+    setSubmitting(true)
+    try {
+      await deletePosition(market, symbol)
+      showMessage(`${symbol} 삭제 완료`)
+      loadData()
+    } catch (err) {
+      showMessage(`삭제 실패: ${err.message}`, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // ---- 종목 수정 ----
+  const startEdit = (p) => {
+    setEditingSymbol(p.symbol)
+    setEditData({
+      position_size: p.position_size || '',
+      entry_price: p.entry_price || '',
+    })
+  }
+
+  const cancelEdit = () => {
+    setEditingSymbol(null)
+    setEditData({})
+  }
+
+  const handleSaveEdit = async (p) => {
+    setSubmitting(true)
+    try {
+      await addPosition({
+        symbol: p.symbol,
+        market: p.market,
+        position_size: parseFloat(editData.position_size),
+        entry_price: editData.entry_price ? parseFloat(editData.entry_price) : p.entry_price,
+        entry_date: p.entry_date,
+        sector: p.sector,
+      })
+      showMessage(`${p.symbol} 수정 완료`)
+      setEditingSymbol(null)
+      setEditData({})
+      loadData()
+    } catch (err) {
+      showMessage(`수정 실패: ${err.message}`, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // ---- Watchlist 드롭다운에서 종목 선택 ----
+  const handleWatchlistSelect = (e) => {
+    const val = e.target.value
+    if (!val) {
+      setFormData(prev => ({ ...prev, symbol: '', market: 'KR' }))
+      return
+    }
+    const [sym, mkt] = val.split('|')
+    setFormData(prev => ({ ...prev, symbol: sym, market: mkt }))
+  }
+
   if (loading) return <div className="loading"><span className="spinner" /> Loading...</div>
 
-  const positions = summary?.portfolio?.positions || []
   const pnlPct = summary?.portfolio?.total_pnl_pct || 0
 
   // P&L chart data
   const pnlData = positions.map(p => ({
     name: p.name || p.symbol,
-    pnl: p.pnl_pct,
+    pnl: p.pnl_pct || 0,
     market: p.market,
   })).sort((a, b) => b.pnl - a.pnl)
 
-  const held = scenarios?.held_scenarios || {}
-  const entry = scenarios?.entry_scenarios || {}
+  const held = scenarios?.held_scenarios || []
+  const entry = scenarios?.entry_scenarios || []
+
+  // held_scenarios를 symbol 기반 map으로 변환
+  const heldMap = {}
+  if (Array.isArray(held)) {
+    held.forEach(s => { heldMap[s.symbol] = s })
+  }
+
+  // entry_scenarios를 symbol 기반 map으로 변환
+  const entryMap = {}
+  if (Array.isArray(entry)) {
+    entry.forEach(s => { entryMap[s.symbol] = s })
+  }
 
   const formatKRW = (v) => {
-    if (v >= 1000000) return `${(v / 10000).toFixed(0)}${'\uB9CC'}`
+    if (v == null) return '-'
+    if (v >= 100000000) return `${(v / 100000000).toFixed(1)}억`
+    if (v >= 10000) return `${(v / 10000).toFixed(0)}만`
     return v?.toLocaleString() || '-'
   }
+
+  const totalInvested = positions.reduce((sum, p) => sum + (p.position_size || 0), 0)
+
+  // Watchlist를 마켓별로 그룹화
+  const wlKR = watchlist.filter(w => w.market === 'KR')
+  const wlUS = watchlist.filter(w => w.market === 'US')
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83D\uDCBC'} Portfolio</h2>
-          <p className="subtitle">{positions.length} holdings</p>
+          <h2>{'\uD83D\uDCBC'} 포트폴리오</h2>
+          <p className="subtitle">{positions.length}개 보유 종목</p>
         </div>
-        <div className={`card-value ${pnlPct >= 0 ? 'green' : 'red'}`} style={{ fontSize: '1.5rem' }}>
-          {pnlPct >= 0 ? '+' : ''}{pnlPct}% Total
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => setShowAddForm(!showAddForm)}
+          >
+            {showAddForm ? '취소' : '+ 종목 추가'}
+          </button>
+          {positions.length > 0 && (
+            <button
+              className="btn btn-outline"
+              onClick={() => exportPortfolioCSV(positions)}
+              title="CSV 내보내기"
+            >
+              {'\u2B07'} CSV
+            </button>
+          )}
+          <div className={`card-value ${pnlPct >= 0 ? 'green' : 'red'}`} style={{ fontSize: '1.5rem' }}>
+            {pnlPct >= 0 ? '+' : ''}{pnlPct}%
+          </div>
         </div>
       </div>
+
+      {/* 알림 메시지 */}
+      {message && (
+        <div className="card" style={{
+          marginBottom: '1rem',
+          borderColor: message.type === 'error' ? 'var(--red)' : 'var(--green)',
+          padding: '0.75rem 1.25rem',
+        }}>
+          {message.type === 'error' ? '\u274C' : '\u2705'} {message.text}
+        </div>
+      )}
+
+      {/* Summary Cards */}
+      <div className="card-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div className="card">
+          <div className="card-label">보유 종목 수</div>
+          <div className="card-value blue">{positions.length}</div>
+        </div>
+        <div className="card">
+          <div className="card-label">총 투자금액</div>
+          <div className="card-value blue">{formatKRW(totalInvested)}</div>
+        </div>
+        <div className="card">
+          <div className="card-label">총 수익률</div>
+          <div className={`card-value ${pnlPct >= 0 ? 'green' : 'red'}`}>
+            {pnlPct >= 0 ? '+' : ''}{pnlPct}%
+          </div>
+        </div>
+      </div>
+
+      {/* 종목 추가 폼 */}
+      {showAddForm && (
+        <div className="card" style={{ marginBottom: '1.5rem', padding: '1.5rem' }}>
+          <h3 style={{ marginBottom: '1rem' }}>종목 추가</h3>
+          <form onSubmit={handleAdd}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              {/* Watchlist 드롭다운 */}
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                  종목 선택 *
+                </label>
+                <select
+                  value={formData.symbol ? `${formData.symbol}|${formData.market}` : ''}
+                  onChange={handleWatchlistSelect}
+                  style={{
+                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                    color: 'var(--text-primary)', fontSize: '0.8125rem',
+                  }}
+                  required
+                >
+                  <option value="">종목을 선택하세요</option>
+                  {wlKR.length > 0 && (
+                    <optgroup label="KR (한국)">
+                      {wlKR.map(w => (
+                        <option key={`${w.symbol}-KR`} value={`${w.symbol}|KR`}>
+                          {w.symbol} - {w.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {wlUS.length > 0 && (
+                    <optgroup label="US (미국)">
+                      {wlUS.map(w => (
+                        <option key={`${w.symbol}-US`} value={`${w.symbol}|US`}>
+                          {w.symbol} - {w.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+              {/* 마켓 (자동 세팅) */}
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                  마켓
+                </label>
+                <select
+                  value={formData.market}
+                  onChange={e => setFormData(prev => ({ ...prev, market: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                    color: 'var(--text-primary)', fontSize: '0.8125rem',
+                  }}
+                >
+                  <option value="KR">KR</option>
+                  <option value="US">US</option>
+                </select>
+              </div>
+              {/* 투자금액 */}
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                  투자금액 *
+                </label>
+                <input
+                  type="number"
+                  placeholder="5000000"
+                  value={formData.position_size}
+                  onChange={e => setFormData(prev => ({ ...prev, position_size: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                    color: 'var(--text-primary)', fontSize: '0.8125rem',
+                  }}
+                  required
+                />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+              {/* 매입가 */}
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                  매입가 (미입력 시 자동)
+                </label>
+                <input
+                  type="number"
+                  placeholder="자동 조회"
+                  value={formData.entry_price}
+                  onChange={e => setFormData(prev => ({ ...prev, entry_price: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                    color: 'var(--text-primary)', fontSize: '0.8125rem',
+                  }}
+                />
+              </div>
+              {/* 매입일 */}
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                  매입일
+                </label>
+                <input
+                  type="date"
+                  value={formData.entry_date}
+                  onChange={e => setFormData(prev => ({ ...prev, entry_date: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                    color: 'var(--text-primary)', fontSize: '0.8125rem',
+                  }}
+                />
+              </div>
+              {/* 섹터 */}
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                  섹터
+                </label>
+                <input
+                  type="text"
+                  placeholder="Semiconductor"
+                  value={formData.sector}
+                  onChange={e => setFormData(prev => ({ ...prev, sector: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '0.5rem', borderRadius: '0.375rem',
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                    color: 'var(--text-primary)', fontSize: '0.8125rem',
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button type="submit" className="btn btn-primary" disabled={submitting}>
+                {submitting ? '저장 중...' : '저장'}
+              </button>
+              <button type="button" className="btn btn-outline" onClick={() => setShowAddForm(false)}>
+                취소
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* P&L Bar Chart */}
       {pnlData.length > 0 && (
         <div className="chart-container">
-          <h3>P&L by Position (%)</h3>
+          <h3>종목별 수익률 (%)</h3>
           <ResponsiveContainer width="100%" height={Math.max(200, pnlData.length * 32)}>
             <BarChart data={pnlData} layout="vertical" margin={{ left: 20 }}>
               <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }}
@@ -63,8 +394,8 @@ export default function Portfolio() {
                 formatter={v => [`${v.toFixed(2)}%`, 'P&L']}
               />
               <Bar dataKey="pnl" radius={[0, 4, 4, 0]}>
-                {pnlData.map((entry, i) => (
-                  <Cell key={i} fill={entry.pnl >= 0 ? '#22c55e' : '#ef4444'} />
+                {pnlData.map((d, i) => (
+                  <Cell key={i} fill={d.pnl >= 0 ? '#22c55e' : '#ef4444'} />
                 ))}
               </Bar>
             </BarChart>
@@ -75,23 +406,25 @@ export default function Portfolio() {
       {/* Holdings Table */}
       <div className="table-container">
         <div className="table-header">
-          <h3>Current Holdings</h3>
+          <h3>보유 종목</h3>
         </div>
         <table>
           <thead>
             <tr>
-              <th>Symbol</th>
-              <th>Market</th>
-              <th>Entry Price</th>
-              <th>Current</th>
-              <th>P&L</th>
-              <th>Size</th>
-              <th>Scenario</th>
+              <th>종목</th>
+              <th>마켓</th>
+              <th>매입가</th>
+              <th>현재가</th>
+              <th>수익률</th>
+              <th>투자금액</th>
+              <th>시나리오</th>
+              <th>관리</th>
             </tr>
           </thead>
           <tbody>
             {positions.map((p, i) => {
-              const sc = held[p.symbol]
+              const sc = heldMap[p.symbol]
+              const isEditing = editingSymbol === p.symbol
               return (
                 <tr key={i}>
                   <td>
@@ -100,44 +433,119 @@ export default function Portfolio() {
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.symbol}</span>
                   </td>
                   <td>{p.market}</td>
-                  <td>{p.market === 'KR' ? `\u20A9${p.entry_price?.toLocaleString()}` : `$${p.entry_price?.toFixed(2)}`}</td>
-                  <td>{p.market === 'KR' ? `\u20A9${p.current_price?.toLocaleString()}` : `$${p.current_price?.toFixed(2)}`}</td>
                   <td>
-                    <span style={{ color: p.pnl_pct >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
-                      {p.pnl_pct >= 0 ? '+' : ''}{p.pnl_pct}%
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        value={editData.entry_price}
+                        onChange={e => setEditData(prev => ({ ...prev, entry_price: e.target.value }))}
+                        style={{
+                          width: '100px', padding: '0.25rem', borderRadius: '0.25rem',
+                          background: 'var(--bg-primary)', border: '1px solid var(--accent)',
+                          color: 'var(--text-primary)', fontSize: '0.8rem',
+                        }}
+                      />
+                    ) : (
+                      p.market === 'KR' ? `\u20A9${p.entry_price?.toLocaleString() || '-'}` : `$${p.entry_price?.toFixed(2) || '-'}`
+                    )}
+                  </td>
+                  <td>{p.market === 'KR' ? `\u20A9${p.current_price?.toLocaleString() || '-'}` : `$${p.current_price?.toFixed(2) || '-'}`}</td>
+                  <td>
+                    <span style={{ color: (p.pnl_pct || 0) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                      {(p.pnl_pct || 0) >= 0 ? '+' : ''}{p.pnl_pct || 0}%
                     </span>
                   </td>
-                  <td>{p.position_size}</td>
-                  <td style={{ maxWidth: 250, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  <td>
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        value={editData.position_size}
+                        onChange={e => setEditData(prev => ({ ...prev, position_size: e.target.value }))}
+                        style={{
+                          width: '100px', padding: '0.25rem', borderRadius: '0.25rem',
+                          background: 'var(--bg-primary)', border: '1px solid var(--accent)',
+                          color: 'var(--text-primary)', fontSize: '0.8rem',
+                        }}
+                      />
+                    ) : (
+                      formatKRW(p.position_size)
+                    )}
+                  </td>
+                  <td style={{ maxWidth: 220, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                     {sc?.scenario_rule || '-'}
+                  </td>
+                  <td>
+                    {isEditing ? (
+                      <div style={{ display: 'flex', gap: '0.25rem' }}>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => handleSaveEdit(p)}
+                          disabled={submitting}
+                        >
+                          {submitting ? '...' : '저장'}
+                        </button>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={cancelEdit}
+                        >
+                          취소
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '0.25rem' }}>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => startEdit(p)}
+                          title="수정"
+                        >
+                          {'\u270F'}
+                        </button>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => handleDelete(p.market, p.symbol)}
+                          disabled={submitting}
+                          title="삭제"
+                          style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
+                        >
+                          {'\u2716'}
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               )
             })}
+            {positions.length === 0 && (
+              <tr>
+                <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                  보유 종목이 없습니다. 위의 "+ 종목 추가" 버튼으로 추가하세요.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
 
       {/* Entry Opportunities */}
-      {Object.keys(entry).length > 0 && (
+      {Object.keys(entryMap).length > 0 && (
         <div className="table-container">
           <div className="table-header">
-            <h3>{'\uD83C\uDD95'} Entry Opportunities (BUY signals, not held)</h3>
+            <h3>{'\uD83C\uDD95'} 신규 진입 기회 (BUY 시그널, 미보유)</h3>
           </div>
           <table>
             <thead>
               <tr>
-                <th>Symbol</th>
-                <th>Market</th>
-                <th>Current Price</th>
-                <th>Target</th>
-                <th>Stop Loss</th>
+                <th>종목</th>
+                <th>마켓</th>
+                <th>현재가</th>
+                <th>목표가</th>
+                <th>손절가</th>
                 <th>R:R</th>
-                <th>Scenario</th>
+                <th>시나리오</th>
               </tr>
             </thead>
             <tbody>
-              {Object.entries(entry).map(([sym, sc], i) => {
+              {Object.entries(entryMap).map(([sym, sc], i) => {
                 let targets = {}
                 try { targets = typeof sc.target_prices_json === 'string' ? JSON.parse(sc.target_prices_json) : (sc.target_prices_json || {}) } catch {}
                 return (

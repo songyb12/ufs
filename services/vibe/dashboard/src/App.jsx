@@ -7,6 +7,7 @@ import System from './pages/System'
 
 function App() {
   const [page, setPage] = useState('overview')
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   const renderPage = () => {
     switch (page) {
@@ -20,8 +21,20 @@ function App() {
 
   return (
     <>
-      <Sidebar activePage={page} onNavigate={setPage} />
+      <Sidebar
+        activePage={page}
+        onNavigate={setPage}
+        mobileOpen={mobileOpen}
+        onMobileToggle={setMobileOpen}
+      />
       <main className="main-content">
+        <button
+          className="mobile-menu-btn"
+          onClick={() => setMobileOpen(!mobileOpen)}
+          aria-label="메뉴"
+        >
+          {'\u2630'}
+        </button>
         {renderPage()}
       </main>
     </>

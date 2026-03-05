@@ -57,6 +57,75 @@ export async function triggerPipeline(market = 'ALL') {
   return res.json()
 }
 
+export async function getWatchlist(market = null) {
+  const q = market ? `?market=${market}` : ''
+  return fetchJSON(`/watchlist${q}`)
+}
+
+export async function addPosition(data) {
+  const res = await fetch(`${BASE}/portfolio/position`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export async function deletePosition(market, symbol) {
+  const res = await fetch(`${BASE}/portfolio/position/${market}/${symbol}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export async function quickAddPositions(items) {
+  const res = await fetch(`${BASE}/portfolio/quick`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(items),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export async function addWatchlistItem(data) {
+  const res = await fetch(`${BASE}/watchlist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export async function removeWatchlistItem(symbol, market = 'KR') {
+  const res = await fetch(`${BASE}/watchlist/${symbol}?market=${market}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export function exportPortfolioCSV(positions) {
+  const headers = ['Symbol', 'Name', 'Market', 'Entry Price', 'Current Price', 'P&L %', 'Position Size', 'Entry Date', 'Sector']
+  const rows = positions.map(p => [
+    p.symbol, p.name || p.symbol, p.market,
+    p.entry_price || '', p.current_price || '',
+    p.pnl_pct != null ? p.pnl_pct.toFixed(2) : '',
+    p.position_size || '', p.entry_date || '', p.sector || ''
+  ])
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `vibe_portfolio_${new Date().toISOString().slice(0,10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export async function exportSignalsCSV(signals) {
   const headers = ['Date', 'Symbol', 'Name', 'Market', 'Signal', 'Score', 'RSI', 'Hard Limit', 'Rationale']
   const rows = signals.map(s => [
