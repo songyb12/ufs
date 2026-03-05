@@ -6,6 +6,7 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
 } from 'recharts'
+import SymbolModal from '../components/SymbolModal'
 
 export default function Portfolio() {
   const [summary, setSummary] = useState(null)
@@ -25,6 +26,7 @@ export default function Portfolio() {
   })
 
   const [error, setError] = useState(null)
+  const [selectedSymbol, setSelectedSymbol] = useState(null)
 
   const loadData = useCallback(() => {
     setLoading(true)
@@ -431,7 +433,10 @@ export default function Portfolio() {
               const isEditing = editingSymbol === p.symbol
               return (
                 <tr key={`${p.symbol}-${p.market}`}>
-                  <td>
+                  <td
+                    className="symbol-link"
+                    onClick={() => setSelectedSymbol({ symbol: p.symbol, market: p.market })}
+                  >
                     <strong>{p.name || p.symbol}</strong>
                     <br />
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.symbol}</span>
@@ -571,6 +576,14 @@ export default function Portfolio() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {selectedSymbol && (
+        <SymbolModal
+          symbol={selectedSymbol.symbol}
+          market={selectedSymbol.market}
+          onClose={() => setSelectedSymbol(null)}
+        />
       )}
     </div>
   )

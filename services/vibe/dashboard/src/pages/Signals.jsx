@@ -3,6 +3,7 @@ import { getSignalHistory, getSignalPerformance, exportSignalsCSV } from '../api
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts'
+import SymbolModal from '../components/SymbolModal'
 
 export default function Signals() {
   const [signals, setSignals] = useState([])
@@ -11,6 +12,7 @@ export default function Signals() {
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [selectedSymbol, setSelectedSymbol] = useState(null)
 
   useEffect(() => {
     setLoading(true)
@@ -140,7 +142,10 @@ export default function Signals() {
               {signals.map((s) => (
                 <tr key={`${s.symbol}-${s.market}-${s.signal_date}`}>
                   <td style={{ whiteSpace: 'nowrap' }}>{s.signal_date}</td>
-                  <td>
+                  <td
+                    className="symbol-link"
+                    onClick={() => setSelectedSymbol({ symbol: s.symbol, market: s.market })}
+                  >
                     <strong>{s.name || s.symbol}</strong>
                     <br />
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{s.symbol}</span>
@@ -171,6 +176,14 @@ export default function Signals() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {selectedSymbol && (
+        <SymbolModal
+          symbol={selectedSymbol.symbol}
+          market={selectedSymbol.market}
+          onClose={() => setSelectedSymbol(null)}
+        />
       )}
     </div>
   )

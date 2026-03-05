@@ -1,22 +1,39 @@
-import { useState, useEffect } from 'react'
-import { getSummary, getSignals } from '../api'
+import { useState, useEffect, useCallback } from 'react'
+import { getSummary, getSignals, getLatestSentiment } from '../api'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie
 } from 'recharts'
+import SymbolModal from '../components/SymbolModal'
 
 export default function Overview() {
   const [summary, setSummary] = useState(null)
   const [signals, setSignals] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [selectedSymbol, setSelectedSymbol] = useState(null)
+  const [sentimentData, setSentimentData] = useState(null)
+
+  const loadData = useCallback(() => {
+    return Promise.all([getSummary(), getSignals(), getLatestSentiment()])
+      .then(([s, sig, sent]) => {
+        setSummary(s); setSignals(sig); setError(null)
+        setSentimentData(sent?.message ? null : sent)
+      })
+      .catch(err => { console.error(err); setError(err.message) })
+  }, [])
 
   useEffect(() => {
-    Promise.all([getSummary(), getSignals()])
-      .then(([s, sig]) => { setSummary(s); setSignals(sig); setError(null) })
-      .catch(err => { console.error(err); setError(err.message) })
-      .finally(() => setLoading(false))
-  }, [])
+    loadData().finally(() => setLoading(false))
+  }, [loadData])
+
+  // Auto-refresh every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData().catch(err => console.error('Auto-refresh error:', err))
+    }, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [loadData])
 
   if (loading) return <div className="loading"><span className="spinner" /> Loading...</div>
   if (error) return <div className="loading" style={{ color: 'var(--red)' }}>Error: {error}</div>
@@ -95,6 +112,58 @@ export default function Overview() {
         </div>
       </div>
 
+      {/* Sentiment Widget */}
+      {sentimentData && (
+        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+          <div className="card">
+            <div className="card-label">Fear & Greed Index</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', marginBottom: '0.25rem' }}>
+              <span className="card-value" style={{
+                fontSize: '2rem',
+                color: (sentimentData.fear_greed_index ?? 50) <= 25 ? 'var(--red)'
+                  : (sentimentData.fear_greed_index ?? 50) <= 45 ? 'var(--orange)'
+                  : (sentimentData.fear_greed_index ?? 50) <= 55 ? 'var(--yellow)'
+                  : (sentimentData.fear_greed_index ?? 50) <= 75 ? 'var(--green)'
+                  : 'var(--green)',
+              }}>
+                {sentimentData.fear_greed_index ?? '-'}
+              </span>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                {(sentimentData.fear_greed_index ?? 50) <= 25 ? 'Extreme Fear'
+                  : (sentimentData.fear_greed_index ?? 50) <= 45 ? 'Fear'
+                  : (sentimentData.fear_greed_index ?? 50) <= 55 ? 'Neutral'
+                  : (sentimentData.fear_greed_index ?? 50) <= 75 ? 'Greed'
+                  : 'Extreme Greed'}
+              </span>
+            </div>
+            <div className="gauge-bar">
+              <div className="gauge-fill" style={{
+                width: `${Math.min(100, Math.max(0, sentimentData.fear_greed_index ?? 0))}%`,
+                background: `linear-gradient(90deg, var(--red), var(--orange), var(--yellow), var(--green))`,
+              }} />
+            </div>
+            <div className="card-sub" style={{ marginTop: '0.5rem' }}>{sentimentData.indicator_date}</div>
+          </div>
+          <div className="card">
+            <div className="card-label">Market Indicators</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Put/Call Ratio</span>
+                <span style={{ fontWeight: 600, color: (sentimentData.put_call_ratio ?? 1) > 1.0 ? 'var(--red)' : 'var(--green)' }}>
+                  {sentimentData.put_call_ratio?.toFixed(3) ?? '-'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>VIX Term Structure</span>
+                <span style={{ fontWeight: 600, color: (sentimentData.vix_term_structure ?? 0) > 0 ? 'var(--green)' : 'var(--red)' }}>
+                  {sentimentData.vix_term_structure?.toFixed(3) ?? '-'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Charts Row */}
       <div className="grid-2">
         {/* Signal Distribution Pie */}
@@ -169,7 +238,10 @@ export default function Overview() {
           <tbody>
             {signals.slice(0, 15).map((s) => (
               <tr key={`${s.symbol}-${s.market}-${s.signal_date}`}>
-                <td>
+                <td
+                  className="symbol-link"
+                  onClick={() => setSelectedSymbol({ symbol: s.symbol, market: s.market })}
+                >
                   <strong>{s.name || s.symbol}</strong>
                   <br />
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{s.symbol}</span>
@@ -213,6 +285,14 @@ export default function Overview() {
           <div className="card-sub">active symbols</div>
         </div>
       </div>
+
+      {selectedSymbol && (
+        <SymbolModal
+          symbol={selectedSymbol.symbol}
+          market={selectedSymbol.market}
+          onClose={() => setSelectedSymbol(null)}
+        />
+      )}
     </div>
   )
 }

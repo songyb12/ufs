@@ -400,6 +400,40 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    # ── Alert Config (Phase F) ──
+    """
+    CREATE TABLE IF NOT EXISTS alert_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT NOT NULL UNIQUE,
+        value TEXT NOT NULL,
+        description TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    # ── Alert History (Phase F) ──
+    """
+    CREATE TABLE IF NOT EXISTS alert_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        alert_type TEXT NOT NULL,
+        symbol TEXT,
+        market TEXT,
+        condition TEXT NOT NULL,
+        message TEXT,
+        fired_at TEXT NOT NULL DEFAULT (datetime('now')),
+        sent_to TEXT DEFAULT 'discord'
+    )
+    """,
+    # ── Monthly Reports (Phase F) ──
+    """
+    CREATE TABLE IF NOT EXISTS monthly_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_month TEXT NOT NULL,
+        market TEXT NOT NULL DEFAULT 'ALL',
+        content_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(report_month, market)
+    )
+    """,
 ]
 
 INDEXES = [
@@ -421,6 +455,9 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_signals_run_id ON signals(run_id)",
     "CREATE INDEX IF NOT EXISTS idx_watchlist_active_market ON watchlist(market, is_active)",
     "CREATE INDEX IF NOT EXISTS idx_portfolio_state_active ON portfolio_state(market, position_size)",
+    "CREATE INDEX IF NOT EXISTS idx_alert_history_fired ON alert_history(fired_at)",
+    "CREATE INDEX IF NOT EXISTS idx_alert_config_key ON alert_config(key)",
+    "CREATE INDEX IF NOT EXISTS idx_monthly_reports_lookup ON monthly_reports(report_month, market)",
 ]
 
 

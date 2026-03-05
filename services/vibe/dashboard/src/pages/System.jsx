@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import {
   getHealth, getPipelineRuns, triggerPipeline,
   getWatchlist, addWatchlistItem, removeWatchlistItem,
+  getAlertConfig, updateAlertConfig, getAlertHistory,
+  getMonthlyReports, generateMonthlyReport,
 } from '../api'
 
 export default function System() {
@@ -19,12 +21,33 @@ export default function System() {
   const [wlSubmitting, setWlSubmitting] = useState(false)
   const [wlMessage, setWlMessage] = useState(null)
 
+  // Alert state
+  const [alertConfig, setAlertConfig] = useState([])
+  const [alertHistory, setAlertHistory] = useState([])
+  const [alertEditing, setAlertEditing] = useState({})
+  const [alertSaving, setAlertSaving] = useState(false)
+
+  // Monthly report state
+  const [monthlyReports, setMonthlyReports] = useState([])
+  const [generatingReport, setGeneratingReport] = useState(false)
+
   const [error, setError] = useState(null)
 
   const refresh = () => {
     setLoading(true)
-    Promise.all([getHealth(), getPipelineRuns(), getWatchlist()])
-      .then(([h, r, wl]) => { setHealth(h); setRuns(r); setWatchlist(wl || []); setError(null) })
+    Promise.all([
+      getHealth(), getPipelineRuns(), getWatchlist(),
+      getAlertConfig().catch(() => ({ config: [] })),
+      getAlertHistory(20).catch(() => ({ history: [] })),
+      getMonthlyReports(6).catch(() => ({ reports: [] })),
+    ])
+      .then(([h, r, wl, ac, ah, mr]) => {
+        setHealth(h); setRuns(r); setWatchlist(wl || [])
+        setAlertConfig(ac.config || [])
+        setAlertHistory(ah.history || [])
+        setMonthlyReports(mr.reports || [])
+        setError(null)
+      })
       .catch(err => { console.error(err); setError(err.message) })
       .finally(() => setLoading(false))
   }
@@ -77,6 +100,37 @@ export default function System() {
       setWatchlist(wl || [])
     } catch (err) {
       showWlMsg(`제거 실패: ${err.message}`, 'error')
+    }
+  }
+
+  // Alert handlers
+  const handleAlertSave = async (key) => {
+    const newValue = alertEditing[key]
+    if (newValue == null) return
+    setAlertSaving(true)
+    try {
+      await updateAlertConfig([{ key, value: String(newValue) }])
+      setAlertEditing(prev => { const n = { ...prev }; delete n[key]; return n })
+      const ac = await getAlertConfig()
+      setAlertConfig(ac.config || [])
+    } catch (err) {
+      console.error('Alert save failed:', err)
+    } finally {
+      setAlertSaving(false)
+    }
+  }
+
+  // Monthly report handler
+  const handleGenerateReport = async () => {
+    setGeneratingReport(true)
+    try {
+      await generateMonthlyReport()
+      const mr = await getMonthlyReports(6)
+      setMonthlyReports(mr.reports || [])
+    } catch (err) {
+      console.error('Report generation failed:', err)
+    } finally {
+      setGeneratingReport(false)
     }
   }
 
@@ -244,6 +298,159 @@ export default function System() {
             경과: {health?.pipelines?.US?.age_hours != null ? `${health.pipelines.US.age_hours}시간` : '-'}
           </div>
         </div>
+      </div>
+
+      {/* Alert Settings */}
+      <div className="table-container" style={{ marginTop: '1.5rem' }}>
+        <div className="table-header">
+          <h3>{'\uD83D\uDD14'} 알림 설정</h3>
+          <span className="card-sub">{alertConfig.length} settings</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>설정</th>
+              <th>설명</th>
+              <th>현재값</th>
+              <th>관리</th>
+            </tr>
+          </thead>
+          <tbody>
+            {alertConfig.length === 0 ? (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-muted)' }}>
+                  알림 설정이 없습니다. 파이프라인 실행 후 자동 생성됩니다.
+                </td>
+              </tr>
+            ) : alertConfig.map((c) => (
+              <tr key={c.key}>
+                <td><code style={{ fontSize: '0.8rem' }}>{c.key}</code></td>
+                <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{c.description || '-'}</td>
+                <td>
+                  <input
+                    type="text"
+                    value={alertEditing[c.key] ?? c.value}
+                    onChange={e => setAlertEditing(prev => ({ ...prev, [c.key]: e.target.value }))}
+                    style={{
+                      width: '80px', padding: '0.25rem', borderRadius: '0.25rem',
+                      background: 'var(--bg-primary)', border: `1px solid ${alertEditing[c.key] != null ? 'var(--accent)' : 'var(--border)'}`,
+                      color: 'var(--text-primary)', fontSize: '0.8rem', textAlign: 'center',
+                    }}
+                  />
+                </td>
+                <td>
+                  {alertEditing[c.key] != null && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleAlertSave(c.key)}
+                      disabled={alertSaving}
+                    >
+                      {alertSaving ? '...' : '저장'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Alert History */}
+      {alertHistory.length > 0 && (
+        <div className="table-container">
+          <div className="table-header">
+            <h3>{'\u26A0'} 최근 알림 이력</h3>
+            <span className="card-sub">{alertHistory.length} alerts</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>시간</th>
+                <th>유형</th>
+                <th>내용</th>
+                <th>발송</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alertHistory.map((a) => (
+                <tr key={a.id}>
+                  <td style={{ whiteSpace: 'nowrap', fontSize: '0.75rem' }}>
+                    {a.fired_at ? new Date(a.fired_at).toLocaleString('ko-KR') : '-'}
+                  </td>
+                  <td>
+                    <span className="badge badge-sell">{a.alert_type}</span>
+                  </td>
+                  <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', maxWidth: 300 }}>
+                    {a.condition?.slice(0, 100) || '-'}
+                  </td>
+                  <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{a.sent_to}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Monthly Reports */}
+      <div className="table-container" style={{ marginTop: '1.5rem' }}>
+        <div className="table-header">
+          <h3>{'\uD83D\uDCC5'} 월간 리포트</h3>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleGenerateReport}
+            disabled={generatingReport}
+          >
+            {generatingReport ? '생성 중...' : '+ 리포트 생성'}
+          </button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>월</th>
+              <th>총 시그널</th>
+              <th>BUY / SELL</th>
+              <th>Hit Rate T+5</th>
+              <th>Hit Rate T+20</th>
+              <th>파이프라인</th>
+              <th>생성일</th>
+            </tr>
+          </thead>
+          <tbody>
+            {monthlyReports.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-muted)' }}>
+                  월간 리포트가 없습니다. "리포트 생성" 버튼으로 생성하세요.
+                </td>
+              </tr>
+            ) : monthlyReports.map((r) => {
+              const c = r.content || {}
+              const sig = c.signals || {}
+              const pipelines = c.pipeline_runs || {}
+              const totalPipeline = Object.values(pipelines).reduce((s, v) => s + v, 0)
+              return (
+                <tr key={`${r.report_month}-${r.market}`}>
+                  <td style={{ fontWeight: 600 }}>{r.report_month}</td>
+                  <td>{c.total_signals ?? '-'}</td>
+                  <td>
+                    <span style={{ color: 'var(--green)' }}>{sig.BUY ?? 0}</span>
+                    {' / '}
+                    <span style={{ color: 'var(--red)' }}>{sig.SELL ?? 0}</span>
+                  </td>
+                  <td style={{ color: (c.hit_rate_t5 ?? 0) >= 50 ? 'var(--green)' : 'var(--yellow)' }}>
+                    {c.hit_rate_t5 != null ? `${c.hit_rate_t5}%` : '-'}
+                  </td>
+                  <td style={{ color: (c.hit_rate_t20 ?? 0) >= 50 ? 'var(--green)' : 'var(--yellow)' }}>
+                    {c.hit_rate_t20 != null ? `${c.hit_rate_t20}%` : '-'}
+                  </td>
+                  <td>{totalPipeline} runs</td>
+                  <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {r.created_at ? new Date(r.created_at).toLocaleDateString('ko-KR') : '-'}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
 
       {/* Watchlist Management */}

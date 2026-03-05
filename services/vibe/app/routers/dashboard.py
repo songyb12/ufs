@@ -185,3 +185,22 @@ async def get_signal_history(
     c = await db.execute(query, params)
     rows = [dict(r) for r in await c.fetchall()]
     return {"count": len(rows), "signals": rows}
+
+
+@router.get("/reports/monthly")
+async def get_monthly_reports(limit: int = Query(12, ge=1, le=24)):
+    """Get recent monthly reports."""
+    reports = await repo.get_monthly_reports(limit=limit)
+    return {"reports": reports, "count": len(reports)}
+
+
+@router.post("/reports/monthly/generate")
+async def generate_monthly_report_endpoint(
+    report_month: str | None = None,
+    market: str = "ALL",
+):
+    """Generate a monthly report for the given month."""
+    from app.reports.monthly_report import generate_monthly_report
+
+    content = await generate_monthly_report(report_month, market)
+    return {"status": "ok", "report": content}

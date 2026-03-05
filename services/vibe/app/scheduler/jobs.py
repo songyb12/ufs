@@ -215,8 +215,28 @@ def register_jobs(
         replace_existing=True,
     )
 
+    # ── Monthly report (1st of each month, 07:00 UTC) ──
+    async def generate_monthly_report_job() -> None:
+        try:
+            from app.reports.monthly_report import generate_monthly_report
+            content = await generate_monthly_report()
+            logger.info("Monthly report generated: %s", content.get("report_month"))
+        except Exception as e:
+            logger.exception("Monthly report generation failed: %s", e)
+
+    scheduler.add_job(
+        generate_monthly_report_job,
+        trigger="cron",
+        day=1,
+        hour=7,
+        minute=0,
+        id="monthly_report_generator",
+        name="Monthly Report Generator",
+        replace_existing=True,
+    )
+
     logger.info(
-        "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC, Backup=04:00, Weekly=Sun 06:00",
+        "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC, Backup=04:00, Weekly=Sun 06:00, Monthly=1st 07:00",
         config.KR_PIPELINE_HOUR_UTC, config.KR_PIPELINE_MINUTE,
         config.US_PIPELINE_HOUR_UTC, config.US_PIPELINE_MINUTE,
     )

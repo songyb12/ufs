@@ -56,6 +56,65 @@ export async function getPriceChart(symbol, market = 'KR', days = 60) {
   return fetchJSON(`/dashboard/prices/${symbol}?market=${market}&days=${days}`)
 }
 
+export async function getLatestSentiment() {
+  return fetchJSON('/sentiment/latest')
+}
+
+export async function getSentimentHistory(days = 7) {
+  return fetchJSON(`/sentiment?days=${days}`)
+}
+
+export async function getBacktestResults(limit = 20) {
+  return fetchJSON(`/backtest/results?limit=${limit}`)
+}
+
+export async function getBacktestDetail(backtestId) {
+  return fetchJSON(`/backtest/results/${backtestId}`)
+}
+
+export async function triggerBacktest(data) {
+  const res = await fetch(`${BASE}/backtest/run`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export async function getAlertConfig() {
+  return fetchJSON('/alerts/config')
+}
+
+export async function updateAlertConfig(updates) {
+  const res = await fetch(`${BASE}/alerts/config`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(updates),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export async function getAlertHistory(limit = 50) {
+  return fetchJSON(`/alerts/history?limit=${limit}`)
+}
+
+export async function getMonthlyReports(limit = 12) {
+  return fetchJSON(`/dashboard/reports/monthly?limit=${limit}`)
+}
+
+export async function generateMonthlyReport(reportMonth = null) {
+  const body = reportMonth ? { report_month: reportMonth } : {}
+  const res = await fetch(`${BASE}/dashboard/reports/monthly/generate`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
 export async function triggerPipeline(market = 'ALL') {
   const res = await fetch('/pipeline/run', {
     method: 'POST',

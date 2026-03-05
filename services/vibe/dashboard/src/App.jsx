@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar'
 import Overview from './pages/Overview'
 import Signals from './pages/Signals'
 import Portfolio from './pages/Portfolio'
+import Backtest from './pages/Backtest'
 import System from './pages/System'
 
 // M14: Error Boundary to catch render crashes
@@ -56,6 +57,7 @@ function App() {
       case 'overview': return <Overview />
       case 'signals': return <Signals />
       case 'portfolio': return <Portfolio />
+      case 'backtest': return <Backtest />
       case 'system': return <System />
       default: return <Overview />
     }

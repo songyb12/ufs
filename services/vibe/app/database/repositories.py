@@ -1006,3 +1006,80 @@ async def insert_llm_review(data: dict) -> int:
     )
     await db.commit()
     return cursor.rowcount
+
+
+# ── Alert Config (Phase F) ──
+
+async def get_alert_config() -> list[dict]:
+    """Get all alert configuration entries."""
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM alert_config ORDER BY key")
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def upsert_alert_config(key: str, value: str, description: str | None = None) -> None:
+    """Insert or update an alert config entry."""
+    db = await get_db()
+    await db.execute(
+        """INSERT INTO alert_config (key, value, description, updated_at)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET
+           value = excluded.value,
+           description = COALESCE(excluded.description, alert_config.description),
+           updated_at = datetime('now')""",
+        (key, value, description),
+    )
+    await db.commit()
+
+
+async def get_alert_history(limit: int = 50) -> list[dict]:
+    """Get recent alert history entries."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT * FROM alert_history ORDER BY fired_at DESC LIMIT ?", (limit,)
+    )
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def insert_alert_history(alert: dict) -> int:
+    """Insert an alert history record."""
+    db = await get_db()
+    cursor = await db.execute(
+        """INSERT INTO alert_history (alert_type, symbol, market, condition, message, sent_to)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (alert["alert_type"], alert.get("symbol"), alert.get("market"),
+         alert["condition"], alert.get("message"), alert.get("sent_to", "discord")),
+    )
+    await db.commit()
+    return cursor.lastrowid or 0
+
+
+# ── Monthly Reports (Phase F) ──
+
+async def get_monthly_reports(limit: int = 12) -> list[dict]:
+    """Get recent monthly reports."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT * FROM monthly_reports ORDER BY report_month DESC LIMIT ?", (limit,)
+    )
+    rows = await cursor.fetchall()
+    results = []
+    for row in rows:
+        r = dict(row)
+        r["content"] = _safe_json_loads(r.get("content_json"), {})
+        results.append(r)
+    return results
+
+
+async def upsert_monthly_report(report_month: str, market: str, content: dict) -> None:
+    """Insert or update a monthly report."""
+    db = await get_db()
+    await db.execute(
+        """INSERT INTO monthly_reports (report_month, market, content_json)
+           VALUES (?, ?, ?)
+           ON CONFLICT(report_month, market) DO UPDATE SET
+           content_json = excluded.content_json,
+           created_at = datetime('now')""",
+        (report_month, market, json.dumps(content, ensure_ascii=False)),
+    )
+    await db.commit()

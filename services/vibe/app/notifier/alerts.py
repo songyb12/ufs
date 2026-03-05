@@ -27,14 +27,20 @@ async def check_and_send_alerts(config: Settings) -> int:
     if not config.DISCORD_WEBHOOK_URL:
         return 0
 
+    from app.database import repositories as repo
+
+    # Load alert thresholds from DB (fallback to config defaults)
+    alert_config_rows = await repo.get_alert_config()
+    alert_cfg = {r["key"]: r["value"] for r in alert_config_rows}
+
     alerts = []
 
     # 1. Check portfolio stop-loss proximity
-    portfolio_alerts = await _check_portfolio_stops(config)
+    portfolio_alerts = await _check_portfolio_stops(config, alert_cfg)
     alerts.extend(portfolio_alerts)
 
     # 2. Check RSI approaching hard limit
-    rsi_alerts = await _check_rsi_alerts(config)
+    rsi_alerts = await _check_rsi_alerts(config, alert_cfg)
     alerts.extend(rsi_alerts)
 
     if not alerts:
@@ -66,10 +72,22 @@ async def check_and_send_alerts(config: Settings) -> int:
     except Exception as e:
         logger.error("Alert send error: %s", e)
 
+    # Log alerts to history
+    for alert_msg in alerts[:15]:
+        try:
+            await repo.insert_alert_history({
+                "alert_type": "price_alert",
+                "condition": alert_msg[:200],
+                "message": alert_msg,
+                "sent_to": "discord",
+            })
+        except Exception as e:
+            logger.warning("Failed to log alert history: %s", e)
+
     return len(alerts)
 
 
-async def _check_portfolio_stops(config: Settings) -> list[str]:
+async def _check_portfolio_stops(config: Settings, alert_cfg: dict | None = None) -> list[str]:
     """Check if any portfolio positions are near stop-loss."""
     alerts = []
     db = await get_db()
@@ -87,7 +105,7 @@ async def _check_portfolio_stops(config: Settings) -> list[str]:
     )
     rows = await cursor.fetchall()
 
-    stop_pct = config.BACKTEST_STOP_LOSS_PCT  # e.g., -7.0
+    stop_pct = float((alert_cfg or {}).get("stop_loss_pct", str(config.BACKTEST_STOP_LOSS_PCT)))
 
     for row in rows:
         r = dict(row)
@@ -116,10 +134,12 @@ async def _check_portfolio_stops(config: Settings) -> list[str]:
     return alerts
 
 
-async def _check_rsi_alerts(config: Settings) -> list[str]:
+async def _check_rsi_alerts(config: Settings, alert_cfg: dict | None = None) -> list[str]:
     """Check for RSI approaching hard limit on recent BUY signals."""
     alerts = []
     db = await get_db()
+
+    rsi_threshold = float((alert_cfg or {}).get("rsi_warning_threshold", "58"))
 
     # Get latest signals with current RSI
     cursor = await db.execute(
@@ -128,7 +148,8 @@ async def _check_rsi_alerts(config: Settings) -> list[str]:
            LEFT JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
            WHERE s.signal_date = (SELECT MAX(signal_date) FROM signals)
            AND s.final_signal = 'BUY'
-           AND s.rsi_value > 58"""
+           AND s.rsi_value > ?""",
+        (rsi_threshold,),
     )
     rows = await cursor.fetchall()
 
