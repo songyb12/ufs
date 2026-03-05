@@ -253,7 +253,7 @@ TABLES = [
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
-    # ── Portfolio State (Phase B, updated Phase G) ──
+    # ── Portfolio State (Phase B, updated Phase G+) ──
     """
     CREATE TABLE IF NOT EXISTS portfolio_state (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -264,6 +264,7 @@ TABLES = [
         entry_date TEXT,
         entry_price REAL,
         sector TEXT,
+        is_hidden INTEGER NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE(portfolio_id, symbol, market),
         FOREIGN KEY (portfolio_id) REFERENCES portfolio_groups(id)
@@ -436,6 +437,18 @@ TABLES = [
         sent_to TEXT DEFAULT 'discord'
     )
     """,
+    # ── Market Briefings (Phase G+) ──
+    """
+    CREATE TABLE IF NOT EXISTS market_briefings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        briefing_date TEXT NOT NULL,
+        market TEXT NOT NULL DEFAULT 'ALL',
+        content_json TEXT NOT NULL,
+        llm_summary TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(briefing_date, market)
+    )
+    """,
     # ── Monthly Reports (Phase F) ──
     """
     CREATE TABLE IF NOT EXISTS monthly_reports (
@@ -445,6 +458,15 @@ TABLES = [
         content_json TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE(report_month, market)
+    )
+    """,
+    # ── Runtime Config (Phase G+) ──
+    """
+    CREATE TABLE IF NOT EXISTS runtime_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT NOT NULL UNIQUE,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
 ]
@@ -471,6 +493,8 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_alert_history_fired ON alert_history(fired_at)",
     "CREATE INDEX IF NOT EXISTS idx_alert_config_key ON alert_config(key)",
     "CREATE INDEX IF NOT EXISTS idx_monthly_reports_lookup ON monthly_reports(report_month, market)",
+    "CREATE INDEX IF NOT EXISTS idx_market_briefings_lookup ON market_briefings(briefing_date, market)",
+    "CREATE INDEX IF NOT EXISTS idx_runtime_config_key ON runtime_config(key)",
 ]
 
 
@@ -485,6 +509,9 @@ async def init_db() -> None:
 
     # ── Migration: portfolio_groups + portfolio_id (Phase G) ──
     await _migrate_portfolio_groups(db)
+
+    # ── Migration: is_hidden column (Phase G+) ──
+    await _migrate_is_hidden(db)
 
 
 async def _migrate_portfolio_groups(db) -> None:
@@ -538,3 +565,19 @@ async def _migrate_portfolio_groups(db) -> None:
         )
         logger.info("portfolio_state migration complete")
     await db.commit()
+
+
+async def _migrate_is_hidden(db) -> None:
+    """Add is_hidden column to portfolio_state if missing."""
+    import logging
+    logger = logging.getLogger("vibe.schema.migrate")
+
+    c = await db.execute("PRAGMA table_info(portfolio_state)")
+    columns = [row[1] for row in await c.fetchall()]
+    if "is_hidden" not in columns:
+        logger.info("Migrating portfolio_state: adding is_hidden column")
+        await db.execute(
+            "ALTER TABLE portfolio_state ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0"
+        )
+        await db.commit()
+        logger.info("is_hidden column added")

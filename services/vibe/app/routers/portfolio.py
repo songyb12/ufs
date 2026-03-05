@@ -67,16 +67,41 @@ async def delete_group(group_id: int):
 async def get_portfolio(
     market: str | None = None,
     portfolio_id: int = Query(1, alias="portfolio_id"),
+    include_hidden: bool = Query(False),
 ):
     """Get current portfolio positions."""
     positions = await repo.get_portfolio_state(
         portfolio_id=portfolio_id,
         market=market.upper() if market else None,
+        include_hidden=include_hidden,
     )
     return {
         "portfolio_id": portfolio_id,
         "positions": positions,
         "count": len(positions),
+    }
+
+
+@router.patch("/position/{market}/{symbol}/hide")
+async def toggle_hide_position(
+    market: str, symbol: str,
+    portfolio_id: int = Query(1),
+):
+    """Toggle hidden state for a portfolio position."""
+    result = await repo.toggle_position_hidden(
+        symbol=symbol, market=market.upper(), portfolio_id=portfolio_id,
+    )
+    if not result.get("found"):
+        raise HTTPException(404, "Position not found")
+    logger.info(
+        "Position hidden toggled: group=%d %s/%s -> hidden=%s",
+        portfolio_id, market.upper(), symbol, result["is_hidden"],
+    )
+    return {
+        "status": "ok",
+        "symbol": symbol,
+        "market": market.upper(),
+        "is_hidden": result["is_hidden"],
     }
 
 

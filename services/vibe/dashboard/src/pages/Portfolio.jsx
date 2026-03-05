@@ -3,6 +3,7 @@ import {
   getSummary, getPortfolio, getPortfolioScenarios, getWatchlist,
   addPosition, deletePosition, quickAddPositions, exportPortfolioCSV,
   getPortfolioGroups, createPortfolioGroup, deletePortfolioGroup,
+  togglePositionHidden,
 } from '../api'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
@@ -32,9 +33,14 @@ export default function Portfolio({ onNavigate }) {
   const [formData, setFormData] = useState({
     symbol: '', market: 'KR', position_size: '', entry_price: '', entry_date: '', sector: ''
   })
+  const [inputMode, setInputMode] = useState('amount') // 'amount' | 'shares'
+  const [sharesCount, setSharesCount] = useState('')
+  const [editInputMode, setEditInputMode] = useState('amount')
+  const [editSharesCount, setEditSharesCount] = useState('')
 
   const [error, setError] = useState(null)
   const [selectedSymbol, setSelectedSymbol] = useState(null)
+  const [showHidden, setShowHidden] = useState(false)
 
   const loadGroups = useCallback(() => {
     return getPortfolioGroups()
@@ -50,10 +56,11 @@ export default function Portfolio({ onNavigate }) {
       .catch(err => { console.error('Groups load error:', err) })
   }, [activeGroupId])
 
-  const loadData = useCallback((groupId) => {
+  const loadData = useCallback((groupId, hidden) => {
     const gid = groupId || activeGroupId
+    const inclHidden = hidden !== undefined ? hidden : showHidden
     setLoading(true)
-    Promise.all([getSummary(gid), getPortfolio(null, gid), getPortfolioScenarios(), getWatchlist()])
+    Promise.all([getSummary(gid), getPortfolio(null, gid, inclHidden), getPortfolioScenarios(), getWatchlist()])
       .then(([s, p, sc, wl]) => {
         setSummary(s)
         setPositions(p?.positions || [])
@@ -63,7 +70,7 @@ export default function Portfolio({ onNavigate }) {
       })
       .catch(err => { console.error(err); setError(err.message) })
       .finally(() => setLoading(false))
-  }, [activeGroupId])
+  }, [activeGroupId, showHidden])
 
   useEffect(() => {
     loadGroups().then(() => loadData())
@@ -119,14 +126,25 @@ export default function Portfolio({ onNavigate }) {
   // ---- 종목 추가 ----
   const handleAdd = async (e) => {
     e.preventDefault()
-    if (!formData.symbol || !formData.position_size) return
+    // Calculate position_size based on input mode
+    let posSize
+    if (inputMode === 'shares') {
+      if (!sharesCount || !formData.entry_price) {
+        showMessage('주식수 모드에서는 주식수와 매입가 모두 필요합니다', 'error')
+        return
+      }
+      posSize = parseFloat(sharesCount) * parseFloat(formData.entry_price)
+    } else {
+      posSize = parseFloat(formData.position_size)
+    }
+    if (!formData.symbol || !posSize) return
     setSubmitting(true)
     try {
       if (formData.entry_price) {
         await addPosition({
           symbol: formData.symbol,
           market: formData.market,
-          position_size: parseFloat(formData.position_size),
+          position_size: posSize,
           entry_price: parseFloat(formData.entry_price),
           entry_date: formData.entry_date || undefined,
           sector: formData.sector || undefined,
@@ -136,11 +154,12 @@ export default function Portfolio({ onNavigate }) {
         await quickAddPositions([{
           symbol: formData.symbol,
           market: formData.market,
-          position_size: parseFloat(formData.position_size),
+          position_size: posSize,
         }], activeGroupId)
       }
       showMessage(`${formData.symbol} 추가 완료`)
       setFormData({ symbol: '', market: 'KR', position_size: '', entry_price: '', entry_date: '', sector: '' })
+      setSharesCount('')
       setShowAddForm(false)
       loadData()
     } catch (err) {
@@ -165,6 +184,26 @@ export default function Portfolio({ onNavigate }) {
     }
   }
 
+  // ---- 종목 숨기기/보이기 토글 ----
+  const handleToggleHidden = async (market, symbol) => {
+    setSubmitting(true)
+    try {
+      const res = await togglePositionHidden(market, symbol, activeGroupId)
+      showMessage(`${symbol} ${res.is_hidden ? '숨김' : '표시'} 처리 완료`)
+      loadData()
+    } catch (err) {
+      showMessage(`처리 실패: ${err.message}`, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleToggleShowHidden = () => {
+    const next = !showHidden
+    setShowHidden(next)
+    loadData(activeGroupId, next)
+  }
+
   // ---- 종목 수정 ----
   const startEdit = (p) => {
     setEditingSymbol(p.symbol)
@@ -172,20 +211,35 @@ export default function Portfolio({ onNavigate }) {
       position_size: p.position_size || '',
       entry_price: p.entry_price || '',
     })
+    setEditInputMode('amount')
+    setEditSharesCount(p.entry_price > 0 ? Math.round(p.position_size / p.entry_price) : '')
   }
 
   const cancelEdit = () => {
     setEditingSymbol(null)
     setEditData({})
+    setEditInputMode('amount')
+    setEditSharesCount('')
   }
 
   const handleSaveEdit = async (p) => {
+    let posSize
+    if (editInputMode === 'shares') {
+      const ep = editData.entry_price ? parseFloat(editData.entry_price) : p.entry_price
+      if (!editSharesCount || !ep) {
+        showMessage('주식수 모드에서는 주식수와 매입가 모두 필요합니다', 'error')
+        return
+      }
+      posSize = parseFloat(editSharesCount) * ep
+    } else {
+      posSize = parseFloat(editData.position_size)
+    }
     setSubmitting(true)
     try {
       await addPosition({
         symbol: p.symbol,
         market: p.market,
-        position_size: parseFloat(editData.position_size),
+        position_size: posSize,
         entry_price: editData.entry_price ? parseFloat(editData.entry_price) : p.entry_price,
         entry_date: p.entry_date,
         sector: p.sector,
@@ -194,6 +248,7 @@ export default function Portfolio({ onNavigate }) {
       showMessage(`${p.symbol} 수정 완료`)
       setEditingSymbol(null)
       setEditData({})
+      setEditSharesCount('')
       loadData()
     } catch (err) {
       showMessage(`수정 실패: ${err.message}`, 'error')
@@ -435,19 +490,48 @@ export default function Portfolio({ onNavigate }) {
                   <option value="US">US</option>
                 </select>
               </div>
-              {/* 투자금액 */}
+              {/* 투자금액 / 주식수 */}
               <div>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
-                  투자금액 *
-                </label>
-                <input
-                  type="number"
-                  placeholder="5000000"
-                  value={formData.position_size}
-                  onChange={e => setFormData(prev => ({ ...prev, position_size: e.target.value }))}
-                  style={inputStyle}
-                  required
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {inputMode === 'amount' ? '투자금액' : '주식수'} *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setInputMode(inputMode === 'amount' ? 'shares' : 'amount')}
+                    style={{
+                      fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '0.25rem',
+                      background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                      color: 'var(--accent)', cursor: 'pointer',
+                    }}
+                  >
+                    {inputMode === 'amount' ? '주식수로 전환' : '금액으로 전환'}
+                  </button>
+                </div>
+                {inputMode === 'amount' ? (
+                  <input
+                    type="number"
+                    placeholder="5000000"
+                    value={formData.position_size}
+                    onChange={e => setFormData(prev => ({ ...prev, position_size: e.target.value }))}
+                    style={inputStyle}
+                    required
+                  />
+                ) : (
+                  <input
+                    type="number"
+                    placeholder="100"
+                    value={sharesCount}
+                    onChange={e => setSharesCount(e.target.value)}
+                    style={inputStyle}
+                    required
+                  />
+                )}
+                {inputMode === 'shares' && sharesCount && formData.entry_price && (
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                    = {formatKRW(parseFloat(sharesCount) * parseFloat(formData.entry_price))}
+                  </div>
+                )}
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
@@ -530,6 +614,13 @@ export default function Portfolio({ onNavigate }) {
       <div className="table-container">
         <div className="table-header">
           <h3>보유 종목</h3>
+          <button
+            className={`btn btn-sm ${showHidden ? 'btn-primary' : 'btn-outline'}`}
+            onClick={handleToggleShowHidden}
+            style={{ fontSize: '0.75rem' }}
+          >
+            {showHidden ? '\uD83D\uDC41 숨긴 종목 포함' : '\uD83D\uDC41\u200D\uD83D\uDDE8 숨긴 종목 보기'}
+          </button>
         </div>
         <table>
           <thead>
@@ -549,7 +640,7 @@ export default function Portfolio({ onNavigate }) {
               const sc = heldMap[p.symbol]
               const isEditing = editingSymbol === p.symbol
               return (
-                <tr key={`${p.symbol}-${p.market}`}>
+                <tr key={`${p.symbol}-${p.market}`} style={p.is_hidden ? { opacity: 0.45 } : {}}>
                   <td
                     className="symbol-link"
                     onClick={() => setSelectedSymbol({ symbol: p.symbol, market: p.market })}
@@ -583,16 +674,52 @@ export default function Portfolio({ onNavigate }) {
                   </td>
                   <td>
                     {isEditing ? (
-                      <input
-                        type="number"
-                        value={editData.position_size}
-                        onChange={e => setEditData(prev => ({ ...prev, position_size: e.target.value }))}
-                        style={{
-                          width: '100px', padding: '0.25rem', borderRadius: '0.25rem',
-                          background: 'var(--bg-primary)', border: '1px solid var(--accent)',
-                          color: 'var(--text-primary)', fontSize: '0.8rem',
-                        }}
-                      />
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.2rem' }}>
+                          <button
+                            type="button"
+                            onClick={() => setEditInputMode(editInputMode === 'amount' ? 'shares' : 'amount')}
+                            style={{
+                              fontSize: '0.6rem', padding: '0.1rem 0.3rem', borderRadius: '0.2rem',
+                              background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                              color: 'var(--accent)', cursor: 'pointer', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {editInputMode === 'amount' ? '주식수' : '금액'}
+                          </button>
+                        </div>
+                        {editInputMode === 'amount' ? (
+                          <input
+                            type="number"
+                            value={editData.position_size}
+                            onChange={e => setEditData(prev => ({ ...prev, position_size: e.target.value }))}
+                            style={{
+                              width: '100px', padding: '0.25rem', borderRadius: '0.25rem',
+                              background: 'var(--bg-primary)', border: '1px solid var(--accent)',
+                              color: 'var(--text-primary)', fontSize: '0.8rem',
+                            }}
+                          />
+                        ) : (
+                          <div>
+                            <input
+                              type="number"
+                              placeholder="주식수"
+                              value={editSharesCount}
+                              onChange={e => setEditSharesCount(e.target.value)}
+                              style={{
+                                width: '80px', padding: '0.25rem', borderRadius: '0.25rem',
+                                background: 'var(--bg-primary)', border: '1px solid var(--accent)',
+                                color: 'var(--text-primary)', fontSize: '0.8rem',
+                              }}
+                            />
+                            {editSharesCount && (editData.entry_price || p.entry_price) && (
+                              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                                = {formatKRW(parseFloat(editSharesCount) * parseFloat(editData.entry_price || p.entry_price))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       formatKRW(p.position_size)
                     )}
@@ -625,6 +752,15 @@ export default function Portfolio({ onNavigate }) {
                           title="수정"
                         >
                           {'\u270F'}
+                        </button>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => handleToggleHidden(p.market, p.symbol)}
+                          disabled={submitting}
+                          title={p.is_hidden ? '종목 표시' : '종목 숨기기'}
+                          style={{ opacity: p.is_hidden ? 0.5 : 1 }}
+                        >
+                          {p.is_hidden ? '\uD83D\uDC41' : '\uD83D\uDE48'}
                         </button>
                         <button
                           className="btn btn-outline btn-sm"

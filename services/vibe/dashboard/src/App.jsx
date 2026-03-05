@@ -1,9 +1,11 @@
 import { useState, Component } from 'react'
+import LoginGate from './components/LoginGate'
 import Sidebar from './components/Sidebar'
 import Overview from './pages/Overview'
 import Signals from './pages/Signals'
 import Portfolio from './pages/Portfolio'
 import Backtest from './pages/Backtest'
+import MarketBrief from './pages/MarketBrief'
 import System from './pages/System'
 import Guide from './pages/Guide'
 
@@ -67,6 +69,7 @@ function App() {
       case 'signals': return <Signals onNavigate={navigateTo} />
       case 'portfolio': return <Portfolio onNavigate={navigateTo} />
       case 'backtest': return <Backtest onNavigate={navigateTo} />
+      case 'market-brief': return <MarketBrief onNavigate={navigateTo} />
       case 'system': return <System onNavigate={navigateTo} />
       case 'guide': return <Guide onNavigate={navigateTo} initialSection={guideSection} />
       default: return <Overview onNavigate={navigateTo} />
@@ -74,7 +77,7 @@ function App() {
   }
 
   return (
-    <>
+    <LoginGate>
       <Sidebar
         activePage={page}
         onNavigate={navigateTo}
@@ -93,7 +96,7 @@ function App() {
           {renderPage()}
         </ErrorBoundary>
       </main>
-    </>
+    </LoginGate>
   )
 }
 

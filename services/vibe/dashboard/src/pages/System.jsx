@@ -4,6 +4,8 @@ import {
   getWatchlist, addWatchlistItem, removeWatchlistItem,
   getAlertConfig, updateAlertConfig, getAlertHistory,
   getMonthlyReports, generateMonthlyReport,
+  getDataStatus, getLLMSettings, updateLLMSettings,
+  getStoredApiKey, setApiKey,
 } from '../api'
 
 import HelpButton from '../components/HelpButton'
@@ -33,6 +35,13 @@ export default function System({ onNavigate }) {
   const [monthlyReports, setMonthlyReports] = useState([])
   const [generatingReport, setGeneratingReport] = useState(false)
 
+  // Data status state
+  const [dataStatus, setDataStatus] = useState(null)
+
+  // LLM settings state
+  const [llmSettings, setLlmSettings] = useState(null)
+  const [llmToggling, setLlmToggling] = useState(null)
+
   const [error, setError] = useState(null)
 
   const refresh = () => {
@@ -42,12 +51,16 @@ export default function System({ onNavigate }) {
       getAlertConfig().catch(() => ({ config: [] })),
       getAlertHistory(20).catch(() => ({ history: [] })),
       getMonthlyReports(6).catch(() => ({ reports: [] })),
+      getDataStatus().catch(() => ({ tables: {} })),
+      getLLMSettings().catch(() => null),
     ])
-      .then(([h, r, wl, ac, ah, mr]) => {
+      .then(([h, r, wl, ac, ah, mr, ds, llm]) => {
         setHealth(h); setRuns(r); setWatchlist(wl || [])
         setAlertConfig(ac.config || [])
         setAlertHistory(ah.history || [])
         setMonthlyReports(mr.reports || [])
+        setDataStatus(ds?.tables || null)
+        setLlmSettings(llm)
         setError(null)
       })
       .catch(err => { console.error(err); setError(err.message) })
@@ -119,6 +132,24 @@ export default function System({ onNavigate }) {
       console.error('Alert save failed:', err)
     } finally {
       setAlertSaving(false)
+    }
+  }
+
+  // LLM toggle handler
+  const handleLLMToggle = async (key) => {
+    if (!llmSettings) return
+    const currentValue = llmSettings.features[key]
+    setLlmToggling(key)
+    try {
+      const result = await updateLLMSettings({ [key]: !currentValue })
+      setLlmSettings(prev => ({
+        ...prev,
+        features: result.features,
+      }))
+    } catch (err) {
+      console.error('LLM toggle failed:', err)
+    } finally {
+      setLlmToggling(null)
     }
   }
 
@@ -303,6 +334,125 @@ export default function System({ onNavigate }) {
         </div>
       </div>
 
+      {/* LLM Settings */}
+      {llmSettings && (
+        <div className="table-container" style={{ marginTop: '1.5rem' }}>
+          <div className="table-header">
+            <h3>{'\uD83E\uDDE0'} LLM \uC124\uC815</h3>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Provider: <strong style={{ color: 'var(--text-primary)' }}>{llmSettings.config?.LLM_PROVIDER}</strong>
+              </span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Model: <strong style={{ color: 'var(--text-primary)' }}>{llmSettings.config?.LLM_MODEL}</strong>
+              </span>
+              <span className={`badge ${llmSettings.config?.LLM_API_KEY_SET ? 'badge-completed' : 'badge-failed'}`}
+                style={{ fontSize: '0.65rem' }}>
+                API Key {llmSettings.config?.LLM_API_KEY_SET ? '\u2713 \uC124\uC815\uB428' : '\u2717 \uBBF8\uC124\uC815'}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ padding: '1rem 1.25rem' }}>
+            {/* Toggle cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+              {[
+                {
+                  key: 'LLM_RED_TEAM_ENABLED',
+                  label: 'Red-Team \uAC80\uC99D',
+                  desc: 'Stage 7: BUY \uC2DC\uADF8\uB110 LLM \uC5ED\uBC1C\uC0C1 \uAC80\uC99D',
+                  icon: '\uD83D\uDEE1',
+                  stage: 'S7',
+                  costHint: '~\u20A9150/\uC2E4\uD589',
+                },
+                {
+                  key: 'LLM_EXPLANATION_ENABLED',
+                  label: '\uC2DC\uADF8\uB110 \uD574\uC124',
+                  desc: 'Stage 8: \uD55C\uAD6D\uC5B4 \uC885\ubaa9\ubcc4 \uBD84\uC11D + \uC2DC\uD669 \uBE0C\uB9AC\uD551',
+                  icon: '\uD83D\uDCDD',
+                  stage: 'S8+\uBE0C\uB9AC\uD551',
+                  costHint: '~\u20A9300/\uC2E4\uD589',
+                },
+                {
+                  key: 'LLM_SCENARIO_ENABLED',
+                  label: '\uD3EC\uD2B8\uD3F4\uB9AC\uC624 \uC2DC\uB098\uB9AC\uC624',
+                  desc: 'Stage 9: \uBCF4\uC720/\uC9C4\uC785 \uC885\uBAA9 \uC2DC\uB098\uB9AC\uC624 \uBD84\uC11D',
+                  icon: '\uD83C\uDFAF',
+                  stage: 'S9',
+                  costHint: '~\u20A9200/\uC2E4\uD589',
+                },
+              ].map(({ key, label, desc, icon, stage, costHint }) => {
+                const enabled = llmSettings.features[key]
+                const isToggling = llmToggling === key
+                const apiKeySet = llmSettings.config?.LLM_API_KEY_SET
+                return (
+                  <div key={key} style={{
+                    background: 'var(--bg-primary)',
+                    border: `1px solid ${enabled ? 'var(--accent)' : 'var(--border)'}`,
+                    borderRadius: '0.75rem',
+                    padding: '1rem',
+                    transition: 'border-color 0.2s',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '1.1rem' }}>{icon} {label}</span>
+                      <button
+                        onClick={() => handleLLMToggle(key)}
+                        disabled={isToggling || !apiKeySet}
+                        title={!apiKeySet ? 'API Key\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 (.env\uC5D0\uC11C LLM_API_KEY \uC124\uC815 \uD544\uC694)' : ''}
+                        style={{
+                          width: '48px', height: '26px',
+                          borderRadius: '13px',
+                          border: 'none',
+                          background: enabled ? 'var(--accent)' : 'rgba(148,163,184,0.3)',
+                          cursor: !apiKeySet ? 'not-allowed' : 'pointer',
+                          position: 'relative',
+                          transition: 'background 0.2s',
+                          opacity: !apiKeySet ? 0.4 : 1,
+                        }}
+                      >
+                        <span style={{
+                          position: 'absolute',
+                          top: '3px',
+                          left: enabled ? '24px' : '3px',
+                          width: '20px', height: '20px',
+                          borderRadius: '50%',
+                          background: '#fff',
+                          transition: 'left 0.2s',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                        }} />
+                      </button>
+                    </div>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem 0', lineHeight: 1.4 }}>
+                      {desc}
+                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className={`badge ${enabled ? 'badge-buy' : ''}`}
+                        style={!enabled ? { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' } : {}}>
+                        {stage}
+                      </span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{costHint}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Rule-based status */}
+            <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--bg-primary)', borderRadius: '0.5rem', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {'\u2139\uFE0F'} \uADDC\uCE59 \uAE30\uBC18 \uBD84\uC11D\uC740 LLM \uC124\uC815\uACFC \uBB34\uAD00\uD558\uAC8C \uD56D\uC0C1 \uD65C\uC131\uD654 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.
+                LLM\uC740 \uADDC\uCE59 \uAE30\uBC18 \uACB0\uACFC\uC5D0 \uCD94\uAC00 \uBCF4\uAC15\uD558\uB294 \uC5ED\uD560\uC744 \uD569\uB2C8\uB2E4.
+                {!llmSettings.config?.LLM_API_KEY_SET && (
+                  <span style={{ color: 'var(--yellow)', display: 'block', marginTop: '0.25rem' }}>
+                    {'\u26A0'} LLM \uAE30\uB2A5\uC744 \uC0AC\uC6A9\uD558\uB824\uBA74 .env \uD30C\uC77C\uC5D0 LLM_API_KEY\uB97C \uC124\uC815\uD558\uC138\uC694.
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Alert Settings */}
       <div className="table-container" style={{ marginTop: '1.5rem' }}>
         <div className="table-header">
@@ -394,6 +544,74 @@ export default function System({ onNavigate }) {
         </div>
       )}
 
+      {/* Data Status */}
+      {dataStatus && (
+        <div className="table-container" style={{ marginTop: '1.5rem' }}>
+          <div className="table-header">
+            <h3>{'\uD83D\uDDC4'} 수집 데이터 현황</h3>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>데이터</th>
+                <th>건수</th>
+                <th>종목수</th>
+                <th>최초</th>
+                <th>최신</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { key: 'price_history', label: '가격 데이터', hasSymbols: true },
+                { key: 'signals', label: '시그널', hasSymbols: true },
+                { key: 'technical_indicators', label: '기술 지표', hasSymbols: false },
+                { key: 'macro_indicators', label: '매크로 지표', hasSymbols: false },
+                { key: 'sentiment_data', label: '센티먼트', hasSymbols: false },
+                { key: 'news_data', label: '뉴스 데이터', hasSymbols: true },
+                { key: 'fund_flow_kr', label: 'KR 수급', hasSymbols: true },
+                { key: 'market_briefings', label: '시황 브리핑', hasSymbols: false },
+                { key: 'llm_reviews', label: 'LLM 리뷰', hasSymbols: false },
+              ].map(({ key, label, hasSymbols }) => {
+                const d = dataStatus[key] || {}
+                const cnt = d.cnt || 0
+                const latest = d.latest
+                const isStale = latest && (() => {
+                  const diff = (Date.now() - new Date(latest).getTime()) / (1000*60*60*24)
+                  return diff > 3
+                })()
+                return (
+                  <tr key={key}>
+                    <td style={{ fontWeight: 600 }}>{label}</td>
+                    <td>{cnt.toLocaleString()}</td>
+                    <td>{hasSymbols ? (d.symbols || '-') : '-'}</td>
+                    <td style={{ fontSize: '0.8rem' }}>{d.earliest || '-'}</td>
+                    <td style={{ fontSize: '0.8rem' }}>{latest || '-'}</td>
+                    <td>
+                      {cnt === 0 ? (
+                        <span className="badge" style={{ background: 'rgba(148,163,184,0.15)', color: '#94a3b8' }}>없음</span>
+                      ) : isStale ? (
+                        <span className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>갱신 필요</span>
+                      ) : (
+                        <span className="badge" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>정상</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+              <tr>
+                <td style={{ fontWeight: 600 }}>Watchlist</td>
+                <td>{(dataStatus.watchlist_active?.cnt || 0).toLocaleString()}</td>
+                <td colSpan={3}>활성 종목 수</td>
+                <td>
+                  <span className="badge" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>정상</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Monthly Reports */}
       <div className="table-container" style={{ marginTop: '1.5rem' }}>
         <div className="table-header">
@@ -454,6 +672,39 @@ export default function System({ onNavigate }) {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Auth Status */}
+      <div className="card" style={{ marginTop: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div className="card-label">{'\uD83D\uDD10'} {'\uC778\uC99D'} {'\uC0C1\uD0DC'}</div>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '0.5rem' }}>
+              <span className={`badge ${getStoredApiKey() ? 'badge-completed' : 'badge-hold'}`}>
+                {getStoredApiKey() ? '\uD83D\uDD12 API Key \uC778\uC99D\uB428' : '\uD83D\uDD13 \uC778\uC99D \uC5C6\uC74C'}
+              </span>
+              {getStoredApiKey() && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Key: {getStoredApiKey().slice(0, 4)}{'****'}
+                </span>
+              )}
+            </div>
+          </div>
+          {getStoredApiKey() && (
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => {
+                if (confirm('\uB85C\uADF8\uC544\uC6C3 \uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?')) {
+                  setApiKey(null)
+                  window.location.reload()
+                }
+              }}
+              style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
+            >
+              {'\uD83D\uDEAA'} {'\uB85C\uADF8\uC544\uC6C3'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Watchlist Management */}

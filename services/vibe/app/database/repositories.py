@@ -760,21 +760,49 @@ async def delete_portfolio_group(group_id: int) -> bool:
     return True
 
 
-# ── Portfolio State (Phase B, updated Phase G) ──
+# ── Portfolio State (Phase B, updated Phase G+) ──
 
 
 async def get_portfolio_state(
-    portfolio_id: int = 1, market: str | None = None,
+    portfolio_id: int = 1,
+    market: str | None = None,
+    include_hidden: bool = False,
 ) -> list[dict]:
     db = await get_db()
     query = "SELECT * FROM portfolio_state WHERE portfolio_id = ? AND position_size > 0"
     params: list = [portfolio_id]
+    if not include_hidden:
+        query += " AND is_hidden = 0"
     if market:
         query += " AND market = ?"
         params.append(market)
     cursor = await db.execute(query, params)
     rows = await cursor.fetchall()
     return [dict(r) for r in rows]
+
+
+async def toggle_position_hidden(
+    symbol: str, market: str, portfolio_id: int = 1,
+) -> dict:
+    """Toggle is_hidden flag for a position. Returns updated state."""
+    db = await get_db()
+    cursor = await db.execute(
+        """UPDATE portfolio_state
+           SET is_hidden = CASE WHEN is_hidden = 0 THEN 1 ELSE 0 END,
+               updated_at = datetime('now')
+           WHERE portfolio_id = ? AND symbol = ? AND market = ?""",
+        (portfolio_id, symbol, market),
+    )
+    await db.commit()
+    if cursor.rowcount == 0:
+        return {"found": False}
+    # Return current state
+    cursor = await db.execute(
+        "SELECT is_hidden FROM portfolio_state WHERE portfolio_id = ? AND symbol = ? AND market = ?",
+        (portfolio_id, symbol, market),
+    )
+    row = await cursor.fetchone()
+    return {"found": True, "is_hidden": bool(row["is_hidden"])} if row else {"found": False}
 
 
 async def upsert_portfolio_position(
@@ -1111,6 +1139,54 @@ async def insert_alert_history(alert: dict) -> int:
     return cursor.lastrowid or 0
 
 
+# ── Market Briefings (Phase G+) ──
+
+
+async def get_market_briefings(limit: int = 10) -> list[dict]:
+    """Get recent market briefings."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT * FROM market_briefings ORDER BY briefing_date DESC LIMIT ?", (limit,)
+    )
+    rows = await cursor.fetchall()
+    results = []
+    for row in rows:
+        r = dict(row)
+        r["content"] = _safe_json_loads(r.get("content_json"), {})
+        results.append(r)
+    return results
+
+
+async def get_market_briefing(briefing_date: str, market: str = "ALL") -> dict | None:
+    """Get a specific market briefing by date."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT * FROM market_briefings WHERE briefing_date = ? AND market = ?",
+        (briefing_date, market),
+    )
+    row = await cursor.fetchone()
+    if row:
+        r = dict(row)
+        r["content"] = _safe_json_loads(r.get("content_json"), {})
+        return r
+    return None
+
+
+async def upsert_market_briefing(briefing_date: str, market: str, content: dict, llm_summary: str | None = None) -> None:
+    """Insert or update a market briefing."""
+    db = await get_db()
+    await db.execute(
+        """INSERT INTO market_briefings (briefing_date, market, content_json, llm_summary)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(briefing_date, market) DO UPDATE SET
+           content_json = excluded.content_json,
+           llm_summary = COALESCE(excluded.llm_summary, market_briefings.llm_summary),
+           created_at = datetime('now')""",
+        (briefing_date, market, json.dumps(content, ensure_ascii=False), llm_summary),
+    )
+    await db.commit()
+
+
 # ── Monthly Reports (Phase F) ──
 
 async def get_monthly_reports(limit: int = 12) -> list[dict]:
@@ -1139,4 +1215,44 @@ async def upsert_monthly_report(report_month: str, market: str, content: dict) -
            created_at = datetime('now')""",
         (report_month, market, json.dumps(content, ensure_ascii=False)),
     )
+    await db.commit()
+
+
+# ── Runtime Config (Phase G+) ──
+
+
+async def get_runtime_config() -> dict[str, str]:
+    """Get all runtime config entries as a key-value dict."""
+    db = await get_db()
+    cursor = await db.execute("SELECT key, value FROM runtime_config ORDER BY key")
+    rows = await cursor.fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+async def upsert_runtime_config(key: str, value: str) -> None:
+    """Insert or update a runtime config entry."""
+    db = await get_db()
+    await db.execute(
+        """INSERT INTO runtime_config (key, value, updated_at)
+           VALUES (?, ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = datetime('now')""",
+        (key, value),
+    )
+    await db.commit()
+
+
+async def set_runtime_configs(updates: dict[str, str]) -> None:
+    """Batch update runtime config entries."""
+    db = await get_db()
+    for key, value in updates.items():
+        await db.execute(
+            """INSERT INTO runtime_config (key, value, updated_at)
+               VALUES (?, ?, datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET
+               value = excluded.value,
+               updated_at = datetime('now')""",
+            (key, value),
+        )
     await db.commit()

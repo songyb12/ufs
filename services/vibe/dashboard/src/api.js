@@ -1,14 +1,32 @@
 const BASE = ''
-const API_KEY = import.meta.env.VITE_API_KEY || ''
+
+function getApiKey() {
+  // Priority: localStorage > build-time env
+  return localStorage.getItem('vibe_api_key') || import.meta.env.VITE_API_KEY || ''
+}
+
+export function setApiKey(key) {
+  if (key) {
+    localStorage.setItem('vibe_api_key', key)
+  } else {
+    localStorage.removeItem('vibe_api_key')
+  }
+}
+
+export function getStoredApiKey() {
+  return getApiKey()
+}
 
 function authHeaders() {
   const headers = { 'Content-Type': 'application/json' }
-  if (API_KEY) headers['X-API-Key'] = API_KEY
+  const key = getApiKey()
+  if (key) headers['X-API-Key'] = key
   return headers
 }
 
 async function fetchJSON(path) {
-  const opts = API_KEY ? { headers: { 'X-API-Key': API_KEY } } : {}
+  const key = getApiKey()
+  const opts = key ? { headers: { 'X-API-Key': key } } : {}
   const res = await fetch(`${BASE}${path}`, opts)
   if (!res.ok) throw new Error(`API error: ${res.status}`)
   return res.json()
@@ -34,10 +52,20 @@ export async function getSignalPerformance(market = null) {
   return fetchJSON(`/signals/performance${q}`)
 }
 
-export async function getPortfolio(market = null, portfolioId = 1) {
+export async function getPortfolio(market = null, portfolioId = 1, includeHidden = false) {
   let q = `?portfolio_id=${portfolioId}`
   if (market) q += `&market=${market}`
+  if (includeHidden) q += '&include_hidden=true'
   return fetchJSON(`/portfolio${q}`)
+}
+
+export async function togglePositionHidden(market, symbol, portfolioId = 1) {
+  const res = await fetch(`${BASE}/portfolio/position/${market}/${symbol}/hide?portfolio_id=${portfolioId}`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
 }
 
 export async function getPortfolioScenarios(market = null) {
@@ -90,6 +118,38 @@ export async function getPipelineRuns() {
   return fetchJSON('/pipeline/runs')
 }
 
+export async function getMarketBriefings(limit = 10) {
+  return fetchJSON(`/briefing?limit=${limit}`)
+}
+
+export async function getLatestBriefing() {
+  return fetchJSON('/briefing/latest')
+}
+
+export async function generateBriefing() {
+  const res = await fetch(`${BASE}/briefing/generate`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
+export async function analyzeWithAI(question = null, options = {}) {
+  const body = {}
+  if (question) body.question = question
+  if (options.markets) body.markets = options.markets
+  if (options.include_portfolio != null) body.include_portfolio = options.include_portfolio
+  if (options.portfolio_id) body.portfolio_id = options.portfolio_id
+  const res = await fetch(`${BASE}/briefing/analyze`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
+}
+
 export async function getPriceChart(symbol, market = 'KR', days = 60) {
   return fetchJSON(`/dashboard/prices/${symbol}?market=${market}&days=${days}`)
 }
@@ -136,6 +196,24 @@ export async function updateAlertConfig(updates) {
 
 export async function getAlertHistory(limit = 50) {
   return fetchJSON(`/alerts/history?limit=${limit}`)
+}
+
+export async function getDataStatus() {
+  return fetchJSON('/dashboard/data-status')
+}
+
+export async function getLLMSettings() {
+  return fetchJSON('/settings/llm')
+}
+
+export async function updateLLMSettings(updates) {
+  const res = await fetch(`${BASE}/settings/llm`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(updates),
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  return res.json()
 }
 
 export async function getMonthlyReports(limit = 12) {

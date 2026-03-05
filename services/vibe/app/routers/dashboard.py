@@ -188,6 +188,100 @@ async def get_signal_history(
     return {"count": len(rows), "signals": rows}
 
 
+@router.get("/data-status")
+async def get_data_status():
+    """Get data freshness and coverage statistics for each table."""
+    db = await get_db()
+    tables = {}
+
+    # Price History
+    c = await db.execute(
+        """SELECT COUNT(*) as cnt,
+                  MIN(trade_date) as earliest,
+                  MAX(trade_date) as latest,
+                  COUNT(DISTINCT symbol) as symbols
+           FROM price_history"""
+    )
+    r = await c.fetchone()
+    tables["price_history"] = dict(r)
+
+    # Signals
+    c = await db.execute(
+        """SELECT COUNT(*) as cnt,
+                  MIN(signal_date) as earliest,
+                  MAX(signal_date) as latest,
+                  COUNT(DISTINCT symbol) as symbols
+           FROM signals"""
+    )
+    tables["signals"] = dict(await c.fetchone())
+
+    # Macro Indicators
+    c = await db.execute(
+        """SELECT COUNT(*) as cnt,
+                  MIN(indicator_date) as earliest,
+                  MAX(indicator_date) as latest
+           FROM macro_indicators"""
+    )
+    tables["macro_indicators"] = dict(await c.fetchone())
+
+    # Sentiment Data
+    c = await db.execute(
+        """SELECT COUNT(*) as cnt,
+                  MIN(indicator_date) as earliest,
+                  MAX(indicator_date) as latest
+           FROM sentiment_data"""
+    )
+    tables["sentiment_data"] = dict(await c.fetchone())
+
+    # News Data
+    c = await db.execute(
+        """SELECT COUNT(*) as cnt,
+                  MIN(trade_date) as earliest,
+                  MAX(trade_date) as latest,
+                  COUNT(DISTINCT symbol) as symbols
+           FROM news_data"""
+    )
+    tables["news_data"] = dict(await c.fetchone())
+
+    # Fund Flow KR
+    c = await db.execute(
+        """SELECT COUNT(*) as cnt,
+                  MIN(trade_date) as earliest,
+                  MAX(trade_date) as latest,
+                  COUNT(DISTINCT symbol) as symbols
+           FROM fund_flow_kr"""
+    )
+    tables["fund_flow_kr"] = dict(await c.fetchone())
+
+    # Technical Indicators
+    c = await db.execute(
+        """SELECT COUNT(*) as cnt,
+                  MAX(trade_date) as latest
+           FROM technical_indicators"""
+    )
+    tables["technical_indicators"] = dict(await c.fetchone())
+
+    # Watchlist
+    c = await db.execute("SELECT COUNT(*) as cnt FROM watchlist WHERE is_active = 1")
+    tables["watchlist_active"] = {"cnt": (await c.fetchone())[0]}
+
+    # Market Briefings
+    c = await db.execute(
+        """SELECT COUNT(*) as cnt, MAX(briefing_date) as latest
+           FROM market_briefings"""
+    )
+    tables["market_briefings"] = dict(await c.fetchone())
+
+    # LLM Reviews
+    c = await db.execute(
+        """SELECT COUNT(*) as cnt, MAX(review_date) as latest
+           FROM llm_reviews"""
+    )
+    tables["llm_reviews"] = dict(await c.fetchone())
+
+    return {"tables": tables}
+
+
 @router.get("/reports/monthly")
 async def get_monthly_reports(limit: int = Query(12, ge=1, le=24)):
     """Get recent monthly reports."""

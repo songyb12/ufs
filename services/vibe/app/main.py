@@ -19,7 +19,7 @@ from app.config import settings
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.database.seed import seed_watchlist
-from app.routers import alerts, backtest, dashboard, pipeline, portfolio, risk, screening, sentiment, signals, watchlist
+from app.routers import alerts, backtest, briefing, dashboard, llm_settings, pipeline, portfolio, risk, screening, sentiment, signals, watchlist
 from app.scheduler.jobs import register_jobs
 from app.scheduler.runner import create_scheduler
 
@@ -40,6 +40,10 @@ async def lifespan(app: FastAPI):
     seeded = await seed_watchlist()
     if seeded > 0:
         logger.info("Watchlist seeded with %d symbols", seeded)
+
+    # Load runtime config overrides (e.g. LLM toggles)
+    from app.routers.llm_settings import load_runtime_overrides
+    await load_runtime_overrides()
 
     # Collector registry (shared across pipeline + scheduler)
     collector_registry = CollectorRegistry(settings)
@@ -113,6 +117,8 @@ app.include_router(screening.router)
 app.include_router(sentiment.router)
 app.include_router(portfolio.router)
 app.include_router(alerts.router)
+app.include_router(briefing.router)
+app.include_router(llm_settings.router)
 
 
 @app.get("/health")
@@ -246,6 +252,9 @@ async def root():
             "/portfolio/scenarios",
             "/alerts/config",
             "/alerts/history",
+            "/briefing",
+            "/briefing/latest",
+            "/briefing/generate",
             "/dashboard/reports/monthly",
             "/admin/backup",
         ],
