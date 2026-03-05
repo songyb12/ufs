@@ -10,6 +10,7 @@ export default function Signals() {
   const [market, setMarket] = useState('')
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     setLoading(true)
@@ -17,8 +18,8 @@ export default function Signals() {
       getSignalHistory(market || null, days),
       getSignalPerformance(market || null),
     ])
-      .then(([h, p]) => { setSignals(h.signals || []); setPerf(p) })
-      .catch(console.error)
+      .then(([h, p]) => { setSignals(h.signals || []); setPerf(p); setError(null) })
+      .catch(err => { console.error(err); setError(err.message) })
       .finally(() => setLoading(false))
   }, [market, days])
 
@@ -107,6 +108,11 @@ export default function Signals() {
       )}
 
       {/* Signal Table */}
+      {error && (
+        <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--red)', padding: '0.75rem 1.25rem', color: 'var(--red)' }}>
+          Error: {error}
+        </div>
+      )}
       {loading ? (
         <div className="loading"><span className="spinner" /> Loading...</div>
       ) : (

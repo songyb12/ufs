@@ -54,7 +54,7 @@ class BaseCollector(ABC):
 
     def _run_sync(self, func, *args):
         """Run a synchronous function in a thread executor."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return loop.run_in_executor(self._executor, func, *args)
 
     @staticmethod

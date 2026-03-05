@@ -199,7 +199,7 @@ def register_jobs(
     async def refresh_event_calendar():
         try:
             from app.risk.events import EventCalendar
-            calendar = EventCalendar(config)
+            calendar = EventCalendar()
             count = await calendar.seed_static_events()
             logger.info("Event calendar refreshed: %d events", count)
         except Exception as e:

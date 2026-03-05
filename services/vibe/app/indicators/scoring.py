@@ -144,6 +144,11 @@ def compute_aggregate_signal(
         }
         fund_flow_val = 0.0
 
+    # Normalize weights to sum to 1.0 (defensive against config drift)
+    total_w = sum(weights.values())
+    if total_w > 0 and abs(total_w - 1.0) > 0.001:
+        weights = {k: v / total_w for k, v in weights.items()}
+
     # Weighted score
     raw_score = (
         technical_score * weights["technical"]

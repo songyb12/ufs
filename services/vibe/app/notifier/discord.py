@@ -72,7 +72,10 @@ class DiscordNotifier:
                     return True
                 elif resp.status_code == 429:
                     # Rate limited — wait and retry once
-                    retry_after = resp.json().get("retry_after", 5)
+                    try:
+                        retry_after = resp.json().get("retry_after", 5)
+                    except Exception:
+                        retry_after = 5
                     logger.warning("Discord rate limited, retrying in %.1fs", retry_after)
                     await asyncio.sleep(retry_after)
                     resp2 = await client.post(

@@ -4,6 +4,7 @@ When API_AUTH_ENABLED=True, all endpoints (except /health and /)
 require X-API-Key header matching the configured API_KEY.
 """
 
+import hmac
 import logging
 
 from fastapi import Request
@@ -15,6 +16,9 @@ logger = logging.getLogger("vibe.auth")
 # Paths that never require authentication
 PUBLIC_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}
 
+# Path prefixes that never require authentication
+PUBLIC_PREFIXES = ("/ui/", "/static/", "/ui")
+
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, api_key: str):
@@ -22,13 +26,19 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         self.api_key = api_key
 
     async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
         # Skip auth for public paths
-        if request.url.path in PUBLIC_PATHS:
+        if path in PUBLIC_PATHS:
+            return await call_next(request)
+
+        # Skip auth for dashboard static assets
+        if any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
             return await call_next(request)
 
         # Check X-API-Key header
         provided_key = request.headers.get("X-API-Key", "")
-        if provided_key != self.api_key:
+        if not hmac.compare_digest(provided_key, self.api_key):
             logger.warning(
                 "Auth failed: %s %s from %s",
                 request.method, request.url.path, request.client.host if request.client else "unknown",

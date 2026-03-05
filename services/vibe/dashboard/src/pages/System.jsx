@@ -19,11 +19,13 @@ export default function System() {
   const [wlSubmitting, setWlSubmitting] = useState(false)
   const [wlMessage, setWlMessage] = useState(null)
 
+  const [error, setError] = useState(null)
+
   const refresh = () => {
     setLoading(true)
     Promise.all([getHealth(), getPipelineRuns(), getWatchlist()])
-      .then(([h, r, wl]) => { setHealth(h); setRuns(r); setWatchlist(wl || []) })
-      .catch(console.error)
+      .then(([h, r, wl]) => { setHealth(h); setRuns(r); setWatchlist(wl || []); setError(null) })
+      .catch(err => { console.error(err); setError(err.message) })
       .finally(() => setLoading(false))
   }
 
@@ -79,6 +81,7 @@ export default function System() {
   }
 
   if (loading) return <div className="loading"><span className="spinner" /> Loading...</div>
+  if (error) return <div className="loading" style={{ color: 'var(--red)' }}>Error: {error}</div>
 
   const filteredWl = wlFilter === 'ALL' ? watchlist : watchlist.filter(w => w.market === wlFilter)
 

@@ -1,7 +1,7 @@
 """Signal Performance Tracker - Tracks T+1/5/20 returns for live signals."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.database import repositories as repo
 
@@ -46,7 +46,7 @@ class SignalPerformanceTracker:
             return 0
 
         updated = 0
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         for record in pending:
             signal_date = record["signal_date"]
@@ -109,9 +109,14 @@ class SignalPerformanceTracker:
     ) -> dict:
         """Get hit rate summary for signals in the last N days."""
         since_date = (
-            datetime.utcnow() - timedelta(days=lookback_days)
+            datetime.now(timezone.utc) - timedelta(days=lookback_days)
         ).strftime("%Y-%m-%d")
-        return await repo.get_performance_summary(market=market, since_date=since_date)
+        summary = await repo.get_performance_summary(market=market, since_date=since_date)
+        # Convert hit rates from 0.0-1.0 to percentage (0-100)
+        for key in ("hit_rate_t5", "hit_rate_t20"):
+            if summary.get(key) is not None:
+                summary[key] = round(summary[key] * 100, 2)
+        return summary
 
     @staticmethod
     def _add_trading_days(date_str: str, days: int) -> str:

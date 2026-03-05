@@ -17,9 +17,7 @@ _pipeline_locks: dict[str, asyncio.Lock] = {}
 
 
 def _get_lock(market: str) -> asyncio.Lock:
-    if market not in _pipeline_locks:
-        _pipeline_locks[market] = asyncio.Lock()
-    return _pipeline_locks[market]
+    return _pipeline_locks.setdefault(market, asyncio.Lock())
 from app.pipeline.stages.s1_data_collection import DataCollectionStage
 from app.pipeline.stages.s2_technical_analysis import TechnicalAnalysisStage
 from app.pipeline.stages.s2b_fundamental import FundamentalAnalysisStage

@@ -22,29 +22,29 @@ class MacroCollector:
         import asyncio
         import FinanceDataReader as fdr
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         start = (date.today() - timedelta(days=days_back)).strftime("%Y-%m-%d")
         end = date.today().strftime("%Y-%m-%d")
 
         async def _fetch(symbol: str) -> pd.DataFrame | None:
             try:
                 df = await loop.run_in_executor(
-                    None, lambda: fdr.DataReader(symbol, start, end)
+                    None, lambda s=symbol: fdr.DataReader(s, start, end)
                 )
                 return df if df is not None and not df.empty else None
             except Exception as e:
                 logger.warning("Macro fetch failed for %s: %s", symbol, e)
                 return None
 
-        # Fetch all macro data concurrently
-        vix_df, dxy_df, usdkrw_df, wti_df, gold_df, us10y_df, us2y_df = (
-            await _fetch("VIX"),        # CBOE Volatility Index
-            await _fetch("DX-Y.NYB"),   # US Dollar Index
-            await _fetch("USD/KRW"),    # Won/Dollar exchange rate
-            await _fetch("CL=F"),       # WTI Crude Oil Futures
-            await _fetch("GC=F"),       # Gold Futures
-            await _fetch("^TNX"),       # US 10Y Treasury Yield
-            await _fetch("^IRX"),       # US 2Y (13-week T-bill as proxy)
+        # Fetch all macro data concurrently via asyncio.gather
+        vix_df, dxy_df, usdkrw_df, wti_df, gold_df, us10y_df, us2y_df = await asyncio.gather(
+            _fetch("VIX"),        # CBOE Volatility Index
+            _fetch("DX-Y.NYB"),   # US Dollar Index
+            _fetch("USD/KRW"),    # Won/Dollar exchange rate
+            _fetch("CL=F"),       # WTI Crude Oil Futures
+            _fetch("GC=F"),       # Gold Futures
+            _fetch("^TNX"),       # US 10Y Treasury Yield
+            _fetch("^IRX"),       # US 2Y (13-week T-bill as proxy)
         )
 
         def _latest(df: pd.DataFrame | None, col: str = "Close") -> float | None:

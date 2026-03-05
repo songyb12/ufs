@@ -1,7 +1,15 @@
-const BASE = import.meta.env.PROD ? '' : ''
+const BASE = ''
+const API_KEY = import.meta.env.VITE_API_KEY || ''
+
+function authHeaders() {
+  const headers = { 'Content-Type': 'application/json' }
+  if (API_KEY) headers['X-API-Key'] = API_KEY
+  return headers
+}
 
 async function fetchJSON(path) {
-  const res = await fetch(`${BASE}${path}`)
+  const opts = API_KEY ? { headers: { 'X-API-Key': API_KEY } } : {}
+  const res = await fetch(`${BASE}${path}`, opts)
   if (!res.ok) throw new Error(`API error: ${res.status}`)
   return res.json()
 }
@@ -51,7 +59,7 @@ export async function getPriceChart(symbol, market = 'KR', days = 60) {
 export async function triggerPipeline(market = 'ALL') {
   const res = await fetch('/pipeline/run', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({ market }),
   })
   return res.json()
@@ -65,7 +73,7 @@ export async function getWatchlist(market = null) {
 export async function addPosition(data) {
   const res = await fetch(`${BASE}/portfolio/position`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(data),
   })
   if (!res.ok) throw new Error(`API error: ${res.status}`)
@@ -73,9 +81,9 @@ export async function addPosition(data) {
 }
 
 export async function deletePosition(market, symbol) {
-  const res = await fetch(`${BASE}/portfolio/position/${market}/${symbol}`, {
-    method: 'DELETE',
-  })
+  const opts = { method: 'DELETE' }
+  if (API_KEY) opts.headers = { 'X-API-Key': API_KEY }
+  const res = await fetch(`${BASE}/portfolio/position/${market}/${symbol}`, opts)
   if (!res.ok) throw new Error(`API error: ${res.status}`)
   return res.json()
 }
@@ -83,7 +91,7 @@ export async function deletePosition(market, symbol) {
 export async function quickAddPositions(items) {
   const res = await fetch(`${BASE}/portfolio/quick`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(items),
   })
   if (!res.ok) throw new Error(`API error: ${res.status}`)
@@ -93,7 +101,7 @@ export async function quickAddPositions(items) {
 export async function addWatchlistItem(data) {
   const res = await fetch(`${BASE}/watchlist`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(data),
   })
   if (!res.ok) throw new Error(`API error: ${res.status}`)
@@ -101,9 +109,9 @@ export async function addWatchlistItem(data) {
 }
 
 export async function removeWatchlistItem(symbol, market = 'KR') {
-  const res = await fetch(`${BASE}/watchlist/${symbol}?market=${market}`, {
-    method: 'DELETE',
-  })
+  const opts = { method: 'DELETE' }
+  if (API_KEY) opts.headers = { 'X-API-Key': API_KEY }
+  const res = await fetch(`${BASE}/watchlist/${symbol}?market=${market}`, opts)
   if (!res.ok) throw new Error(`API error: ${res.status}`)
   return res.json()
 }
@@ -126,7 +134,7 @@ export function exportPortfolioCSV(positions) {
   URL.revokeObjectURL(url)
 }
 
-export async function exportSignalsCSV(signals) {
+export function exportSignalsCSV(signals) {
   const headers = ['Date', 'Symbol', 'Name', 'Market', 'Signal', 'Score', 'RSI', 'Hard Limit', 'Rationale']
   const rows = signals.map(s => [
     s.signal_date, s.symbol, s.name || s.symbol, s.market,

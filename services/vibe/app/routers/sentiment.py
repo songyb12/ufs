@@ -10,6 +10,7 @@ router = APIRouter(prefix="/sentiment", tags=["sentiment"])
 @router.get("")
 async def get_sentiment(days: int = 7):
     """Get recent sentiment data."""
+    days = min(max(days, 1), 365)
     data = await repo.get_sentiment_history(days)
     return {"sentiment": data, "count": len(data)}
 

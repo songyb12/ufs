@@ -84,4 +84,5 @@ async def pipeline_status():
 @router.get("/runs", response_model=list[PipelineRunDetail])
 async def list_runs(limit: int = 20):
     """List past pipeline runs."""
+    limit = min(max(limit, 1), 100)
     return await repo.get_pipeline_runs(limit=limit)

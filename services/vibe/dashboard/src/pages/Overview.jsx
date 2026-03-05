@@ -9,15 +9,17 @@ export default function Overview() {
   const [summary, setSummary] = useState(null)
   const [signals, setSignals] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     Promise.all([getSummary(), getSignals()])
-      .then(([s, sig]) => { setSummary(s); setSignals(sig) })
-      .catch(console.error)
+      .then(([s, sig]) => { setSummary(s); setSignals(sig); setError(null) })
+      .catch(err => { console.error(err); setError(err.message) })
       .finally(() => setLoading(false))
   }, [])
 
   if (loading) return <div className="loading"><span className="spinner" /> Loading...</div>
+  if (error) return <div className="loading" style={{ color: 'var(--red)' }}>Error: {error}</div>
   if (!summary) return <div className="loading">No data available</div>
 
   const { signals: sigCounts, portfolio, pipelines, data, hard_limit_count } = summary

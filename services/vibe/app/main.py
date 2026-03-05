@@ -127,7 +127,8 @@ async def health():
             db_ok = db_tables > 0
         finally:
             await db.close()
-    except Exception:
+    except Exception as e:
+        logger.warning("Health check DB connectivity failed: %s", e)
         db_ok = False
 
     # Last pipeline run freshness

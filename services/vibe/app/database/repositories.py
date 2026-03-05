@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.database.connection import get_db
 
@@ -119,23 +119,25 @@ async def get_symbol_names(market: str) -> dict[str, str]:
 
 
 async def upsert_price_history(rows: list[dict]) -> int:
+    if not rows:
+        return 0
     db = await get_db()
     try:
-        count = 0
-        for r in rows:
-            cursor = await db.execute(
-                """INSERT OR REPLACE INTO price_history
-                   (symbol, market, trade_date, open, high, low, close, volume, adjusted_close)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        await db.executemany(
+            """INSERT OR REPLACE INTO price_history
+               (symbol, market, trade_date, open, high, low, close, volume, adjusted_close)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
                 (
                     r["symbol"], r["market"], r["trade_date"],
                     r.get("open"), r.get("high"), r.get("low"),
                     r["close"], r.get("volume"), r.get("adjusted_close"),
-                ),
-            )
-            count += cursor.rowcount
+                )
+                for r in rows
+            ],
+        )
         await db.commit()
-        return count
+        return len(rows)
     finally:
         await db.close()
 
@@ -159,17 +161,18 @@ async def get_price_history(symbol: str, market: str, limit: int = 200) -> list[
 
 
 async def upsert_technical_indicators(rows: list[dict]) -> int:
+    if not rows:
+        return 0
     db = await get_db()
     try:
-        count = 0
-        for r in rows:
-            cursor = await db.execute(
-                """INSERT OR REPLACE INTO technical_indicators
-                   (symbol, market, trade_date, rsi_14, ma_5, ma_20, ma_60, ma_120,
-                    macd, macd_signal, macd_histogram,
-                    bollinger_upper, bollinger_middle, bollinger_lower,
-                    disparity_20, volume_ratio)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        await db.executemany(
+            """INSERT OR REPLACE INTO technical_indicators
+               (symbol, market, trade_date, rsi_14, ma_5, ma_20, ma_60, ma_120,
+                macd, macd_signal, macd_histogram,
+                bollinger_upper, bollinger_middle, bollinger_lower,
+                disparity_20, volume_ratio)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
                 (
                     r["symbol"], r["market"], r["trade_date"],
                     r.get("rsi_14"), r.get("ma_5"), r.get("ma_20"),
@@ -177,11 +180,12 @@ async def upsert_technical_indicators(rows: list[dict]) -> int:
                     r.get("macd"), r.get("macd_signal"), r.get("macd_histogram"),
                     r.get("bollinger_upper"), r.get("bollinger_middle"), r.get("bollinger_lower"),
                     r.get("disparity_20"), r.get("volume_ratio"),
-                ),
-            )
-            count += cursor.rowcount
+                )
+                for r in rows
+            ],
+        )
         await db.commit()
-        return count
+        return len(rows)
     finally:
         await db.close()
 
@@ -229,25 +233,27 @@ async def get_latest_macro() -> dict | None:
 
 
 async def upsert_fund_flow_kr(rows: list[dict]) -> int:
+    if not rows:
+        return 0
     db = await get_db()
     try:
-        count = 0
-        for r in rows:
-            cursor = await db.execute(
-                """INSERT OR REPLACE INTO fund_flow_kr
-                   (symbol, trade_date, foreign_net_buy, institution_net_buy,
-                    individual_net_buy, pension_net_buy, foreign_holding_ratio)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        await db.executemany(
+            """INSERT OR REPLACE INTO fund_flow_kr
+               (symbol, trade_date, foreign_net_buy, institution_net_buy,
+                individual_net_buy, pension_net_buy, foreign_holding_ratio)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
                 (
                     r["symbol"], r["trade_date"],
                     r.get("foreign_net_buy"), r.get("institution_net_buy"),
                     r.get("individual_net_buy"), r.get("pension_net_buy"),
                     r.get("foreign_holding_ratio"),
-                ),
-            )
-            count += cursor.rowcount
+                )
+                for r in rows
+            ],
+        )
         await db.commit()
-        return count
+        return len(rows)
     finally:
         await db.close()
 
@@ -333,18 +339,19 @@ async def get_pipeline_runs(limit: int = 20) -> list[dict]:
 
 
 async def insert_signals(rows: list[dict]) -> int:
+    if not rows:
+        return 0
     db = await get_db()
     try:
-        count = 0
-        for r in rows:
-            cursor = await db.execute(
-                """INSERT OR REPLACE INTO signals
-                   (run_id, symbol, market, signal_date,
-                    raw_signal, raw_score, hard_limit_triggered, hard_limit_reason,
-                    final_signal, confidence, red_team_warning,
-                    rsi_value, disparity_value, macro_score, technical_score, fund_flow_score,
-                    rationale, explanation_rule, explanation_llm)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        await db.executemany(
+            """INSERT OR REPLACE INTO signals
+               (run_id, symbol, market, signal_date,
+                raw_signal, raw_score, hard_limit_triggered, hard_limit_reason,
+                final_signal, confidence, red_team_warning,
+                rsi_value, disparity_value, macro_score, technical_score, fund_flow_score,
+                rationale, explanation_rule, explanation_llm)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
                 (
                     r["run_id"], r["symbol"], r["market"], r["signal_date"],
                     r["raw_signal"], r["raw_score"],
@@ -354,11 +361,12 @@ async def insert_signals(rows: list[dict]) -> int:
                     r.get("rsi_value"), r.get("disparity_value"),
                     r.get("macro_score"), r.get("technical_score"), r.get("fund_flow_score"),
                     r.get("rationale"), r.get("explanation_rule"), r.get("explanation_llm"),
-                ),
-            )
-            count += cursor.rowcount
+                )
+                for r in rows
+            ],
+        )
         await db.commit()
-        return count
+        return len(rows)
     finally:
         await db.close()
 
@@ -517,25 +525,27 @@ async def get_backtest_run(backtest_id: str) -> dict | None:
 
 
 async def insert_backtest_trades(trades: list[dict]) -> int:
+    if not trades:
+        return 0
     db = await get_db()
     try:
-        count = 0
-        for t in trades:
-            cursor = await db.execute(
-                """INSERT INTO backtest_trades
-                   (backtest_id, symbol, market, entry_date, entry_price,
-                    entry_signal, entry_score, exit_date, exit_price,
-                    exit_reason, return_pct, holding_days)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        await db.executemany(
+            """INSERT INTO backtest_trades
+               (backtest_id, symbol, market, entry_date, entry_price,
+                entry_signal, entry_score, exit_date, exit_price,
+                exit_reason, return_pct, holding_days)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
                 (t["backtest_id"], t["symbol"], t["market"],
                  t["entry_date"], t["entry_price"],
                  t["entry_signal"], t["entry_score"],
                  t.get("exit_date"), t.get("exit_price"),
-                 t.get("exit_reason"), t.get("return_pct"), t.get("holding_days")),
-            )
-            count += cursor.rowcount
+                 t.get("exit_reason"), t.get("return_pct"), t.get("holding_days"))
+                for t in trades
+            ],
+        )
         await db.commit()
-        return count
+        return len(trades)
     finally:
         await db.close()
 
@@ -590,14 +600,25 @@ async def get_pending_performance_tracking(days_horizon: int = 20) -> list[dict]
         await db.close()
 
 
+_PERF_ALLOWED_COLUMNS = frozenset({
+    "return_t1", "return_t5", "return_t20",
+    "price_t1", "price_t5", "price_t20",
+    "is_correct_t5", "is_correct_t20",
+})
+
+
 async def update_signal_performance(signal_id: int, updates: dict) -> None:
     db = await get_db()
     try:
         set_clauses = []
         params = []
         for key, val in updates.items():
+            if key not in _PERF_ALLOWED_COLUMNS:
+                raise ValueError(f"Column '{key}' not allowed in signal_performance update")
             set_clauses.append(f"{key} = ?")
             params.append(val)
+        if not set_clauses:
+            return
         set_clauses.append("tracked_at = ?")
         params.append(datetime.now(timezone.utc).isoformat())
         params.append(signal_id)
@@ -760,9 +781,9 @@ async def insert_events(events: list[dict]) -> int:
                      e.get("symbol") or "", e["description"], e.get("impact_level", "medium")),
                 )
                 count += cursor.rowcount
-            except Exception as e:
+            except Exception as exc:
                 import logging
-                logging.getLogger("vibe.repo").debug("Event insert skipped: %s", e)
+                logging.getLogger("vibe.repo").debug("Event insert skipped: %s", exc)
         await db.commit()
         return count
     finally:
@@ -775,7 +796,7 @@ async def get_upcoming_events(
     db = await get_db()
     try:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        future = (datetime.now(timezone.utc) + __import__("datetime").timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        future = (datetime.now(timezone.utc) + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
         query = """SELECT * FROM event_calendar
                    WHERE event_date BETWEEN ? AND ?
                    AND (market IS NULL OR market = ?)"""

@@ -13,7 +13,7 @@ COPY app/ ./app/
 COPY tests/ ./tests/
 
 RUN pip install --no-cache-dir pytest pytest-asyncio && \
-    python -m pytest tests/ -v --tb=short || echo "Tests completed"
+    python -m pytest tests/ -v --tb=short
 
 # ── Stage 3: Production ──
 FROM deps AS production

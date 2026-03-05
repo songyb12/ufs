@@ -24,6 +24,8 @@ export default function Portfolio() {
     symbol: '', market: 'KR', position_size: '', entry_price: '', entry_date: '', sector: ''
   })
 
+  const [error, setError] = useState(null)
+
   const loadData = useCallback(() => {
     setLoading(true)
     Promise.all([getSummary(), getPortfolio(), getPortfolioScenarios(), getWatchlist()])
@@ -32,8 +34,9 @@ export default function Portfolio() {
         setPositions(p?.positions || [])
         setScenarios(sc)
         setWatchlist(wl || [])
+        setError(null)
       })
-      .catch(console.error)
+      .catch(err => { console.error(err); setError(err.message) })
       .finally(() => setLoading(false))
   }, [])
 
@@ -140,6 +143,7 @@ export default function Portfolio() {
   }
 
   if (loading) return <div className="loading"><span className="spinner" /> Loading...</div>
+  if (error) return <div className="loading" style={{ color: 'var(--red)' }}>Error: {error}</div>
 
   const pnlPct = summary?.portfolio?.total_pnl_pct || 0
 
@@ -553,9 +557,11 @@ export default function Portfolio() {
                     <td><strong>{sym}</strong></td>
                     <td>{sc.market}</td>
                     <td>{sc.current_price?.toLocaleString()}</td>
-                    <td style={{ color: 'var(--green)' }}>{targets.target_10?.toLocaleString() || '-'}</td>
+                    <td style={{ color: 'var(--green)' }}>{targets.target_10pct?.toLocaleString() || '-'}</td>
                     <td style={{ color: 'var(--red)' }}>{targets.stop_loss?.toLocaleString() || '-'}</td>
-                    <td>{targets.rr_ratio?.toFixed(1) || '-'}</td>
+                    <td>{(targets.target_10pct && targets.stop_loss && sc.current_price && sc.current_price > targets.stop_loss)
+                      ? ((targets.target_10pct - sc.current_price) / (sc.current_price - targets.stop_loss)).toFixed(1)
+                      : '-'}</td>
                     <td style={{ maxWidth: 250, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                       {sc.scenario_rule || '-'}
                     </td>

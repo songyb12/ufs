@@ -1,7 +1,7 @@
 """Dynamic Screener - Detect volume spikes, breakouts, new highs."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -25,8 +25,8 @@ class DynamicScreener:
         watchlist = await repo.get_watchlist(market)
         symbols = [w["symbol"] for w in watchlist]
 
-        end_date = datetime.utcnow().strftime("%Y-%m-%d")
-        start_date = (datetime.utcnow() - timedelta(days=60)).strftime("%Y-%m-%d")
+        end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        start_date = (datetime.now(timezone.utc) - timedelta(days=60)).strftime("%Y-%m-%d")
 
         for symbol in symbols:
             prices = await repo.get_price_range(symbol, market, start_date, end_date)

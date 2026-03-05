@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from app.backtesting.engine import BacktestEngine
 from app.backtesting.optimizer import ParameterOptimizer
@@ -61,6 +61,7 @@ async def run_backtest_sync(request: BacktestRequest):
 @router.get("/results", response_model=list[BacktestResultResponse])
 async def get_backtest_results(limit: int = 20):
     """List recent backtest runs."""
+    limit = min(max(limit, 1), 100)
     runs = await repo.get_backtest_runs(limit=limit)
     return runs
 
@@ -70,7 +71,7 @@ async def get_backtest_detail(backtest_id: str):
     """Get detailed results for a specific backtest run."""
     run = await repo.get_backtest_run(backtest_id)
     if not run:
-        return {"error": "Backtest not found"}
+        raise HTTPException(status_code=404, detail="Backtest not found")
 
     trades = await repo.get_backtest_trades(backtest_id)
     return {

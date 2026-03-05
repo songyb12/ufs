@@ -14,6 +14,7 @@ router = APIRouter(prefix="/screening", tags=["screening"])
 @router.post("/scan")
 async def run_scan(market: str = "KR", days_back: int = 5):
     """Run dynamic screening scan."""
+    days_back = min(max(days_back, 1), 90)
     screener = DynamicScreener()
     candidates = await screener.scan(market, days_back=days_back)
 

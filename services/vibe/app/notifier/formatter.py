@@ -12,6 +12,8 @@ Strategy: build embeds, then split into multiple messages to stay under 6000 cha
 from datetime import datetime, timezone
 from typing import Any
 
+from app.config import settings
+
 
 def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
     """Build Discord webhook payloads from pipeline context.
@@ -279,7 +281,7 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
             f"Time: {elapsed:.1f}s"
         ),
         "color": 0x888888,
-        "footer": {"text": "VIBE v0.1.0 | UFS"},
+        "footer": {"text": f"VIBE v{settings.VERSION} | UFS"},
     })
 
     # ── Split into multiple messages to respect 6000 char limit ──
