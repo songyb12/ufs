@@ -157,8 +157,8 @@ export default function Overview({ onNavigate }) {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>VIX Term Structure</span>
-                <span style={{ fontWeight: 600, color: (sentimentData.vix_term_structure ?? 0) > 0 ? 'var(--green)' : 'var(--red)' }}>
-                  {sentimentData.vix_term_structure?.toFixed(3) ?? '-'}
+                <span style={{ fontWeight: 600, color: sentimentData.vix_term_structure === 'contango' ? 'var(--green)' : 'var(--red)' }}>
+                  {sentimentData.vix_term_structure ?? '-'}
                 </span>
               </div>
             </div>
