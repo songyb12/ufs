@@ -5,8 +5,9 @@ import {
   PieChart, Pie
 } from 'recharts'
 import SymbolModal from '../components/SymbolModal'
+import HelpButton from '../components/HelpButton'
 
-export default function Overview() {
+export default function Overview({ onNavigate }) {
   const [summary, setSummary] = useState(null)
   const [signals, setSignals] = useState([])
   const [loading, setLoading] = useState(true)
@@ -68,6 +69,7 @@ export default function Overview() {
             Latest: {summary.latest_signal_date || 'N/A'}
           </p>
         </div>
+        <HelpButton section="overview" onNavigate={onNavigate} />
       </div>
 
       {/* KPI Cards */}

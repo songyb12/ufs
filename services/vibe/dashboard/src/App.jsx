@@ -5,6 +5,7 @@ import Signals from './pages/Signals'
 import Portfolio from './pages/Portfolio'
 import Backtest from './pages/Backtest'
 import System from './pages/System'
+import Guide from './pages/Guide'
 
 // M14: Error Boundary to catch render crashes
 class ErrorBoundary extends Component {
@@ -51,15 +52,24 @@ class ErrorBoundary extends Component {
 function App() {
   const [page, setPage] = useState('overview')
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [guideSection, setGuideSection] = useState(null)
+
+  const navigateTo = (target, section) => {
+    if (target === 'guide' && section) {
+      setGuideSection(section)
+    }
+    setPage(target)
+  }
 
   const renderPage = () => {
     switch (page) {
-      case 'overview': return <Overview />
-      case 'signals': return <Signals />
-      case 'portfolio': return <Portfolio />
-      case 'backtest': return <Backtest />
-      case 'system': return <System />
-      default: return <Overview />
+      case 'overview': return <Overview onNavigate={navigateTo} />
+      case 'signals': return <Signals onNavigate={navigateTo} />
+      case 'portfolio': return <Portfolio onNavigate={navigateTo} />
+      case 'backtest': return <Backtest onNavigate={navigateTo} />
+      case 'system': return <System onNavigate={navigateTo} />
+      case 'guide': return <Guide onNavigate={navigateTo} initialSection={guideSection} />
+      default: return <Overview onNavigate={navigateTo} />
     }
   }
 
@@ -67,7 +77,7 @@ function App() {
     <>
       <Sidebar
         activePage={page}
-        onNavigate={setPage}
+        onNavigate={navigateTo}
         mobileOpen={mobileOpen}
         onMobileToggle={setMobileOpen}
       />

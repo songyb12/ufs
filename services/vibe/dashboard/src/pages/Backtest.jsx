@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getBacktestResults, getBacktestDetail, triggerBacktest } from '../api'
 import SymbolModal from '../components/SymbolModal'
+import HelpButton from '../components/HelpButton'
 
-export default function Backtest() {
+export default function Backtest({ onNavigate }) {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -94,6 +95,7 @@ export default function Backtest() {
           <button className="btn btn-outline" onClick={loadResults}>
             {'\u21BB'} Refresh
           </button>
+          <HelpButton section="backtest" onNavigate={onNavigate} />
         </div>
       </div>
 

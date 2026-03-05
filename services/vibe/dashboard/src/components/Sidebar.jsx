@@ -5,6 +5,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen, onMobileTo
     { id: 'portfolio', icon: '\uD83D\uDCBC', label: '\uD3EC\uD2B8\uD3F4\uB9AC\uC624' },
     { id: 'backtest', icon: '\uD83E\uDDEA', label: '\uBC31\uD14C\uC2A4\uD2B8' },
     { id: 'system', icon: '\u2699', label: '\uC2DC\uC2A4\uD15C' },
+    { id: 'guide', icon: '\uD83D\uDCD6', label: '\uC0AC\uC6A9 \uAC00\uC774\uB4DC' },
   ]
 
   const handleNav = (id) => {

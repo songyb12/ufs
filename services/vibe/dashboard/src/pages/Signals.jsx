@@ -4,8 +4,9 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts'
 import SymbolModal from '../components/SymbolModal'
+import HelpButton from '../components/HelpButton'
 
-export default function Signals() {
+export default function Signals({ onNavigate }) {
   const [signals, setSignals] = useState([])
   const [perf, setPerf] = useState(null)
   const [market, setMarket] = useState('')
@@ -41,9 +42,12 @@ export default function Signals() {
           <h2>{'\u26A1'} Signals</h2>
           <p className="subtitle">Signal history and performance tracking</p>
         </div>
-        <button className="btn btn-outline" onClick={() => exportSignalsCSV(signals)}>
-          {'\uD83D\uDCE5'} Export CSV
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <button className="btn btn-outline" onClick={() => exportSignalsCSV(signals)}>
+            {'\uD83D\uDCE5'} Export CSV
+          </button>
+          <HelpButton section="signals" onNavigate={onNavigate} />
+        </div>
       </div>
 
       {/* Filters */}

@@ -6,7 +6,9 @@ import {
   getMonthlyReports, generateMonthlyReport,
 } from '../api'
 
-export default function System() {
+import HelpButton from '../components/HelpButton'
+
+export default function System({ onNavigate }) {
   const [health, setHealth] = useState(null)
   const [runs, setRuns] = useState([])
   const [loading, setLoading] = useState(true)
@@ -156,6 +158,7 @@ export default function System() {
           <button className="btn btn-outline" onClick={refresh}>
             {'\u21BB'} 새로고침
           </button>
+          <HelpButton section="system" onNavigate={onNavigate} />
         </div>
       </div>
 

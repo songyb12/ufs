@@ -7,8 +7,9 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
 } from 'recharts'
 import SymbolModal from '../components/SymbolModal'
+import HelpButton from '../components/HelpButton'
 
-export default function Portfolio() {
+export default function Portfolio({ onNavigate }) {
   const [summary, setSummary] = useState(null)
   const [scenarios, setScenarios] = useState(null)
   const [positions, setPositions] = useState([])
@@ -210,6 +211,7 @@ export default function Portfolio() {
           <div className={`card-value ${pnlPct >= 0 ? 'green' : 'red'}`} style={{ fontSize: '1.5rem' }}>
             {pnlPct >= 0 ? '+' : ''}{pnlPct}%
           </div>
+          <HelpButton section="portfolio" onNavigate={onNavigate} />
         </div>
       </div>
 
