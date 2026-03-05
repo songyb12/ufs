@@ -294,6 +294,64 @@ const sections = [
       },
     ],
   },
+  {
+    id: 'llm',
+    icon: '🤖',
+    title: 'LLM 기능 & 비용',
+    content: [
+      {
+        heading: 'LLM 기능 개요',
+        text: 'Claude 3.5 Haiku 모델을 사용하여 3개 파이프라인 단계를 강화할 수 있습니다. 규칙 기반 분석은 항상 동작하며, LLM은 선택적으로 추가 품질을 제공합니다.',
+      },
+      {
+        heading: 'S7 Red-Team LLM (LLM_RED_TEAM_ENABLED)',
+        items: [
+          '기능 — BUY 시그널에 대해 LLM이 반박 논거 3가지를 제시하여 검증',
+          '호출 패턴 — BUY 시그널 종목별 개별 호출 (파이프라인당 ~12회)',
+          '비용 — ~$0.011/회 (월 $0.66)',
+          '효과 — 시그널 신뢰도(Confidence) 정밀화, 위험 요소 자동 탐지',
+        ],
+      },
+      {
+        heading: 'S8 한국어 해설 LLM (LLM_EXPLANATION_ENABLED)',
+        items: [
+          '기능 — 전 종목 시그널에 대해 2~3문장 한국어 해설 자동 생성',
+          '호출 패턴 — 마켓당 1회 배치 호출 (전 종목 일괄 처리)',
+          '비용 — ~$0.007/회 (월 $0.42)',
+          '효과 — Discord 알림 및 대시보드에 사람이 읽기 쉬운 해설 추가',
+        ],
+      },
+      {
+        heading: 'S9 시나리오 LLM (LLM_SCENARIO_ENABLED)',
+        items: [
+          '기능 — 보유 종목 + 신규 매수 후보에 대한 트레이드 시나리오 생성',
+          '호출 패턴 — 마켓당 1회 배치 호출 (보유+후보 일괄 처리)',
+          '비용 — ~$0.003/회 (월 $0.19)',
+          '효과 — 포트폴리오 시나리오에 LLM 기반 인사이트 추가',
+        ],
+      },
+      {
+        heading: '💰 월간 비용 요약 (하루 2회 실행 기준)',
+        items: [
+          'S7 Red-Team — ~$0.66/월 (핵심 추천)',
+          'S8 한국어 해설 — ~$0.42/월',
+          'S9 시나리오 — ~$0.19/월',
+          '전체 LLM 합계 — ~$1.27/월 (모든 기능 활성화 시)',
+          '모델 — Claude 3.5 Haiku (Input $0.80/MTok, Output $4.00/MTok)',
+        ],
+      },
+      {
+        heading: '설정 방법',
+        items: [
+          '.env 파일에 LLM_API_KEY 설정 (Anthropic API Key)',
+          'LLM_RED_TEAM_ENABLED=true — Red-Team 활성화',
+          'LLM_EXPLANATION_ENABLED=true — 한국어 해설 활성화',
+          'LLM_SCENARIO_ENABLED=true — 시나리오 분석 활성화',
+          'Docker 재시작 필요 — docker compose up -d vibe',
+        ],
+      },
+    ],
+  },
 ]
 
 export default function Guide({ onNavigate, initialSection }) {
