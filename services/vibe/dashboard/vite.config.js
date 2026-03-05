@@ -19,6 +19,7 @@ export default defineConfig({
       '/risk': 'http://localhost:8001',
       '/backtest': 'http://localhost:8001',
       '/sentiment': 'http://localhost:8001',
+      '/alerts': 'http://localhost:8001',
     },
   },
 })

@@ -276,8 +276,7 @@ async def get_latest_pipeline_run(market: str | None = None) -> dict | None:
     row = await cursor.fetchone()
     if row:
         result = dict(row)
-        if result.get("stages_completed"):
-            result["stages_completed"] = _safe_json_loads(result["stages_completed"], [])
+        result["stages_completed"] = _safe_json_loads(result.get("stages_completed"), []) if result.get("stages_completed") else []
         return result
     return None
 
@@ -292,8 +291,7 @@ async def get_pipeline_runs(limit: int = 20) -> list[dict]:
     results = []
     for row in rows:
         r = dict(row)
-        if r.get("stages_completed"):
-            r["stages_completed"] = _safe_json_loads(r["stages_completed"], [])
+        r["stages_completed"] = _safe_json_loads(r.get("stages_completed"), []) if r.get("stages_completed") else []
         results.append(r)
     return results
 

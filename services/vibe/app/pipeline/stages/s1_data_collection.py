@@ -81,8 +81,11 @@ class DataCollectionStage(BaseStage):
         for symbol, df in ohlcv_data.items():
             if df is not None and not df.empty:
                 latest_date = pd.to_datetime(df.index[-1])
-                if latest_date < stale_cutoff:
-                    days_old = (now - latest_date).days
+                # Normalize timezone: strip tz from both sides for safe comparison
+                latest_naive = latest_date.tz_localize(None) if latest_date.tzinfo else latest_date
+                stale_cutoff_naive = stale_cutoff.replace(tzinfo=None)
+                if latest_naive < stale_cutoff_naive:
+                    days_old = (stale_cutoff_naive - latest_naive).days
                     stale_warnings.append(f"{symbol}: {days_old}d old")
         if stale_warnings:
             logger.warning(
