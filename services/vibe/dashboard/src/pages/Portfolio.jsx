@@ -79,6 +79,14 @@ export default function Portfolio({ onNavigate }) {
   // Reload data when group changes
   const switchGroup = (gid) => {
     setActiveGroupId(gid)
+    setInputMode('amount')
+    setSharesCount('')
+    setEditInputMode('amount')
+    setEditSharesCount('')
+    setEditingSymbol(null)
+    setEditData({})
+    setShowAddForm(false)
+    setFormData({ symbol: '', market: 'KR', position_size: '', entry_price: '', entry_date: '', sector: '' })
     loadData(gid)
   }
 

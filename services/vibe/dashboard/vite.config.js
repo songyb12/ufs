@@ -20,6 +20,9 @@ export default defineConfig({
       '/backtest': 'http://localhost:8001',
       '/sentiment': 'http://localhost:8001',
       '/alerts': 'http://localhost:8001',
+      '/briefing': 'http://localhost:8001',
+      '/settings': 'http://localhost:8001',
+      '/admin': 'http://localhost:8001',
     },
   },
 })

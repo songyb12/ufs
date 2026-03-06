@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import aiosqlite
@@ -6,6 +7,7 @@ logger = logging.getLogger("vibe.database")
 
 _db_path: str = ""
 _connection: aiosqlite.Connection | None = None
+_db_lock = asyncio.Lock()
 
 
 def set_db_path(path: str) -> None:
@@ -14,26 +16,35 @@ def set_db_path(path: str) -> None:
 
 
 async def get_db() -> aiosqlite.Connection:
-    """Get a cached aiosqlite connection. PRAGMAs are set once on first connect."""
-    global _connection
-    if _connection is not None:
-        try:
-            # Verify connection is still alive
-            await _connection.execute("SELECT 1")
-            return _connection
-        except (aiosqlite.DatabaseError, OSError) as e:
-            logger.warning("DB connection stale, reconnecting: %s", e)
-            _connection = None
+    """Get a cached aiosqlite connection. PRAGMAs are set once on first connect.
 
-    db = await aiosqlite.connect(_db_path)
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA foreign_keys=ON")
-    await db.execute("PRAGMA busy_timeout=5000")
-    await db.execute("PRAGMA cache_size=-8000")
-    await db.execute("PRAGMA synchronous=NORMAL")
-    _connection = db
-    return db
+    Uses asyncio.Lock to prevent race conditions when multiple coroutines
+    detect a stale connection and try to reconnect simultaneously.
+    """
+    global _connection
+    async with _db_lock:
+        if _connection is not None:
+            try:
+                # Verify connection is still alive
+                await _connection.execute("SELECT 1")
+                return _connection
+            except (aiosqlite.DatabaseError, OSError) as e:
+                logger.warning("DB connection stale, reconnecting: %s", e)
+                try:
+                    await _connection.close()
+                except Exception:
+                    pass
+                _connection = None
+
+        db = await aiosqlite.connect(_db_path)
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA foreign_keys=ON")
+        await db.execute("PRAGMA busy_timeout=5000")
+        await db.execute("PRAGMA cache_size=-8000")
+        await db.execute("PRAGMA synchronous=NORMAL")
+        _connection = db
+        return db
 
 
 async def close_db() -> None:

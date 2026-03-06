@@ -73,7 +73,8 @@ async def gather_analysis_context(
         """SELECT s.symbol, s.market, s.final_signal, s.raw_score,
                   s.rsi_value, s.confidence, s.rationale, w.name
            FROM signals s
-           LEFT JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+           INNER JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+               AND w.is_active = 1
            WHERE s.signal_date = (SELECT MAX(signal_date) FROM signals)
            AND s.final_signal IN ('BUY', 'SELL')
            ORDER BY ABS(s.raw_score) DESC

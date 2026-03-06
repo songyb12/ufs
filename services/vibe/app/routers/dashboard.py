@@ -40,7 +40,9 @@ async def get_dashboard_summary(portfolio_id: int = Query(1)):
     )
     signal_counts = {"BUY": 0, "SELL": 0, "HOLD": 0}
     for row in await c.fetchall():
-        signal_counts[row["final_signal"]] = row["cnt"]
+        sig = row["final_signal"]
+        if sig in signal_counts:
+            signal_counts[sig] = row["cnt"]
 
     # Hard limit count (latest date)
     c = await db.execute(
@@ -48,7 +50,8 @@ async def get_dashboard_summary(portfolio_id: int = Query(1)):
            WHERE signal_date = (SELECT MAX(signal_date) FROM signals)
            AND hard_limit_triggered = 1"""
     )
-    hl_count = (await c.fetchone())[0]
+    row = await c.fetchone()
+    hl_count = row[0] if row else 0
 
     # Portfolio P&L — filtered by portfolio_id
     c = await db.execute(
@@ -100,17 +103,21 @@ async def get_dashboard_summary(portfolio_id: int = Query(1)):
     last_kr = await repo.get_latest_pipeline_run("KR")
     last_us = await repo.get_latest_pipeline_run("US")
 
-    # Total data counts
+    # Total data counts (null-safe fetchone)
     c = await db.execute("SELECT COUNT(*) FROM price_history")
-    price_count = (await c.fetchone())[0]
+    row = await c.fetchone()
+    price_count = row[0] if row else 0
     c = await db.execute("SELECT COUNT(*) FROM signals")
-    signal_total = (await c.fetchone())[0]
+    row = await c.fetchone()
+    signal_total = row[0] if row else 0
     c = await db.execute("SELECT COUNT(DISTINCT symbol) FROM watchlist WHERE is_active=1")
-    watchlist_count = (await c.fetchone())[0]
+    row = await c.fetchone()
+    watchlist_count = row[0] if row else 0
 
     # Latest signal date
     c = await db.execute("SELECT MAX(signal_date) FROM signals")
-    latest_date = (await c.fetchone())[0]
+    row = await c.fetchone()
+    latest_date = row[0] if row else None
 
     return {
         "latest_signal_date": latest_date,
@@ -174,7 +181,8 @@ async def get_signal_history(
                s.fund_flow_score, s.rationale, s.explanation_rule,
                w.name
         FROM signals s
-        LEFT JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+        INNER JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+            AND w.is_active = 1
         WHERE s.signal_date >= date('now', ?)
     """
     params: list = [f"-{days} days"]
@@ -203,7 +211,13 @@ async def get_data_status():
            FROM price_history"""
     )
     r = await c.fetchone()
-    tables["price_history"] = dict(r)
+    tables["price_history"] = dict(r) if r else {"cnt": 0, "earliest": None, "latest": None, "symbols": 0}
+
+    def _safe_dict(row, defaults=None):
+        """Safely convert fetchone result to dict with fallback."""
+        if row:
+            return dict(row)
+        return defaults or {"cnt": 0}
 
     # Signals
     c = await db.execute(
@@ -213,7 +227,7 @@ async def get_data_status():
                   COUNT(DISTINCT symbol) as symbols
            FROM signals"""
     )
-    tables["signals"] = dict(await c.fetchone())
+    tables["signals"] = _safe_dict(await c.fetchone(), {"cnt": 0, "earliest": None, "latest": None, "symbols": 0})
 
     # Macro Indicators
     c = await db.execute(
@@ -222,7 +236,7 @@ async def get_data_status():
                   MAX(indicator_date) as latest
            FROM macro_indicators"""
     )
-    tables["macro_indicators"] = dict(await c.fetchone())
+    tables["macro_indicators"] = _safe_dict(await c.fetchone(), {"cnt": 0, "earliest": None, "latest": None})
 
     # Sentiment Data
     c = await db.execute(
@@ -231,7 +245,7 @@ async def get_data_status():
                   MAX(indicator_date) as latest
            FROM sentiment_data"""
     )
-    tables["sentiment_data"] = dict(await c.fetchone())
+    tables["sentiment_data"] = _safe_dict(await c.fetchone(), {"cnt": 0, "earliest": None, "latest": None})
 
     # News Data
     c = await db.execute(
@@ -241,7 +255,7 @@ async def get_data_status():
                   COUNT(DISTINCT symbol) as symbols
            FROM news_data"""
     )
-    tables["news_data"] = dict(await c.fetchone())
+    tables["news_data"] = _safe_dict(await c.fetchone(), {"cnt": 0, "earliest": None, "latest": None, "symbols": 0})
 
     # Fund Flow KR
     c = await db.execute(
@@ -251,7 +265,7 @@ async def get_data_status():
                   COUNT(DISTINCT symbol) as symbols
            FROM fund_flow_kr"""
     )
-    tables["fund_flow_kr"] = dict(await c.fetchone())
+    tables["fund_flow_kr"] = _safe_dict(await c.fetchone(), {"cnt": 0, "earliest": None, "latest": None, "symbols": 0})
 
     # Technical Indicators
     c = await db.execute(
@@ -259,25 +273,26 @@ async def get_data_status():
                   MAX(trade_date) as latest
            FROM technical_indicators"""
     )
-    tables["technical_indicators"] = dict(await c.fetchone())
+    tables["technical_indicators"] = _safe_dict(await c.fetchone(), {"cnt": 0, "latest": None})
 
     # Watchlist
     c = await db.execute("SELECT COUNT(*) as cnt FROM watchlist WHERE is_active = 1")
-    tables["watchlist_active"] = {"cnt": (await c.fetchone())[0]}
+    row = await c.fetchone()
+    tables["watchlist_active"] = {"cnt": row[0] if row else 0}
 
     # Market Briefings
     c = await db.execute(
         """SELECT COUNT(*) as cnt, MAX(briefing_date) as latest
            FROM market_briefings"""
     )
-    tables["market_briefings"] = dict(await c.fetchone())
+    tables["market_briefings"] = _safe_dict(await c.fetchone(), {"cnt": 0, "latest": None})
 
     # LLM Reviews
     c = await db.execute(
         """SELECT COUNT(*) as cnt, MAX(review_date) as latest
            FROM llm_reviews"""
     )
-    tables["llm_reviews"] = dict(await c.fetchone())
+    tables["llm_reviews"] = _safe_dict(await c.fetchone(), {"cnt": 0, "latest": None})
 
     return {"tables": tables}
 

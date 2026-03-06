@@ -114,6 +114,7 @@ async def _check_portfolio_stops(config: Settings, alert_cfg: dict | None = None
         name = r.get("name", r["symbol"])
 
         if not entry or not current:
+            logger.debug("Skipped alert for %s: entry_price=%s, current_price=%s", r["symbol"], entry, current)
             continue
 
         pnl_pct = (current - entry) / entry * 100

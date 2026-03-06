@@ -28,7 +28,14 @@ async function fetchJSON(path) {
   const key = getApiKey()
   const opts = key ? { headers: { 'X-API-Key': key } } : {}
   const res = await fetch(`${BASE}${path}`, opts)
-  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  if (!res.ok) {
+    let detail = ''
+    try {
+      const body = await res.json()
+      detail = body?.detail || body?.message || ''
+    } catch { /* non-JSON error response */ }
+    throw new Error(detail ? `${res.status}: ${detail}` : `API error: ${res.status}`)
+  }
   return res.json()
 }
 

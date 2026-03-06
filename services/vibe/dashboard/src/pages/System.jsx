@@ -217,11 +217,11 @@ export default function System({ onNavigate }) {
         </div>
         <div className="card">
           <div className="card-label">가격 데이터</div>
-          <div className="card-value blue">{health?.database?.prices?.toLocaleString()}</div>
+          <div className="card-value blue">{(health?.database?.prices ?? 0).toLocaleString()}</div>
         </div>
         <div className="card">
           <div className="card-label">시그널</div>
-          <div className="card-value blue">{health?.database?.signals?.toLocaleString()}</div>
+          <div className="card-value blue">{(health?.database?.signals ?? 0).toLocaleString()}</div>
         </div>
       </div>
 

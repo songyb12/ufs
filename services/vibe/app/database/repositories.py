@@ -333,7 +333,8 @@ async def get_latest_signals(market: str | None = None) -> list[dict]:
     db = await get_db()
     query = """
         SELECT s.*, w.name FROM signals s
-        LEFT JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+        INNER JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+            AND w.is_active = 1
         WHERE s.signal_date = (SELECT MAX(signal_date) FROM signals)
     """
     params: list = []
@@ -679,8 +680,7 @@ async def insert_events(events: list[dict]) -> int:
             )
             count += cursor.rowcount
         except Exception as exc:
-            import logging
-            logging.getLogger("vibe.repo").debug("Event insert skipped: %s", exc)
+            logger.debug("Event insert skipped: %s", exc)
     await db.commit()
     return count
 
@@ -769,12 +769,26 @@ async def get_portfolio_state(
     include_hidden: bool = False,
 ) -> list[dict]:
     db = await get_db()
-    query = "SELECT * FROM portfolio_state WHERE portfolio_id = ? AND position_size > 0"
+    query = """
+        SELECT ps.*, w.name,
+               lp.close AS current_price
+        FROM portfolio_state ps
+        LEFT JOIN watchlist w ON ps.symbol = w.symbol AND ps.market = w.market
+        LEFT JOIN (
+            SELECT symbol, market, close
+            FROM price_history
+            WHERE (symbol, market, trade_date) IN (
+                SELECT symbol, market, MAX(trade_date)
+                FROM price_history GROUP BY symbol, market
+            )
+        ) lp ON ps.symbol = lp.symbol AND ps.market = lp.market
+        WHERE ps.portfolio_id = ? AND ps.position_size > 0
+    """
     params: list = [portfolio_id]
     if not include_hidden:
-        query += " AND is_hidden = 0"
+        query += " AND ps.is_hidden = 0"
     if market:
-        query += " AND market = ?"
+        query += " AND ps.market = ?"
         params.append(market)
     cursor = await db.execute(query, params)
     rows = await cursor.fetchall()

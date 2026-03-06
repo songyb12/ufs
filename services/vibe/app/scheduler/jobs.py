@@ -1,5 +1,6 @@
 """Scheduled job definitions for VIBE pipeline."""
 
+import functools
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -50,8 +51,9 @@ def register_jobs(
             logger.exception("Scheduled pipeline %s failed: %s", market, e)
 
     # KR market pipeline (after KRX close)
+    # Note: functools.partial preserves iscoroutinefunction, lambdas do not.
     scheduler.add_job(
-        lambda: run_market_pipeline("KR"),
+        functools.partial(run_market_pipeline, "KR"),
         trigger="cron",
         hour=config.KR_PIPELINE_HOUR_UTC,
         minute=config.KR_PIPELINE_MINUTE,
@@ -62,7 +64,7 @@ def register_jobs(
 
     # US market pipeline (after US market close)
     scheduler.add_job(
-        lambda: run_market_pipeline("US"),
+        functools.partial(run_market_pipeline, "US"),
         trigger="cron",
         hour=config.US_PIPELINE_HOUR_UTC,
         minute=config.US_PIPELINE_MINUTE,
@@ -119,7 +121,7 @@ def register_jobs(
     # Weekly report (Sunday 06:00 UTC = 15:00 KST)
     async def send_weekly_report():
         try:
-            import asyncio
+            import asyncio as _asyncio
 
             from app.notifier.discord import _get_discord_client
             from app.notifier.weekly_report import build_weekly_report_payloads
@@ -136,7 +138,7 @@ def register_jobs(
                         logger.info("Weekly report sent to Discord")
                     else:
                         logger.error("Weekly report Discord failed: %d", resp.status_code)
-                    await asyncio.sleep(1.0)
+                    await _asyncio.sleep(1.0)
             else:
                 logger.info("Weekly report generated but no webhook configured")
         except Exception as e:

@@ -179,7 +179,7 @@ export default function MarketBrief({ onNavigate }) {
               {aiLoading ? (
                 <><span className="spinner" style={{ width: 14, height: 14 }} /> {'\uBD84\uC11D \uC911'}...</>
               ) : (
-                '\u27A4 {}\uBD84\uC11D'.replace('{}', '')
+                '\u27A4 \uBD84\uC11D'
               )}
             </button>
           </div>
@@ -201,14 +201,14 @@ export default function MarketBrief({ onNavigate }) {
                       {'\u2728'} {aiResult.question}
                     </span>
                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                      {aiResult.metadata?.model} | {new Date(aiResult.metadata?.generated_at).toLocaleTimeString('ko-KR')}
+                      {aiResult.metadata?.model || 'N/A'} | {aiResult.metadata?.generated_at ? new Date(aiResult.metadata.generated_at).toLocaleTimeString('ko-KR') : '-'}
                     </span>
                   </div>
                   <div style={{
                     lineHeight: 1.8, color: 'var(--text-primary)',
                     whiteSpace: 'pre-line', fontSize: '0.9rem',
                   }}>
-                    {aiResult.analysis}
+                    {aiResult.analysis || '분석 결과가 비어 있습니다.'}
                   </div>
                   {aiResult.metadata?.context_snapshot && (
                     <div style={{
@@ -217,9 +217,9 @@ export default function MarketBrief({ onNavigate }) {
                       display: 'flex', gap: '1rem', flexWrap: 'wrap',
                     }}>
                       {[
-                        { label: '{}\uC2DC\uADF8\uB110'.replace('{}', ''), val: aiResult.metadata.context_snapshot.signal_markets?.join(', ') },
-                        { label: '{}\uC885\uBAA9'.replace('{}', '\uC8FC\uC694'), val: `${aiResult.metadata.context_snapshot.top_movers_count}\uAC1C` },
-                        { label: '{}\uD3EC\uD2B8\uD3F4\uB9AC\uC624'.replace('{}', ''), val: `${aiResult.metadata.context_snapshot.portfolio_positions}\uC885\uBAA9` },
+                        { label: '\uC2DC\uADF8\uB110', val: aiResult.metadata.context_snapshot?.signal_markets?.join(', ') || '-' },
+                        { label: '\uC8FC\uC694\uC885\uBAA9', val: `${aiResult.metadata.context_snapshot?.top_movers_count ?? 0}\uAC1C` },
+                        { label: '\uD3EC\uD2B8\uD3F4\uB9AC\uC624', val: `${aiResult.metadata.context_snapshot?.portfolio_positions ?? 0}\uC885\uBAA9` },
                       ].map(({ label, val }, i) => (
                         <span key={i} style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                           {label}: <strong style={{ color: 'var(--text-secondary)' }}>{val}</strong>
@@ -438,10 +438,10 @@ export default function MarketBrief({ onNavigate }) {
                       <td>{n.market}</td>
                       <td style={{ fontSize: '0.8rem' }}>{n.title}</td>
                       <td>
-                        {n.score > 0 ? (
-                          <span style={{ color: 'var(--green)', fontWeight: 600 }}>+{n.score.toFixed(1)}</span>
-                        ) : n.score < 0 ? (
-                          <span style={{ color: 'var(--red)', fontWeight: 600 }}>{n.score.toFixed(1)}</span>
+                        {(n.score ?? 0) > 0 ? (
+                          <span style={{ color: 'var(--green)', fontWeight: 600 }}>+{(n.score ?? 0).toFixed(1)}</span>
+                        ) : (n.score ?? 0) < 0 ? (
+                          <span style={{ color: 'var(--red)', fontWeight: 600 }}>{(n.score ?? 0).toFixed(1)}</span>
                         ) : (
                           <span style={{ color: 'var(--text-muted)' }}>0</span>
                         )}

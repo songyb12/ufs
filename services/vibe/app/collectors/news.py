@@ -28,17 +28,19 @@ _SYMBOL_RE = re.compile(r'^[A-Z0-9.\-]{1,10}$', re.IGNORECASE)
 
 # Shared httpx client — reused across all news fetches within a session
 _http_client: httpx.AsyncClient | None = None
+_client_lock = asyncio.Lock()
 
 
-def _get_client() -> httpx.AsyncClient:
-    """Get or create a shared httpx.AsyncClient instance."""
+async def _get_client() -> httpx.AsyncClient:
+    """Get or create a shared httpx.AsyncClient instance (race-condition safe)."""
     global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            timeout=10.0,
-            follow_redirects=True,
-        )
+    async with _client_lock:
+        if _http_client is None or _http_client.is_closed:
+            _http_client = httpx.AsyncClient(
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                timeout=10.0,
+                follow_redirects=True,
+            )
     return _http_client
 
 
@@ -101,7 +103,7 @@ async def _fetch_kr_news(
         naver_articles = await _fetch_naver_stock_news(symbol, max_articles)
         articles.extend(naver_articles)
     except Exception as e:
-        logger.debug("Naver stock news failed for %s: %s", symbol, e)
+        logger.info("[News] Naver stock news failed for %s: %s", symbol, e)
 
     # Method 2: Google News RSS with Korean company name
     if len(articles) < max_articles and name:
@@ -111,7 +113,7 @@ async def _fetch_kr_news(
             )
             articles.extend(google_articles)
         except Exception as e:
-            logger.debug("Google News KR failed for %s: %s", name, e)
+            logger.info("[News] Google News KR failed for %s: %s", name, e)
 
     return articles[:max_articles]
 
@@ -150,16 +152,23 @@ async def _fetch_naver_stock_news(symbol: str, max_articles: int) -> list[dict]:
         return []
     url = f"https://finance.naver.com/item/news_news.naver?code={symbol}&page=1"
 
-    client = _get_client()
+    client = await _get_client()
     resp = await client.get(url)
     resp.raise_for_status()
     html = resp.text
 
     articles = []
-    # Parse title links from the news table
-    # Pattern: <a href="..." class="tit">headline</a>
-    pattern = r'class="tit"[^>]*>([^<]+)</a>'
-    matches = re.findall(pattern, html)
+    # Try multiple patterns for robustness (Naver changes HTML periodically)
+    patterns = [
+        r'class="tit"[^>]*>([^<]+)</a>',           # Legacy pattern
+        r'<td\s+class="title">\s*<a[^>]*>([^<]+)</a>',  # Table-based layout
+        r'class="articleSubject"[^>]*>\s*<a[^>]*>([^<]+)</a>',  # Article layout
+    ]
+    matches = []
+    for pattern in patterns:
+        matches = re.findall(pattern, html)
+        if matches:
+            break
 
     for title in matches[:max_articles]:
         title = title.strip()
@@ -172,6 +181,9 @@ async def _fetch_naver_stock_news(symbol: str, max_articles: int) -> list[dict]:
                 "published": datetime.now(timezone.utc).isoformat(),
             })
 
+    if not articles:
+        logger.info("[News] Naver scraper returned 0 articles for %s (page length: %d)", symbol, len(html))
+
     return articles
 
 
@@ -182,7 +194,7 @@ async def _fetch_finviz_news(symbol: str, max_articles: int) -> list[dict]:
         return []
     url = f"https://finviz.com/quote.ashx?t={symbol}"
 
-    client = _get_client()
+    client = await _get_client()
     resp = await client.get(url)
     resp.raise_for_status()
     html = resp.text
@@ -213,7 +225,7 @@ async def _fetch_google_news_rss(
     encoded = quote(query)
     url = f"https://news.google.com/rss/search?q={encoded}&hl=ko&gl=KR&ceid=KR:ko"
 
-    client = _get_client()
+    client = await _get_client()
     resp = await client.get(url)
     resp.raise_for_status()
     xml_text = resp.text

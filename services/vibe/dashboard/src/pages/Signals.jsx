@@ -143,7 +143,13 @@ export default function Signals({ onNavigate }) {
               </tr>
             </thead>
             <tbody>
-              {signals.map((s) => (
+              {signals.length === 0 ? (
+                <tr>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                    해당 기간에 시그널 데이터가 없습니다. 파이프라인을 먼저 실행하세요.
+                  </td>
+                </tr>
+              ) : signals.map((s) => (
                 <tr key={`${s.symbol}-${s.market}-${s.signal_date}`}>
                   <td style={{ whiteSpace: 'nowrap' }}>{s.signal_date}</td>
                   <td

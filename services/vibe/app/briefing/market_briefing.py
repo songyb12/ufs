@@ -103,10 +103,12 @@ async def generate_market_briefing(target_date: str | None = None) -> dict:
 
     # --- 3. Signal Summary (latest date) ---
     c = await db.execute(
-        """SELECT final_signal, market, COUNT(*) as cnt
-           FROM signals
-           WHERE signal_date = (SELECT MAX(signal_date) FROM signals)
-           GROUP BY final_signal, market"""
+        """SELECT s.final_signal, s.market, COUNT(*) as cnt
+           FROM signals s
+           INNER JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+               AND w.is_active = 1
+           WHERE s.signal_date = (SELECT MAX(signal_date) FROM signals)
+           GROUP BY s.final_signal, s.market"""
     )
     signal_rows = [dict(r) for r in await c.fetchall()]
     signal_summary = {"KR": {"BUY": 0, "SELL": 0, "HOLD": 0}, "US": {"BUY": 0, "SELL": 0, "HOLD": 0}}
@@ -127,7 +129,8 @@ async def generate_market_briefing(target_date: str | None = None) -> dict:
         """SELECT s.symbol, s.market, s.final_signal, s.raw_score,
                   s.rsi_value, s.rationale, w.name
            FROM signals s
-           LEFT JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+           INNER JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+               AND w.is_active = 1
            WHERE s.signal_date = (SELECT MAX(signal_date) FROM signals)
            AND s.final_signal IN ('BUY', 'SELL')
            ORDER BY ABS(s.raw_score) DESC
@@ -147,10 +150,12 @@ async def generate_market_briefing(target_date: str | None = None) -> dict:
 
     # --- 5. Recent News Headlines (from news_data) ---
     c = await db.execute(
-        """SELECT symbol, market, trade_date, headlines_json, news_score
-           FROM news_data
-           WHERE trade_date >= date(?, '-3 days')
-           ORDER BY trade_date DESC
+        """SELECT nd.symbol, nd.market, nd.trade_date, nd.headlines_json, nd.news_score
+           FROM news_data nd
+           INNER JOIN watchlist w ON nd.symbol = w.symbol AND nd.market = w.market
+               AND w.is_active = 1
+           WHERE nd.trade_date >= date(?, '-3 days')
+           ORDER BY nd.trade_date DESC
            LIMIT 30""",
         (today,),
     )
@@ -160,8 +165,9 @@ async def generate_market_briefing(target_date: str | None = None) -> dict:
         if r["headlines_json"]:
             try:
                 headlines = json.loads(r["headlines_json"])
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning("Failed to parse headlines_json for %s/%s: %s", r["symbol"], r["market"], e)
+                headlines = []
         for h in headlines[:3]:  # top 3 per symbol
             news_items.append({
                 "symbol": r["symbol"],

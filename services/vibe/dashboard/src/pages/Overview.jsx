@@ -40,7 +40,15 @@ export default function Overview({ onNavigate }) {
   if (error) return <div className="loading" style={{ color: 'var(--red)' }}>Error: {error}</div>
   if (!summary) return <div className="loading">No data available</div>
 
-  const { signals: sigCounts, portfolio, pipelines, data, hard_limit_count } = summary
+  const {
+    signals: sigCounts = {},
+    portfolio = {},
+    pipelines = {},
+    data = {},
+    hard_limit_count = 0,
+  } = summary || {}
+  const pKR = pipelines.KR || {}
+  const pUS = pipelines.US || {}
   const totalSignals = (sigCounts.BUY || 0) + (sigCounts.SELL || 0) + (sigCounts.HOLD || 0)
 
   const pieData = [
@@ -91,26 +99,26 @@ export default function Overview({ onNavigate }) {
         </div>
         <div className="card">
           <div className="card-label">Portfolio P&L</div>
-          <div className={`card-value ${portfolio.total_pnl_pct >= 0 ? 'green' : 'red'}`}>
-            {portfolio.total_pnl_pct >= 0 ? '+' : ''}{portfolio.total_pnl_pct}%
+          <div className={`card-value ${(portfolio.total_pnl_pct || 0) >= 0 ? 'green' : 'red'}`}>
+            {(portfolio.total_pnl_pct || 0) >= 0 ? '+' : ''}{portfolio.total_pnl_pct ?? 0}%
           </div>
-          <div className="card-sub">{portfolio.holdings_count} holdings</div>
+          <div className="card-sub">{portfolio.holdings_count ?? 0} holdings</div>
         </div>
         <div className="card">
           <div className="card-label">KR Pipeline</div>
           <div className="card-value blue" style={{ fontSize: '1rem' }}>
-            <span className={`status-dot ${pipelines.KR.status === 'completed' ? 'green' : 'red'}`} />
-            {pipelines.KR.status}
+            <span className={`status-dot ${pKR.status === 'completed' ? 'green' : 'red'}`} />
+            {pKR.status || 'unknown'}
           </div>
-          <div className="card-sub">{pipelines.KR.last_run ? new Date(pipelines.KR.last_run).toLocaleString('ko-KR') : 'never'}</div>
+          <div className="card-sub">{pKR.last_run ? new Date(pKR.last_run).toLocaleString('ko-KR') : 'never'}</div>
         </div>
         <div className="card">
           <div className="card-label">US Pipeline</div>
           <div className="card-value blue" style={{ fontSize: '1rem' }}>
-            <span className={`status-dot ${pipelines.US.status === 'completed' ? 'green' : 'red'}`} />
-            {pipelines.US.status}
+            <span className={`status-dot ${pUS.status === 'completed' ? 'green' : 'red'}`} />
+            {pUS.status || 'unknown'}
           </div>
-          <div className="card-sub">{pipelines.US.last_run ? new Date(pipelines.US.last_run).toLocaleString('ko-KR') : 'never'}</div>
+          <div className="card-sub">{pUS.last_run ? new Date(pUS.last_run).toLocaleString('ko-KR') : 'never'}</div>
         </div>
       </div>
 
@@ -275,15 +283,15 @@ export default function Overview({ onNavigate }) {
       <div className="card-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="card">
           <div className="card-label">Price Records</div>
-          <div className="card-value blue">{data.prices.toLocaleString()}</div>
+          <div className="card-value blue">{(data.prices || 0).toLocaleString()}</div>
         </div>
         <div className="card">
           <div className="card-label">Total Signals</div>
-          <div className="card-value blue">{data.signals_total.toLocaleString()}</div>
+          <div className="card-value blue">{(data.signals_total || 0).toLocaleString()}</div>
         </div>
         <div className="card">
           <div className="card-label">Watchlist</div>
-          <div className="card-value blue">{data.watchlist}</div>
+          <div className="card-value blue">{data.watchlist ?? 0}</div>
           <div className="card-sub">active symbols</div>
         </div>
       </div>

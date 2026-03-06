@@ -59,9 +59,8 @@ export default function Backtest({ onNavigate }) {
 
   // Summary stats
   const completed = results.filter(r => r.status === 'completed')
-  const bestHitRate = completed.length > 0
-    ? Math.max(...completed.filter(r => r.hit_rate != null).map(r => r.hit_rate))
-    : null
+  const hitRates = completed.filter(r => r.hit_rate != null).map(r => r.hit_rate)
+  const bestHitRate = hitRates.length > 0 ? Math.max(...hitRates) : null
   const avgSharpe = completed.length > 0
     ? completed.filter(r => r.sharpe_ratio != null).reduce((sum, r) => sum + r.sharpe_ratio, 0) /
       Math.max(1, completed.filter(r => r.sharpe_ratio != null).length)

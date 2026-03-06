@@ -96,8 +96,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )
 
 # API Key authentication middleware
@@ -300,3 +300,6 @@ async def trigger_retention():
 _static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.isdir(_static_dir):
     app.mount("/ui", StaticFiles(directory=_static_dir, html=True), name="dashboard")
+    logger.info("Dashboard UI mounted at /ui from %s", _static_dir)
+else:
+    logger.info("Dashboard static dir not found at %s — /ui not mounted", _static_dir)
