@@ -12,6 +12,7 @@ interface NoteLabelProps {
   isMidiActive?: boolean
   isScaleOverlay?: boolean
   isPattern?: boolean    // scale pattern box shape highlight (teal)
+  isChordTone?: boolean  // chord tone indicator ring (pink)
   displayLabel?: string  // custom label (for interval/degree modes)
   leftHanded?: boolean   // counter-transform text when fretboard is mirrored
   onClick?: () => void
@@ -40,6 +41,7 @@ export const NoteLabel = memo(function NoteLabel({
   isMidiActive = false,
   isScaleOverlay = false,
   isPattern = false,
+  isChordTone = false,
   displayLabel,
   leftHanded = false,
   onClick,
@@ -144,6 +146,18 @@ export const NoteLabel = memo(function NoteLabel({
         strokeWidth={strokeWidth}
         opacity={isVisible ? fillOpacity : 0}
       />
+      {/* Chord tone indicator ring */}
+      {isChordTone && isVisible && (
+        <circle
+          cx={x}
+          cy={y}
+          r={radius + 3}
+          fill="none"
+          stroke="#f472b6"
+          strokeWidth={2}
+          opacity={0.8}
+        />
+      )}
       <text
         x={x}
         y={y}

@@ -16,6 +16,7 @@ interface FretboardProps {
   midiNoteName?: NoteName      // currently active MIDI note (highlight all instances)
   scaleOverlayNoteNames?: NoteName[]  // improv scale overlay (amber)
   patternPositions?: { stringIndex: number; fret: number }[]  // scale pattern overlay (teal)
+  chordToneNoteNames?: NoteName[]  // chord tone indicator ring (pink)
   labelMode?: NoteLabelMode    // 'name' | 'interval' | 'degree'
   enharmonicMode?: EnharmonicMode  // 'sharp' | 'flat'
   leftHanded?: boolean         // mirror fretboard horizontally
@@ -41,6 +42,7 @@ export function Fretboard({
   midiNoteName,
   scaleOverlayNoteNames = [],
   patternPositions,
+  chordToneNoteNames = [],
   labelMode = 'name',
   enharmonicMode = 'sharp',
   leftHanded = false,
@@ -85,6 +87,7 @@ export function Fretboard({
 
   const scaleSet = useMemo(() => new Set(scaleNoteNames), [scaleNoteNames])
   const scaleOverlaySet = useMemo(() => new Set(scaleOverlayNoteNames), [scaleOverlayNoteNames])
+  const chordToneSet = useMemo(() => new Set(chordToneNoteNames), [chordToneNoteNames])
   const patternPosSet = useMemo(() => {
     if (!patternPositions) return null
     const s = new Set<string>()
@@ -292,6 +295,7 @@ export function Fretboard({
                 const isMidi = midiNoteName === note.name
                 const isOverlay = scaleOverlaySet.has(note.name) && !inScale && !isVoicing
                 const isPatternPos = patternPosSet?.has(`${stringIndex}-${fret}`) ?? false
+                const isChordTone = chordToneSet.size > 0 && chordToneSet.has(note.name)
 
                 // Compute display label based on mode (only for visible notes)
                 const showLabel = highlighted || isMidi || isVoicing || inScale || isRoot || isOverlay || isPatternPos
@@ -315,6 +319,7 @@ export function Fretboard({
                     isMidiActive={isMidi}
                     isScaleOverlay={isOverlay}
                     isPattern={isPatternPos}
+                    isChordTone={isChordTone}
                     displayLabel={displayLabel}
                     leftHanded={leftHanded}
                     onClick={() => onNoteClick?.(note, stringIndex, fret)}

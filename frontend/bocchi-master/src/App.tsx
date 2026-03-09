@@ -87,6 +87,9 @@ export default function App() {
   // Scale pattern positions (for box shapes on fretboard)
   const [patternPositions, setPatternPositions] = useState<{ stringIndex: number; fret: number }[] | null>(null)
 
+  // Chord tone highlighting toggle
+  const [showChordTones, setShowChordTones] = useState(false)
+
   // Fretboard quiz state
   const [fretboardQuizActive, setFretboardQuizActive] = useState(false)
   const fretboardQuizRef = useRef<FretboardQuizHandle>(null)
@@ -406,6 +409,12 @@ export default function App() {
     return scaleSuggestions[activeScaleSuggestionIdx]?.noteNames ?? []
   }, [activeScaleSuggestionIdx, scaleSuggestions])
 
+  // Chord tone note names (for highlighting chord tones on fretboard)
+  const chordToneNoteNames: NoteName[] = useMemo(() => {
+    if (!showChordTones || !activeChord) return []
+    return activeChord.notes // root, 3rd, 5th (and 7th if applicable)
+  }, [showChordTones, activeChord])
+
   // Practice target: combine fretboard notes + scale overlay
   const practiceTargetNotes = useMemo(() => {
     const notes = [...fretboardNoteNames, ...scaleOverlayNoteNames]
@@ -547,6 +556,19 @@ export default function App() {
           >
             {enharmonicMode === 'sharp' ? '#' : '♭'}
           </button>
+          {activeChord && (
+            <button
+              onClick={() => setShowChordTones((v) => !v)}
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                showChordTones
+                  ? 'bg-pink-500/20 text-pink-400 ring-1 ring-pink-500/40'
+                  : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+              }`}
+              title="Highlight chord tones (R, 3, 5, 7) with ring indicator"
+            >
+              CT
+            </button>
+          )}
           <span className="text-slate-700 mx-1">|</span>
           <button
             onClick={() => setLeftHanded((v) => !v)}
@@ -622,6 +644,7 @@ export default function App() {
           midiNoteName={midiNoteName}
           scaleOverlayNoteNames={scaleOverlayNoteNames}
           patternPositions={patternPositions ?? undefined}
+          chordToneNoteNames={chordToneNoteNames}
           labelMode={labelMode}
           enharmonicMode={enharmonicMode}
           leftHanded={leftHanded}
