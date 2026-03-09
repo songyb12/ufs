@@ -51,6 +51,7 @@ export class AudioScheduler {
   private swing: number = 0 // 0–100, 0=straight, 50+=swing feel
   private currentSubBeat: number = 0 // tracks subdivision within a beat
   private accentPattern: AccentLevel[] | null = null // null=default (beat 0 accented)
+  private volume: number = 1.0 // 0.0 to 1.0 master volume
 
   constructor(
     audioContext: AudioContext,
@@ -112,8 +113,12 @@ export class AudioScheduler {
   private scheduleClick(time: number, isCountIn: boolean, isSubdivision: boolean): void {
     const osc = this.audioContext.createOscillator()
     const gain = this.audioContext.createGain()
+    // Master volume node
+    const masterGain = this.audioContext.createGain()
+    masterGain.gain.value = this.volume
     osc.connect(gain)
-    gain.connect(this.audioContext.destination)
+    gain.connect(masterGain)
+    masterGain.connect(this.audioContext.destination)
 
     if (isCountIn) {
       // Count-in: higher-pitched staccato sound
@@ -228,6 +233,10 @@ export class AudioScheduler {
 
   setAccentPattern(pattern: AccentLevel[] | null): void {
     this.accentPattern = pattern
+  }
+
+  setVolume(vol: number): void {
+    this.volume = Math.max(0, Math.min(1, vol))
   }
 
   getIsPlaying(): boolean {

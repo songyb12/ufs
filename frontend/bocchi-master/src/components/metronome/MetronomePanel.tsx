@@ -56,6 +56,8 @@ export interface MetronomePanelProps {
   onAccentPatternChange: (pattern: AccentLevel[] | null) => void
   beatFlash?: boolean
   onBeatFlashChange?: (enabled: boolean) => void
+  volume?: number
+  onVolumeChange?: (vol: number) => void
 }
 
 /**
@@ -134,6 +136,8 @@ export function MetronomePanel({
   onAccentPatternChange,
   beatFlash,
   onBeatFlashChange,
+  volume = 0.8,
+  onVolumeChange,
 }: MetronomePanelProps) {
   // Build effective accent array (default: beat 0 = accent, rest = normal)
   const effectiveAccents: AccentLevel[] = accentPattern
@@ -299,6 +303,24 @@ export function MetronomePanel({
             {s.label}
           </button>
         ))}
+        {onVolumeChange && (
+          <>
+            <span className="text-slate-700 mx-0.5">|</span>
+            <span className="text-xs text-slate-500">Vol:</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(volume * 100)}
+              onChange={(e) => onVolumeChange(Number(e.target.value) / 100)}
+              className="w-16 h-1 accent-sky-500"
+              title={`Volume: ${Math.round(volume * 100)}%`}
+            />
+            <span className="text-[10px] text-slate-500 tabular-nums w-7 text-right">
+              {Math.round(volume * 100)}%
+            </span>
+          </>
+        )}
       </div>
 
       {/* Subdivision selector */}

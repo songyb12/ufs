@@ -868,6 +868,8 @@ export default function App() {
           onAccentPatternChange={metronome.setAccentPattern}
           beatFlash={beatFlashEnabled}
           onBeatFlashChange={setBeatFlashEnabled}
+          volume={metronome.volume}
+          onVolumeChange={metronome.setVolume}
         />
         <BackingTrackPanel
           enabled={backingTrack.enabled}

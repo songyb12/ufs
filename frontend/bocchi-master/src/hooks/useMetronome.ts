@@ -23,6 +23,7 @@ export function useMetronome(
   const [subdivision, setSubdivisionState] = useState<Subdivision>(1)
   const [swing, setSwingState] = useState(0)
   const [accentPattern, setAccentPatternState] = useState<AccentLevel[] | null>(null)
+  const [volume, setVolumeState] = useState(0.8)
 
   // Keep refs to avoid stale closures
   const onBeatScheduleRef = useRef(externalOnBeatSchedule)
@@ -49,11 +50,12 @@ export function useMetronome(
     schedulerRef.current.setSubdivision(subdivision)
     schedulerRef.current.setSwing(swing)
     schedulerRef.current.setAccentPattern(accentPattern)
+    schedulerRef.current.setVolume(volume)
     const countInBars = countInRef.current ? 1 : 0
     if (countInBars > 0) setIsCountingIn(true)
     schedulerRef.current.start(countInBars)
     setIsPlaying(true)
-  }, [bpm, beatsPerMeasure, clickSound, subdivision, swing, accentPattern])
+  }, [bpm, beatsPerMeasure, clickSound, subdivision, swing, accentPattern, volume])
 
   const stop = useCallback(() => {
     schedulerRef.current?.stop()
@@ -118,6 +120,15 @@ export function useMetronome(
     [],
   )
 
+  const setVolume = useCallback(
+    (vol: number) => {
+      const clamped = Math.max(0, Math.min(1, vol))
+      setVolumeState(clamped)
+      schedulerRef.current?.setVolume(clamped)
+    },
+    [],
+  )
+
   return {
     bpm,
     setBpm,
@@ -140,5 +151,7 @@ export function useMetronome(
     setSwing,
     accentPattern,
     setAccentPattern,
+    volume,
+    setVolume,
   }
 }
