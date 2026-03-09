@@ -48,6 +48,46 @@ export interface PracticeSession {
   notes?: string    // free-form practice notes
 }
 
+/** Daily practice goal tracking */
+export interface DailyGoal {
+  targetMinutes: number
+  /** Accumulated seconds per day, keyed by YYYY-MM-DD */
+  dailyLog: Record<string, number>
+}
+
+const DAILY_GOAL_KEY = 'bocchi-daily-goal'
+
+export function loadDailyGoal(): DailyGoal {
+  try {
+    const raw = localStorage.getItem(DAILY_GOAL_KEY)
+    if (!raw) return { targetMinutes: 30, dailyLog: {} }
+    return JSON.parse(raw) as DailyGoal
+  } catch {
+    return { targetMinutes: 30, dailyLog: {} }
+  }
+}
+
+export function saveDailyGoal(goal: DailyGoal): void {
+  try {
+    // Keep only last 60 days of logs to prevent unbounded growth
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 60)
+    const cutoffStr = cutoff.toISOString().slice(0, 10)
+    const trimmed: Record<string, number> = {}
+    for (const [date, secs] of Object.entries(goal.dailyLog)) {
+      if (date >= cutoffStr) trimmed[date] = secs
+    }
+    localStorage.setItem(DAILY_GOAL_KEY, JSON.stringify({ ...goal, dailyLog: trimmed }))
+  } catch { /* ignore */ }
+}
+
+export function addDailyPracticeTime(seconds: number): void {
+  const goal = loadDailyGoal()
+  const today = new Date().toISOString().slice(0, 10)
+  goal.dailyLog[today] = (goal.dailyLog[today] ?? 0) + seconds
+  saveDailyGoal(goal)
+}
+
 const DEFAULTS: PersistedSettings = {
   bpm: 120,
   beatsPerMeasure: 4,

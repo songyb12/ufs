@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { loadDailyGoal, saveDailyGoal, addDailyPracticeTime } from '../../utils/storage'
 
 interface PracticeTimerPanelProps {
   /** Whether any practice activity is happening (metronome, practice mode, etc.) */
@@ -8,6 +9,7 @@ interface PracticeTimerPanelProps {
 type TimerMode = 'stopwatch' | 'countdown'
 
 const PRESETS_MINUTES = [5, 10, 15, 20, 30]
+const DAILY_GOAL_PRESETS = [15, 30, 45, 60, 90]
 
 function formatTime(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60)
@@ -16,9 +18,10 @@ function formatTime(totalSeconds: number): string {
 }
 
 /**
- * Practice session timer. Two modes:
+ * Practice session timer with daily goal tracking.
  * - Stopwatch: tracks elapsed time
  * - Countdown: counts down from a set duration, chimes when done
+ * - Daily Goal: persistent progress bar toward daily practice target
  */
 export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
   const [expanded, setExpanded] = useState(false)
@@ -28,11 +31,30 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
   const [goalMinutes, setGoalMinutes] = useState(10)
   const [completed, setCompleted] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastSavedRef = useRef(0) // tracks last saved elapsed to compute delta
+
+  // Daily goal state
+  const [dailyGoal, setDailyGoal] = useState(() => loadDailyGoal())
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const todaySeconds = dailyGoal.dailyLog[today] ?? 0
+  const dailyTargetSeconds = dailyGoal.targetMinutes * 60
+  const dailyPct = dailyTargetSeconds > 0 ? Math.min(100, (todaySeconds / dailyTargetSeconds) * 100) : 0
+  const dailyGoalMet = todaySeconds >= dailyTargetSeconds
 
   // Session history (in-memory, current session only)
   const [sessions, setSessions] = useState<{ duration: number; timestamp: number }[]>([])
 
   const totalGoalSeconds = goalMinutes * 60
+
+  // Save elapsed time to daily log periodically (every 30s) and on pause/reset
+  const flushToDailyLog = useCallback(() => {
+    const delta = elapsedSeconds - lastSavedRef.current
+    if (delta > 0) {
+      addDailyPracticeTime(delta)
+      lastSavedRef.current = elapsedSeconds
+      setDailyGoal(loadDailyGoal())
+    }
+  }, [elapsedSeconds])
 
   const startTimer = useCallback(() => {
     setRunning(true)
@@ -41,20 +63,22 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
 
   const pauseTimer = useCallback(() => {
     setRunning(false)
-  }, [])
+    flushToDailyLog()
+  }, [flushToDailyLog])
 
   const resetTimer = useCallback(() => {
+    flushToDailyLog()
     if (elapsedSeconds > 10) {
-      // Save session before reset
       setSessions((prev) => [
         { duration: elapsedSeconds, timestamp: Date.now() },
-        ...prev.slice(0, 9), // keep last 10
+        ...prev.slice(0, 9),
       ])
     }
     setRunning(false)
     setElapsedSeconds(0)
+    lastSavedRef.current = 0
     setCompleted(false)
-  }, [elapsedSeconds])
+  }, [elapsedSeconds, flushToDailyLog])
 
   // Tick every second when running
   useEffect(() => {
@@ -68,12 +92,19 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
     }
   }, [running])
 
+  // Auto-flush to daily log every 30 seconds while running
+  useEffect(() => {
+    if (running && elapsedSeconds > 0 && elapsedSeconds % 30 === 0) {
+      flushToDailyLog()
+    }
+  }, [running, elapsedSeconds, flushToDailyLog])
+
   // Check countdown completion
   useEffect(() => {
     if (mode === 'countdown' && running && elapsedSeconds >= totalGoalSeconds) {
       setRunning(false)
       setCompleted(true)
-      // Play a completion chime via AudioContext
+      flushToDailyLog()
       try {
         const ctx = new AudioContext()
         const playTone = (freq: number, delay: number) => {
@@ -88,13 +119,12 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
           osc.start(ctx.currentTime + delay)
           osc.stop(ctx.currentTime + delay + 0.5)
         }
-        // Three-note ascending chime
-        playTone(523, 0)    // C5
-        playTone(659, 0.2)  // E5
-        playTone(784, 0.4)  // G5
+        playTone(523, 0)
+        playTone(659, 0.2)
+        playTone(784, 0.4)
       } catch { /* ignore audio errors */ }
     }
-  }, [elapsedSeconds, mode, running, totalGoalSeconds])
+  }, [elapsedSeconds, mode, running, totalGoalSeconds, flushToDailyLog])
 
   // Auto-start when external activity begins
   useEffect(() => {
@@ -103,6 +133,12 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
     }
   }, [isActive]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Flush on unmount
+  useEffect(() => () => {
+    const delta = elapsedSeconds - lastSavedRef.current
+    if (delta > 0) addDailyPracticeTime(delta)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const displaySeconds = mode === 'countdown'
     ? Math.max(0, totalGoalSeconds - elapsedSeconds)
     : elapsedSeconds
@@ -110,6 +146,35 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
   const progressPct = mode === 'countdown'
     ? Math.min(100, (elapsedSeconds / totalGoalSeconds) * 100)
     : 0
+
+  // Update daily goal target
+  const setDailyTarget = useCallback((minutes: number) => {
+    const goal = loadDailyGoal()
+    goal.targetMinutes = minutes
+    saveDailyGoal(goal)
+    setDailyGoal(goal)
+  }, [])
+
+  // Weekly streak (consecutive days with goal met)
+  const weekStreak = useMemo(() => {
+    let streak = 0
+    const d = new Date()
+    // Start from yesterday (today may not be complete yet)
+    d.setDate(d.getDate() - 1)
+    for (let i = 0; i < 30; i++) {
+      const dateStr = d.toISOString().slice(0, 10)
+      const secs = dailyGoal.dailyLog[dateStr] ?? 0
+      if (secs >= dailyTargetSeconds) {
+        streak++
+        d.setDate(d.getDate() - 1)
+      } else {
+        break
+      }
+    }
+    // Add today if goal already met
+    if (dailyGoalMet) streak++
+    return streak
+  }, [dailyGoal.dailyLog, dailyTargetSeconds, dailyGoalMet])
 
   if (!expanded) {
     return (
@@ -138,11 +203,59 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
             </button>
           )}
           <button
-            onClick={() => setExpanded(false)}
+            onClick={() => { if (running) flushToDailyLog(); setExpanded(false) }}
             className="text-xs text-slate-500 hover:text-slate-300"
           >
             Collapse
           </button>
+        </div>
+      </div>
+
+      {/* Daily Goal Progress */}
+      <div className="bg-slate-900/50 rounded-lg px-3 py-2 flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wider">
+            Daily Goal
+          </span>
+          <div className="flex items-center gap-1">
+            {weekStreak > 0 && (
+              <span className="text-[10px] text-orange-400 font-semibold">
+                {weekStreak}d streak
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                dailyGoalMet ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+              style={{ width: `${dailyPct}%` }}
+            />
+          </div>
+          <span className={`text-[10px] font-semibold tabular-nums ${
+            dailyGoalMet ? 'text-emerald-400' : 'text-slate-400'
+          }`}>
+            {Math.floor(todaySeconds / 60)}/{dailyGoal.targetMinutes}m
+          </span>
+        </div>
+        {/* Daily target presets */}
+        <div className="flex items-center gap-1">
+          <span className="text-[9px] text-slate-600">Target:</span>
+          {DAILY_GOAL_PRESETS.map((m) => (
+            <button
+              key={m}
+              onClick={() => setDailyTarget(m)}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors ${
+                dailyGoal.targetMinutes === m
+                  ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/40'
+                  : 'bg-slate-700/50 text-slate-600 hover:text-slate-400'
+              }`}
+            >
+              {m}m
+            </button>
+          ))}
         </div>
       </div>
 
@@ -167,7 +280,7 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
       {/* Goal duration (countdown mode only) */}
       {mode === 'countdown' && !running && elapsedSeconds === 0 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-slate-500">Goal:</span>
+          <span className="text-xs text-slate-500">Session:</span>
           {PRESETS_MINUTES.map((min) => (
             <button
               key={min}
@@ -235,7 +348,7 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
       {sessions.length > 0 && (
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-slate-500 uppercase tracking-wider">Recent Sessions</span>
-          {sessions.map((s, i) => (
+          {sessions.map((s) => (
             <div key={s.timestamp} className="flex items-center justify-between text-[10px]">
               <span className="text-slate-500">
                 {new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
