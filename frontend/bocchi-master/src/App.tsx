@@ -46,6 +46,7 @@ import { ShortcutHelpOverlay } from './components/help/ShortcutHelpOverlay'
 import { ScaleFinderPanel } from './components/scale/ScaleFinderPanel'
 import { FretboardQuizPanel, type FretboardQuizHandle } from './components/trainer/FretboardQuizPanel'
 import { ScalePatternPanel } from './components/scale/ScalePatternPanel'
+import { PracticeTimerPanel } from './components/practice/PracticeTimerPanel'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -758,6 +759,9 @@ export default function App() {
         active={fretboardQuizActive}
         onToggle={useCallback(() => setFretboardQuizActive((v) => !v), [])}
       />
+
+      {/* Practice Timer */}
+      <PracticeTimerPanel isActive={metronome.isPlaying || practice.active} />
 
       {/* Practice History (persistent stats) */}
       <PracticeHistoryPanel />
