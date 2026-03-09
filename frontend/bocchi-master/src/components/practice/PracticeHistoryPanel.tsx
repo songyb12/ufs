@@ -1,5 +1,12 @@
-import { memo, useState, useEffect } from 'react'
-import { loadSettings, clearPracticeHistory, type PracticeSession } from '../../utils/storage'
+import { memo, useState, useEffect, useRef, useCallback } from 'react'
+import {
+  loadSettings,
+  clearPracticeHistory,
+  exportPracticeData,
+  importPracticeData,
+  downloadAsFile,
+  type PracticeSession,
+} from '../../utils/storage'
 
 /**
  * Practice History Panel
@@ -66,6 +73,37 @@ export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
     clearPracticeHistory()
     setSessions([])
   }
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importStatus, setImportStatus] = useState<string | null>(null)
+
+  const handleExport = useCallback(() => {
+    const json = exportPracticeData()
+    const date = new Date().toISOString().slice(0, 10)
+    downloadAsFile(json, `bocchi-practice-${date}.json`)
+  }, [])
+
+  const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = importPracticeData(reader.result as string)
+      if (result.errors.length > 0) {
+        setImportStatus(`⚠ ${result.errors[0]}`)
+      } else if (result.imported > 0) {
+        setImportStatus(`✓ Imported ${result.imported} sessions`)
+        const settings = loadSettings()
+        setSessions(settings.practiceHistory)
+      } else {
+        setImportStatus('No new sessions to import')
+      }
+      setTimeout(() => setImportStatus(null), 4000)
+    }
+    reader.readAsText(file)
+    // Reset input for re-import
+    e.target.value = ''
+  }, [])
 
   return (
     <div className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3">
@@ -141,12 +179,38 @@ export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
               </div>
             )
           })}
-          <button
-            onClick={handleClear}
-            className="text-xs text-red-500/60 hover:text-red-400 mt-2 self-end"
-          >
-            Clear history
-          </button>
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-700/50">
+            <button
+              onClick={handleExport}
+              className="px-2 py-1 rounded text-xs font-medium bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+              title="Download practice data as JSON"
+            >
+              📥 Export
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-2 py-1 rounded text-xs font-medium bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+              title="Import practice data from JSON file"
+            >
+              📤 Import
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleImport}
+            />
+            {importStatus && (
+              <span className="text-[10px] text-slate-500">{importStatus}</span>
+            )}
+            <button
+              onClick={handleClear}
+              className="text-xs text-red-500/60 hover:text-red-400 ml-auto"
+            >
+              Clear history
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -97,3 +97,85 @@ export function addPracticeSession(session: PracticeSession): void {
 export function clearPracticeHistory(): void {
   saveSettings({ practiceHistory: [] })
 }
+
+/**
+ * Export all practice data as a JSON blob for download.
+ * Includes settings, practice history, and metadata.
+ */
+export function exportPracticeData(): string {
+  const settings = loadSettings()
+  const exportData = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    app: 'bocchi-master',
+    settings: {
+      bpm: settings.bpm,
+      beatsPerMeasure: settings.beatsPerMeasure,
+      instrumentType: settings.instrumentType,
+      instrumentName: settings.instrumentName,
+      mode: settings.mode,
+    },
+    practiceHistory: settings.practiceHistory,
+    totalSessions: settings.practiceHistory.length,
+  }
+  return JSON.stringify(exportData, null, 2)
+}
+
+/**
+ * Import practice history from a JSON string.
+ * Merges with existing data (avoids duplicates by date).
+ */
+export function importPracticeData(jsonString: string): { imported: number; errors: string[] } {
+  const errors: string[] = []
+  try {
+    const data = JSON.parse(jsonString)
+    if (!data || data.app !== 'bocchi-master') {
+      return { imported: 0, errors: ['Invalid file: not a bocchi-master export'] }
+    }
+
+    const sessions: PracticeSession[] = data.practiceHistory ?? []
+    if (!Array.isArray(sessions)) {
+      return { imported: 0, errors: ['Invalid practice history format'] }
+    }
+
+    // Validate each session
+    const validSessions = sessions.filter((s, i) => {
+      if (!s.date || typeof s.accuracy !== 'number') {
+        errors.push(`Session ${i}: missing required fields`)
+        return false
+      }
+      return true
+    })
+
+    // Merge with existing (deduplicate by date + target)
+    const existing = loadSettings().practiceHistory
+    const existingKeys = new Set(existing.map((s) => `${s.date}-${s.targetDescription}`))
+    const newSessions = validSessions.filter(
+      (s) => !existingKeys.has(`${s.date}-${s.targetDescription}`),
+    )
+
+    if (newSessions.length > 0) {
+      const merged = [...newSessions, ...existing].slice(0, 200)
+      saveSettings({ practiceHistory: merged })
+    }
+
+    return { imported: newSessions.length, errors }
+  } catch (e) {
+    return { imported: 0, errors: [`Parse error: ${(e as Error).message}`] }
+  }
+}
+
+/**
+ * Trigger a file download in the browser.
+ */
+export function downloadAsFile(content: string, filename: string, mimeType = 'application/json'): void {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
