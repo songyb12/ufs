@@ -97,6 +97,23 @@ export default function App() {
   // Ghost mode: hide note labels (dots only)
   const [hideNoteLabels, setHideNoteLabels] = useState(false)
 
+  // Capo position (0 = no capo, 1-12 = capo at that fret)
+  const [capo, setCapo] = useState(0)
+
+  // Capo-adjusted instrument: shifts tuning up by capo semitones
+  const effectiveInstrument = useMemo<InstrumentConfig>(() => {
+    if (capo === 0) return instrument
+    return {
+      ...instrument,
+      tuning: instrument.tuning.map((note) => ({
+        name: CHROMATIC_SCALE[(note.midiNumber + capo) % 12],
+        octave: Math.floor((note.midiNumber + capo) / 12) - 1,
+        midiNumber: note.midiNumber + capo,
+      })),
+      fretCount: instrument.fretCount - capo,
+    }
+  }, [instrument, capo])
+
   // Fretboard quiz state
   const [fretboardQuizActive, setFretboardQuizActive] = useState(false)
   const fretboardQuizRef = useRef<FretboardQuizHandle>(null)
@@ -141,12 +158,12 @@ export default function App() {
     if (key) setEnharmonicMode(suggestEnharmonicMode(key))
   }, [selectedRoot, progressionKey])
 
-  // Fretboard zoom (fret range) — reset when instrument changes
-  const [fretRange, setFretRange] = useState<[number, number]>([0, instrument.fretCount])
+  // Fretboard zoom (fret range) — reset when instrument or capo changes
+  const [fretRange, setFretRange] = useState<[number, number]>([0, effectiveInstrument.fretCount])
   const [autoZoom, setAutoZoom] = useState(false)
   useEffect(() => {
-    setFretRange([0, instrument.fretCount])
-  }, [instrument.fretCount])
+    setFretRange([0, effectiveInstrument.fretCount])
+  }, [effectiveInstrument.fretCount])
 
   // String focus (dim unselected strings)
   const [dimmedStrings, setDimmedStrings] = useState<Set<number>>(new Set())
@@ -279,11 +296,11 @@ export default function App() {
   const allProgressionVoicings: ChordVoicing[][] = useMemo(() => {
     return resolvedChords.map((chord) => {
       if (voicingSource === 'caged') {
-        return getCAGEDVoicings(chord.root, chord.quality, instrument)
+        return getCAGEDVoicings(chord.root, chord.quality, effectiveInstrument)
       }
-      return generateVoicings(chord.root, chord.quality, instrument)
+      return generateVoicings(chord.root, chord.quality, effectiveInstrument)
     })
-  }, [resolvedChords, voicingSource, instrument])
+  }, [resolvedChords, voicingSource, effectiveInstrument])
 
   // Available voicings for the currently active chord
   const availableVoicings = allProgressionVoicings[activeChordIndex] ?? []
@@ -343,14 +360,14 @@ export default function App() {
         const max = Math.max(...frettedFrets)
         const hasOpen = currentVoicing.frets.some((f) => f === 0)
         const start = hasOpen ? 0 : Math.max(0, min - 1)
-        const end = Math.min(instrument.fretCount, max + 2)
+        const end = Math.min(effectiveInstrument.fretCount, max + 2)
         setFretRange([start, end])
       }
     } else {
       // No voicing — reset to full
-      setFretRange([0, instrument.fretCount])
+      setFretRange([0, effectiveInstrument.fretCount])
     }
-  }, [autoZoom, currentVoicing, instrument.fretCount])
+  }, [autoZoom, currentVoicing, effectiveInstrument.fretCount])
 
   // Sync activeChordIndex with metronome measure + auto-stop
   useEffect(() => {
@@ -542,7 +559,7 @@ export default function App() {
           ? (optimizedIndices[index] ?? 0)
           : 0
         const v = voicings[idx]
-        if (v) soundEngine.playVoicing(v, instrument)
+        if (v) soundEngine.playVoicing(v, effectiveInstrument)
       }
     },
     [allProgressionVoicings, isOptimized, optimizedIndices, soundEngine, instrument],
@@ -629,13 +646,29 @@ export default function App() {
             {leftHanded ? '🫲 Left' : '🫱 Right'}
           </button>
           <span className="text-slate-700 mx-1">|</span>
+          <span className="text-xs text-slate-500">Capo:</span>
+          <select
+            value={capo}
+            onChange={(e) => setCapo(Number(e.target.value))}
+            className={`text-xs rounded px-1.5 py-0.5 outline-none w-12 ${
+              capo > 0
+                ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40'
+                : 'bg-slate-700 text-slate-300'
+            }`}
+          >
+            <option value={0}>Off</option>
+            {Array.from({ length: 12 }, (_, i) => (
+              <option key={i + 1} value={i + 1}>{i + 1}</option>
+            ))}
+          </select>
+          <span className="text-slate-700 mx-1">|</span>
           <span className="text-xs text-slate-500">Frets:</span>
           <select
             value={fretRange[0]}
             onChange={(e) => setFretRange(([, end]) => [Number(e.target.value), end])}
             className="bg-slate-700 text-slate-300 text-xs rounded px-1.5 py-0.5 outline-none w-12"
           >
-            {Array.from({ length: instrument.fretCount }, (_, i) => (
+            {Array.from({ length: effectiveInstrument.fretCount }, (_, i) => (
               <option key={i} value={i}>{i}</option>
             ))}
           </select>
@@ -645,13 +678,13 @@ export default function App() {
             onChange={(e) => setFretRange(([start]) => [start, Number(e.target.value)])}
             className="bg-slate-700 text-slate-300 text-xs rounded px-1.5 py-0.5 outline-none w-12"
           >
-            {Array.from({ length: instrument.fretCount + 1 }, (_, i) => (
+            {Array.from({ length: effectiveInstrument.fretCount + 1 }, (_, i) => (
               <option key={i} value={i} disabled={i <= fretRange[0]}>{i}</option>
             ))}
           </select>
-          {(fretRange[0] !== 0 || fretRange[1] !== instrument.fretCount) && (
+          {(fretRange[0] !== 0 || fretRange[1] !== effectiveInstrument.fretCount) && (
             <button
-              onClick={() => { setFretRange([0, instrument.fretCount]); setAutoZoom(false) }}
+              onClick={() => { setFretRange([0, effectiveInstrument.fretCount]); setAutoZoom(false) }}
               className="text-xs text-slate-500 hover:text-slate-300"
             >
               Reset
@@ -671,7 +704,7 @@ export default function App() {
           {/* String focus toggles */}
           <span className="text-slate-700 mx-1">|</span>
           <span className="text-xs text-slate-500">Strings:</span>
-          {instrument.tuning.map((openNote, si) => (
+          {effectiveInstrument.tuning.map((openNote, si) => (
             <button
               key={si}
               onClick={() => toggleStringDim(si)}
@@ -680,9 +713,9 @@ export default function App() {
                   ? 'bg-slate-800 text-slate-600 line-through'
                   : 'bg-slate-700 text-slate-400 hover:text-slate-200'
               }`}
-              title={`${dimmedStrings.has(si) ? 'Show' : 'Dim'} string ${si + 1} (${openNote})`}
+              title={`${dimmedStrings.has(si) ? 'Show' : 'Dim'} string ${si + 1} (${openNote.name})`}
             >
-              {openNote}
+              {openNote.name}
             </button>
           ))}
           {dimmedStrings.size > 0 && (
@@ -695,7 +728,7 @@ export default function App() {
           )}
         </div>
         <Fretboard
-          instrument={instrument}
+          instrument={effectiveInstrument}
           highlightedNotes={highlightedNotes}
           scaleNoteNames={fretboardNoteNames}
           rootNote={fretboardRootNote}
@@ -768,7 +801,7 @@ export default function App() {
         allVoicings={availableVoicings}
         onPlayVoicing={useCallback((idx: number) => {
           const v = availableVoicings[idx]
-          if (v) soundEngine.playVoicing(v, instrument)
+          if (v) soundEngine.playVoicing(v, effectiveInstrument)
         }, [availableVoicings, soundEngine, instrument])}
         loopCount={loopCount}
         onLoopCountChange={setLoopCount}
