@@ -19,6 +19,7 @@ import {
   type ScaleDefinition,
   type ChordDefinition,
   getKeySignature,
+  getScaleFormula,
 } from './utils/scaleCalculator'
 import {
   resolveProgression,
@@ -794,9 +795,16 @@ export default function App() {
                   </span>
                 </>
               ) : (
-                <span className="text-sm font-semibold text-slate-400">
-                  {selectedRoot} {selectedDefinition?.name}
-                </span>
+                <>
+                  <span className="text-sm font-semibold text-slate-400">
+                    {selectedRoot} {selectedDefinition?.name}
+                  </span>
+                  {selectedDefinition && (
+                    <span className="text-[10px] text-slate-600 font-mono">
+                      {getScaleFormula(selectedDefinition)}
+                    </span>
+                  )}
+                </>
               )}
               {keySig && (keySig.sharps.length > 0 || keySig.flats.length > 0) && (
                 <span className="text-[10px] text-amber-500/70 ml-1">

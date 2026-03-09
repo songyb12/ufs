@@ -101,6 +101,30 @@ export function isNoteNameInScale(
 }
 
 /**
+ * Convert a scale's intervals to a readable step formula.
+ * E.g., Major [0,2,4,5,7,9,11] → "W W H W W W H"
+ */
+export function getScaleFormula(definition: ScaleDefinition): string {
+  const { intervals } = definition
+  if (intervals.length <= 1) return ''
+  const steps: string[] = []
+  for (let i = 1; i < intervals.length; i++) {
+    const gap = intervals[i] - intervals[i - 1]
+    if (gap === 1) steps.push('H')
+    else if (gap === 2) steps.push('W')
+    else if (gap === 3) steps.push('W+H')
+    else steps.push(`${gap}`)
+  }
+  // Last step back to octave
+  const lastGap = 12 - intervals[intervals.length - 1]
+  if (lastGap === 1) steps.push('H')
+  else if (lastGap === 2) steps.push('W')
+  else if (lastGap === 3) steps.push('W+H')
+  else if (lastGap > 0) steps.push(`${lastGap}`)
+  return steps.join(' ')
+}
+
+/**
  * Key signature info for a major or natural minor key.
  * Returns the number of sharps or flats and which notes are altered.
  */
