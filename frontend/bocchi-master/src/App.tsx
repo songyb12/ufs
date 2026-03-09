@@ -52,6 +52,7 @@ import { StrumPatternPanel } from './components/rhythm/StrumPatternPanel'
 import { TempoTrainerPanel } from './components/metronome/TempoTrainerPanel'
 import { TuningQuickSwitch } from './components/fretboard/TuningQuickSwitch'
 import { ChordTransitionTimer } from './components/trainer/ChordTransitionTimer'
+import { CircleOfFifths } from './components/theory/CircleOfFifths'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -856,6 +857,18 @@ export default function App() {
             setSelectedDefinition(foundDef)
           }
         }, [])}
+      />
+
+      {/* Circle of Fifths */}
+      <CircleOfFifths
+        activeKey={progressionKey ?? selectedRoot}
+        onKeySelect={useCallback((key: NoteName) => {
+          if (progressionPreset) {
+            setProgressionKey(key)
+          } else {
+            setSelectedRoot(key)
+          }
+        }, [progressionPreset])}
       />
 
       {/* Scale Patterns (box shapes) */}
