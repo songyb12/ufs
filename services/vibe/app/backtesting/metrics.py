@@ -54,13 +54,17 @@ def compute_backtest_metrics(trades: list[dict]) -> dict:
     if len(returns) > 1:
         mean_r = sum(returns) / len(returns)
         var_r = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
-        std_r = math.sqrt(var_r) if var_r > 0 else 0.001
+        std_r = math.sqrt(var_r) if var_r > 0 else 0
 
         # Estimate trades per year from average holding period
         avg_holding = sum(t.get("holding_days", 10) for t in trades) / len(trades)
         trades_per_year = 252 / max(avg_holding, 1)
 
-        sharpe_ratio = (mean_r / std_r) * math.sqrt(trades_per_year) if std_r > 0 else 0
+        if std_r > 0:
+            sharpe_ratio = (mean_r / std_r) * math.sqrt(trades_per_year)
+        else:
+            # Zero variance: all returns identical — Sharpe undefined
+            sharpe_ratio = 0
         sharpe_ratio = max(-99, min(99, sharpe_ratio))  # Cap to reasonable range
     else:
         sharpe_ratio = 0
@@ -82,7 +86,7 @@ def compute_backtest_metrics(trades: list[dict]) -> dict:
 
     # Win/Loss ratio
     avg_win = sum(wins) / len(wins) if wins else 0
-    avg_loss = abs(sum(losses) / len(losses)) if losses else 0.001
+    avg_loss = abs(sum(losses) / len(losses)) if losses else 0
     win_loss_ratio = avg_win / avg_loss if avg_loss > 0 else float("inf") if avg_win > 0 else 0
 
     return {

@@ -60,10 +60,17 @@ class FundFlowStage(BaseStage):
 
                 # Get latest row
                 latest = df.iloc[-1]
+                import pandas as pd
+                def _safe_flow(val):
+                    """Return 0.0 if value is None or NaN."""
+                    if val is None or (isinstance(val, float) and pd.isna(val)):
+                        return 0.0
+                    return float(val)
+
                 flow_data = {
-                    "foreign_net_buy": float(latest.get("foreign_net_buy", 0)),
-                    "institution_net_buy": float(latest.get("institution_net_buy", 0)),
-                    "individual_net_buy": float(latest.get("individual_net_buy", 0)),
+                    "foreign_net_buy": _safe_flow(latest.get("foreign_net_buy")),
+                    "institution_net_buy": _safe_flow(latest.get("institution_net_buy")),
+                    "individual_net_buy": _safe_flow(latest.get("individual_net_buy")),
                 }
 
                 score = compute_fund_flow_score(flow_data)
@@ -77,9 +84,9 @@ class FundFlowStage(BaseStage):
                     {
                         "symbol": symbol,
                         "trade_date": date_str,
-                        "foreign_net_buy": float(row.get("foreign_net_buy", 0)),
-                        "institution_net_buy": float(row.get("institution_net_buy", 0)),
-                        "individual_net_buy": float(row.get("individual_net_buy", 0)),
+                        "foreign_net_buy": _safe_flow(row.get("foreign_net_buy")),
+                        "institution_net_buy": _safe_flow(row.get("institution_net_buy")),
+                        "individual_net_buy": _safe_flow(row.get("individual_net_buy")),
                         "pension_net_buy": None,
                         "foreign_holding_ratio": None,
                     }

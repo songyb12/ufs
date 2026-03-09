@@ -53,7 +53,7 @@ class PortfolioScenarioStage(BaseStage):
         s7 = context.get("s7_red_team")
         s6 = context.get("s6_signal_generation")
         source = s7 if s7 and s7.status == "success" else s6
-        per_symbol = source.data.get("per_symbol", {}) if source else {}
+        per_symbol = source.data.get("per_symbol", {}) if source and source.data else {}
 
         symbol_names = context.get("symbol_names", {})
 
@@ -283,7 +283,7 @@ def _build_hold_scenario(
     config: Settings,
 ) -> dict:
     """Generate sell/hold/accumulate scenarios for a held position."""
-    entry_price = holding.get("entry_price") or current_price
+    entry_price = holding.get("entry_price") if holding.get("entry_price") is not None else current_price
     pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0.0
 
     rsi = signal.get("rsi_value")
