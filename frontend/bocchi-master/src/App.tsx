@@ -571,6 +571,50 @@ export default function App() {
     [soundEngine, fretboardQuizActive],
   )
 
+  // ── Global keyboard shortcuts ──
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ignore when typing in input/textarea/select
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+      switch (e.code) {
+        case 'Space':
+          e.preventDefault()
+          metronome.toggle()
+          break
+        case 'ArrowUp':
+          e.preventDefault()
+          metronome.setBpm(Math.min(300, metronome.bpm + (e.shiftKey ? 10 : 1)))
+          break
+        case 'ArrowDown':
+          e.preventDefault()
+          metronome.setBpm(Math.max(20, metronome.bpm - (e.shiftKey ? 10 : 1)))
+          break
+        case 'ArrowLeft':
+          if (resolvedChords.length > 0) {
+            e.preventDefault()
+            setActiveChordIndex((prev) => (prev - 1 + resolvedChords.length) % resolvedChords.length)
+          }
+          break
+        case 'ArrowRight':
+          if (resolvedChords.length > 0) {
+            e.preventDefault()
+            setActiveChordIndex((prev) => (prev + 1) % resolvedChords.length)
+          }
+          break
+        case 'KeyM':
+          // Mute/unmute (toggle volume)
+          if (metronome.setVolume) {
+            metronome.setVolume(metronome.volume > 0 ? 0 : 0.8)
+          }
+          break
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [metronome, resolvedChords.length])
+
   const handleProgressionChordClick = useCallback(
     (index: number) => {
       isAutoChordChange.current = true
