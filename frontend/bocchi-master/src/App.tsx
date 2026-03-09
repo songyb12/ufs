@@ -49,6 +49,7 @@ import { ScalePatternPanel } from './components/scale/ScalePatternPanel'
 import { PracticeTimerPanel } from './components/practice/PracticeTimerPanel'
 import { suggestEnharmonicMode, getEnharmonicName, type EnharmonicMode } from './utils/enharmonic'
 import { StrumPatternPanel } from './components/rhythm/StrumPatternPanel'
+import { TempoTrainerPanel } from './components/metronome/TempoTrainerPanel'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -804,6 +805,14 @@ export default function App() {
         currentBeat={metronome.currentBeat}
         beatsPerMeasure={metronome.beatsPerMeasure}
         isPlaying={metronome.isPlaying}
+      />
+
+      {/* Tempo Trainer */}
+      <TempoTrainerPanel
+        currentBpm={metronome.bpm}
+        isPlaying={metronome.isPlaying}
+        currentMeasure={metronome.currentMeasure}
+        onBpmChange={metronome.setBpm}
       />
 
       {/* Fretboard Quiz */}
