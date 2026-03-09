@@ -5,6 +5,7 @@ import {
   type StrumPattern,
   type StrokeType,
 } from '../../utils/strumPatterns'
+import { RhythmNotation } from './RhythmNotation'
 
 interface StrumPatternPanelProps {
   /** Current beat index (0-based) to highlight active stroke */
@@ -52,6 +53,7 @@ export function StrumPatternPanel({
   const [expanded, setExpanded] = useState(false)
   const [selectedPattern, setSelectedPattern] = useState<StrumPattern | null>(null)
   const [activeCategory, setActiveCategory] = useState<StrumPattern['category']>('basic')
+  const [viewMode, setViewMode] = useState<'arrows' | 'notation'>('arrows')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Map beat to stroke index based on pattern length and time signature
@@ -91,12 +93,25 @@ export function StrumPatternPanel({
         </h2>
         <div className="flex items-center gap-2">
           {selectedPattern && (
-            <button
-              onClick={() => setSelectedPattern(null)}
-              className="text-xs text-slate-500 hover:text-slate-300"
-            >
-              Clear
-            </button>
+            <>
+              <button
+                onClick={() => setViewMode((v) => v === 'arrows' ? 'notation' : 'arrows')}
+                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                  viewMode === 'notation'
+                    ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/40'
+                    : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+                title="Toggle between arrow view and music notation"
+              >
+                {viewMode === 'arrows' ? '♩ Notation' : '↓ Arrows'}
+              </button>
+              <button
+                onClick={() => setSelectedPattern(null)}
+                className="text-xs text-slate-500 hover:text-slate-300"
+              >
+                Clear
+              </button>
+            </>
           )}
           <button
             onClick={() => { setExpanded(false); setSelectedPattern(null) }}
@@ -145,31 +160,43 @@ export function StrumPatternPanel({
       {/* Visual strum display */}
       {selectedPattern && (
         <>
-          <div
-            ref={scrollRef}
-            className="flex gap-0.5 justify-center items-end overflow-x-auto py-1"
-          >
-            {selectedPattern.strokes.map((stroke, i) => {
-              // Show beat numbers below certain strokes
-              const patLen = selectedPattern.strokes.length
-              const strokesPerBeat = patLen / beatsPerMeasure
-              const isBeatStart = i % strokesPerBeat === 0
+          {viewMode === 'notation' ? (
+            /* Music notation view */
+            <div className="overflow-x-auto py-1">
+              <RhythmNotation
+                strokes={selectedPattern.strokes}
+                beatsPerMeasure={beatsPerMeasure}
+                activeIndex={activeStrokeIndex}
+              />
+            </div>
+          ) : (
+            /* Arrow view */
+            <div
+              ref={scrollRef}
+              className="flex gap-0.5 justify-center items-end overflow-x-auto py-1"
+            >
+              {selectedPattern.strokes.map((stroke, i) => {
+                // Show beat numbers below certain strokes
+                const patLen = selectedPattern.strokes.length
+                const strokesPerBeat = patLen / beatsPerMeasure
+                const isBeatStart = i % strokesPerBeat === 0
 
-              return (
-                <div key={i} className="flex flex-col items-center">
-                  <StrokeArrow
-                    type={stroke}
-                    active={activeStrokeIndex === i}
-                  />
-                  {isBeatStart && (
-                    <span className="text-[8px] text-slate-500 mt-0.5">
-                      {Math.floor(i / strokesPerBeat) + 1}
-                    </span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+                return (
+                  <div key={i} className="flex flex-col items-center">
+                    <StrokeArrow
+                      type={stroke}
+                      active={activeStrokeIndex === i}
+                    />
+                    {isBeatStart && (
+                      <span className="text-[8px] text-slate-500 mt-0.5">
+                        {Math.floor(i / strokesPerBeat) + 1}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
           {/* Pattern description */}
           <p className="text-[10px] text-slate-600 text-center">
