@@ -18,6 +18,7 @@ import {
   getScaleNoteNames,
   type ScaleDefinition,
   type ChordDefinition,
+  getKeySignature,
 } from './utils/scaleCalculator'
 import {
   resolveProgression,
@@ -761,28 +762,45 @@ export default function App() {
             </button>
           )}
         </div>
-        {/* Current chord/scale name overlay */}
-        {(activeChord || (selectedRoot && selectedDefinition)) && (
-          <div className="flex items-center gap-2 px-1 py-0.5">
-            {activeChord ? (
-              <>
-                <span className="text-lg font-bold text-white">
-                  {activeChord.root}{activeChord.quality === 'minor' ? 'm' : activeChord.quality === 'diminished' ? 'dim' : activeChord.quality === 'augmented' ? 'aug' : activeChord.quality === 'dominant7' ? '7' : activeChord.quality === 'minor7' ? 'm7' : activeChord.quality === 'major7' ? 'maj7' : ''}
+        {/* Current chord/scale name overlay + key signature */}
+        {(activeChord || (selectedRoot && selectedDefinition)) && (() => {
+          const keyRoot = progressionKey ?? selectedRoot
+          const isMinor = activeChord
+            ? activeChord.quality === 'minor' || activeChord.quality === 'minor7'
+            : selectedDefinition?.name.toLowerCase().includes('minor') ?? false
+          const keySig = keyRoot ? getKeySignature(keyRoot, isMinor) : null
+          return (
+            <div className="flex items-center gap-2 px-1 py-0.5">
+              {activeChord ? (
+                <>
+                  <span className="text-lg font-bold text-white">
+                    {activeChord.root}{activeChord.quality === 'minor' ? 'm' : activeChord.quality === 'diminished' ? 'dim' : activeChord.quality === 'augmented' ? 'aug' : activeChord.quality === 'dominant7' ? '7' : activeChord.quality === 'minor7' ? 'm7' : activeChord.quality === 'major7' ? 'maj7' : ''}
+                  </span>
+                  {currentVoicing && (
+                    <span className="text-xs text-slate-500">{currentVoicing.name}</span>
+                  )}
+                  <span className="text-[10px] text-slate-600">
+                    ({activeChordIndex + 1}/{resolvedChords.length})
+                  </span>
+                </>
+              ) : (
+                <span className="text-sm font-semibold text-slate-400">
+                  {selectedRoot} {selectedDefinition?.name}
                 </span>
-                {currentVoicing && (
-                  <span className="text-xs text-slate-500">{currentVoicing.name}</span>
-                )}
-                <span className="text-[10px] text-slate-600">
-                  ({activeChordIndex + 1}/{resolvedChords.length})
+              )}
+              {keySig && (keySig.sharps.length > 0 || keySig.flats.length > 0) && (
+                <span className="text-[10px] text-amber-500/70 ml-1">
+                  {keySig.sharps.length > 0
+                    ? `${keySig.sharps.length}# (${keySig.sharps.join(' ')})`
+                    : `${keySig.flats.length}♭ (${keySig.flats.join(' ')})`}
                 </span>
-              </>
-            ) : (
-              <span className="text-sm font-semibold text-slate-400">
-                {selectedRoot} {selectedDefinition?.name}
-              </span>
-            )}
-          </div>
-        )}
+              )}
+              {keySig && keySig.sharps.length === 0 && keySig.flats.length === 0 && keyRoot && (
+                <span className="text-[10px] text-emerald-500/70 ml-1">no #/♭</span>
+              )}
+            </div>
+          )
+        })()}
         <Fretboard
           instrument={effectiveInstrument}
           highlightedNotes={highlightedNotes}

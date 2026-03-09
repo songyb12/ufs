@@ -99,3 +99,40 @@ export function isNoteNameInScale(
 ): boolean {
   return scaleNotes.includes(noteName)
 }
+
+/**
+ * Key signature info for a major or natural minor key.
+ * Returns the number of sharps or flats and which notes are altered.
+ */
+export interface KeySignature {
+  sharps: NoteName[]
+  flats: NoteName[]
+}
+
+// Order of sharps: F C G D A E B → order of flats: B E A D G C F
+const SHARP_ORDER: NoteName[] = ['F#', 'C#', 'G#', 'D#', 'A#']
+const FLAT_ORDER: NoteName[] = ['A#', 'D#', 'G#', 'C#', 'F#']  // enharmonic Bb Eb Ab Db Gb
+
+// Major keys and their signature (positive = sharps, negative = flats)
+const MAJOR_KEY_SIG: Record<NoteName, number> = {
+  'C': 0, 'G': 1, 'D': 2, 'A': 3, 'E': 4, 'B': 5,
+  'F#': 6, 'C#': 7,
+  'F': -1, 'A#': -2, 'D#': -3, 'G#': -4,
+}
+
+export function getKeySignature(root: NoteName, isMinor: boolean): KeySignature {
+  // Minor key → use relative major (up 3 semitones)
+  let majorRoot = root
+  if (isMinor) {
+    const idx = CHROMATIC_SCALE.indexOf(root)
+    majorRoot = CHROMATIC_SCALE[(idx + 3) % 12]
+  }
+
+  const sig = MAJOR_KEY_SIG[majorRoot]
+  if (sig == null || sig === 0) return { sharps: [], flats: [] }
+
+  if (sig > 0) {
+    return { sharps: SHARP_ORDER.slice(0, sig), flats: [] }
+  }
+  return { sharps: [], flats: FLAT_ORDER.slice(0, -sig) }
+}
