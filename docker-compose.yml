@@ -125,11 +125,25 @@ services:
   # ============================================
   # Frontends
   # ============================================
+  ufs-shell:
+    build: ./frontend/ufs-shell
+    container_name: ufs-shell
+    ports:
+      - "3000:3000"
+    environment:
+      - SERVICE_NAME=ufs-shell
+    networks:
+      - ufs-network
+    restart: unless-stopped
+    depends_on:
+      master-core:
+        condition: service_started
+
   bocchi-frontend:
     build: ./frontend/bocchi-master
     container_name: ufs-bocchi-frontend
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - SERVICE_NAME=bocchi-frontend
     networks:

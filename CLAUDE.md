@@ -12,16 +12,20 @@
 4. **Life-Master** — 루틴/일정 최적화 (기획 단계)
 
 ## Key Paths
+- **UFS Shell**: `frontend/ufs-shell/src/` (React 19 + TypeScript 5.9 + Tailwind 4 + Vite 7 + React Router 7)
 - VIBE 백엔드: `services/vibe/app/` (FastAPI, 30 모듈)
 - VIBE 대시보드: `services/vibe/dashboard/src/` (React, 15 페이지)
 - VIBE 테스트: `services/vibe/tests/`
 - Bocchi-master: `frontend/bocchi-master/src/` (React 19 + TypeScript 5.9 + Tailwind 4 + Vite 7)
 
 ## Architecture Decisions
+- **UFS Shell**: 통합 프론트엔드 셸 — 모노레포 라우팅 방식, 서브앱을 lazy-loaded routes로 로딩
+  - Shell 구조: `shell/` (공통 레이아웃), `apps/` (서브앱별 디렉토리), `shared/` (공통 유틸)
+  - 서브앱 마이그레이션 경로: placeholder → 코드 이동 → 완전 통합
 - DB: SQLite per service (PostgreSQL 마이그레이션 경로 확보)
 - Bocchi: React (Web Audio API + WebMIDI API)
 - Network: 로컬 전용, REST only
-- Docker Compose: master-core:8000, vibe:8001, lab-studio:8002, eng-ops:8003, life-master:8004, bocchi-frontend:3000
+- Docker Compose: ufs-shell:3000, bocchi-frontend:3001, master-core:8000, vibe:8001, lab-studio:8002, eng-ops:8003, life-master:8004
 
 ## VIBE Auth
 - ID/PW 로그인 (bcrypt + JWT), dev 계정: dev/dev1234

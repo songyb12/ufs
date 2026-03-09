@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-ufs-900: #0a0e1a;
+  --color-ufs-800: #111827;
+  --color-ufs-700: #1e293b;
+  --color-ufs-600: #334155;
+  --color-ufs-500: #475569;
+  --color-ufs-400: #64748b;
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ufs-900);
+  color: #e2e8f0;
+  font-family: var(--font-sans);
+}
+
+/* Sidebar transition */
+.sidebar-item {
+  transition: background-color 150ms, color 150ms;
+}
