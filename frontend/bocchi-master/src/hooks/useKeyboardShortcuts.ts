@@ -2,12 +2,14 @@ import { useEffect, useCallback } from 'react'
 
 export interface KeyboardShortcutActions {
   toggleMetronome: () => void
+  stopMetronome: () => void
   increaseBpm: (amount?: number) => void
   decreaseBpm: (amount?: number) => void
   toggleBackingTrack: () => void
   nextChord: () => void
   prevChord: () => void
   togglePracticeMode: () => void
+  toggleShortcutHelp: () => void
 }
 
 /**
@@ -20,6 +22,7 @@ export interface KeyboardShortcutActions {
  *   B           — Toggle backing track
  *   → / ←      — Next / Previous chord in progression
  *   P           — Toggle practice mode
+ *   ?           — Show/hide keyboard shortcut help
  *   Escape      — Stop metronome
  */
 export function useKeyboardShortcuts(actions: KeyboardShortcutActions): void {
@@ -72,8 +75,15 @@ export function useKeyboardShortcuts(actions: KeyboardShortcutActions): void {
           break
 
         case 'Escape':
-          // Stop metronome on Escape (only stop, not toggle)
-          actions.toggleMetronome()
+          actions.stopMetronome()
+          break
+
+        default:
+          // ? key (Shift + / on US layout, or ? directly)
+          if (e.key === '?') {
+            e.preventDefault()
+            actions.toggleShortcutHelp()
+          }
           break
       }
     },

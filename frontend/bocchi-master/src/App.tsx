@@ -42,6 +42,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIntervalTrainer } from './hooks/useIntervalTrainer'
 import { IntervalTrainerPanel } from './components/trainer/IntervalTrainerPanel'
 import { PracticeHistoryPanel } from './components/practice/PracticeHistoryPanel'
+import { ShortcutHelpOverlay } from './components/help/ShortcutHelpOverlay'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -107,6 +108,15 @@ export default function App() {
 
   // Fretboard orientation
   const [leftHanded, setLeftHanded] = useState(false)
+
+  // Fretboard zoom (fret range) — reset when instrument changes
+  const [fretRange, setFretRange] = useState<[number, number]>([0, instrument.fretCount])
+  useEffect(() => {
+    setFretRange([0, instrument.fretCount])
+  }, [instrument.fretCount])
+
+  // Shortcut help overlay
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false)
 
   // Refs for backing track getters (avoids circular dependency with useMetronome)
   const chordRootRef = useRef<NoteName | null>(null)
@@ -386,6 +396,7 @@ export default function App() {
     useMemo(
       () => ({
         toggleMetronome: metronome.toggle,
+        stopMetronome: metronome.stop,
         increaseBpm: (amt = 5) => metronome.setBpm(bpmForShortcuts.current + amt),
         decreaseBpm: (amt = 5) => metronome.setBpm(bpmForShortcuts.current - amt),
         toggleBackingTrack: backingTrack.toggle,
@@ -404,8 +415,9 @@ export default function App() {
           }
         },
         togglePracticeMode: handlePracticeToggle,
+        toggleShortcutHelp: () => setShowShortcutHelp((v) => !v),
       }),
-      [metronome.toggle, metronome.setBpm, backingTrack.toggle, handlePracticeToggle],
+      [metronome.toggle, metronome.stop, metronome.setBpm, backingTrack.toggle, handlePracticeToggle],
     ),
   )
 
@@ -485,6 +497,35 @@ export default function App() {
           >
             {leftHanded ? '🫲 Left' : '🫱 Right'}
           </button>
+          <span className="text-slate-700 mx-1">|</span>
+          <span className="text-xs text-slate-500">Frets:</span>
+          <select
+            value={fretRange[0]}
+            onChange={(e) => setFretRange(([, end]) => [Number(e.target.value), end])}
+            className="bg-slate-700 text-slate-300 text-xs rounded px-1.5 py-0.5 outline-none w-12"
+          >
+            {Array.from({ length: instrument.fretCount }, (_, i) => (
+              <option key={i} value={i}>{i}</option>
+            ))}
+          </select>
+          <span className="text-xs text-slate-600">-</span>
+          <select
+            value={fretRange[1]}
+            onChange={(e) => setFretRange(([start]) => [start, Number(e.target.value)])}
+            className="bg-slate-700 text-slate-300 text-xs rounded px-1.5 py-0.5 outline-none w-12"
+          >
+            {Array.from({ length: instrument.fretCount + 1 }, (_, i) => (
+              <option key={i} value={i} disabled={i <= fretRange[0]}>{i}</option>
+            ))}
+          </select>
+          {(fretRange[0] !== 0 || fretRange[1] !== instrument.fretCount) && (
+            <button
+              onClick={() => setFretRange([0, instrument.fretCount])}
+              className="text-xs text-slate-500 hover:text-slate-300"
+            >
+              Reset
+            </button>
+          )}
         </div>
         <Fretboard
           instrument={instrument}
@@ -496,6 +537,7 @@ export default function App() {
           scaleOverlayNoteNames={scaleOverlayNoteNames}
           labelMode={labelMode}
           leftHanded={leftHanded}
+          fretRange={fretRange}
           onNoteClick={handleNoteClick}
         />
         {highlightedNotes.length > 0 && (
@@ -563,6 +605,7 @@ export default function App() {
           isPlaying={metronome.isPlaying}
           toggle={metronome.toggle}
           currentBeat={metronome.currentBeat}
+          currentMeasure={metronome.currentMeasure}
           beatsPerMeasure={metronome.beatsPerMeasure}
           setBeatsPerMeasure={metronome.setBeatsPerMeasure}
         />
@@ -614,6 +657,24 @@ export default function App() {
 
       {/* Practice History (persistent stats) */}
       <PracticeHistoryPanel />
+
+      {/* Help button (fixed bottom-right) */}
+      <div className="flex justify-end mt-2">
+        <button
+          onClick={() => setShowShortcutHelp(true)}
+          className="w-8 h-8 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-slate-200 text-sm font-bold transition-colors"
+          aria-label="Show keyboard shortcuts"
+          title="Keyboard Shortcuts (?)"
+        >
+          ?
+        </button>
+      </div>
+
+      {/* Shortcut Help Overlay */}
+      <ShortcutHelpOverlay
+        visible={showShortcutHelp}
+        onClose={() => setShowShortcutHelp(false)}
+      />
     </AppShell>
   )
 }

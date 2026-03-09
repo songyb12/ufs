@@ -16,6 +16,7 @@ interface FretboardProps {
   scaleOverlayNoteNames?: NoteName[]  // improv scale overlay (amber)
   labelMode?: NoteLabelMode    // 'name' | 'interval' | 'degree'
   leftHanded?: boolean         // mirror fretboard horizontally
+  fretRange?: [number, number] // [startFret, endFret] for zoom (inclusive)
   onNoteClick?: (note: Note, stringIndex: number, fret: number) => void
 }
 
@@ -37,6 +38,7 @@ export function Fretboard({
   scaleOverlayNoteNames = [],
   labelMode = 'name',
   leftHanded = false,
+  fretRange,
   onNoteClick,
 }: FretboardProps) {
   const { stringCount, fretCount, tuning } = instrument
@@ -44,6 +46,11 @@ export function Fretboard({
   const fretboardHeight = STRING_SPACING * (stringCount - 1)
   const svgWidth = PADDING_LEFT + SCALE_LENGTH + PADDING_RIGHT
   const svgHeight = PADDING_TOP + fretboardHeight + PADDING_BOTTOM
+
+  // Fret range zoom (crop viewBox to show only selected frets)
+  const startFret = fretRange?.[0] ?? 0
+  const endFret = fretRange?.[1] ?? fretCount
+  const isZoomed = startFret > 0 || endFret < fretCount
 
   // Y position for each string (top string = highest pitch = last in tuning array)
   const getStringY = (stringIndex: number) =>
@@ -95,15 +102,29 @@ export function Fretboard({
   const yCenter = PADDING_TOP + fretboardHeight / 2
   const dotSpread = fretboardHeight * 0.3
 
+  // Compute zoomed viewBox
+  const zoomViewBox = useMemo(() => {
+    if (!isZoomed) return `0 0 ${svgWidth} ${svgHeight}`
+    // Left edge: for startFret=0, show from 0 (includes open position).
+    // For startFret>0, crop to just before that fret wire.
+    const xLeft = startFret === 0
+      ? 0
+      : PADDING_LEFT + calculateFretX(startFret - 1, SCALE_LENGTH) - 10
+    // Right edge: fret wire of endFret + padding
+    const xRight = PADDING_LEFT + calculateFretX(endFret, SCALE_LENGTH) + 20
+    const width = xRight - xLeft
+    return `${xLeft} 0 ${width} ${svgHeight}`
+  }, [isZoomed, startFret, endFret, svgWidth, svgHeight])
+
   return (
     <div className="w-full overflow-x-auto">
       <svg
-        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+        viewBox={zoomViewBox}
         preserveAspectRatio="xMinYMid meet"
         className="w-full min-w-[800px]"
         style={leftHanded ? { transform: 'scaleX(-1)' } : undefined}
         role="img"
-        aria-label={`${instrument.name} fretboard${leftHanded ? ' (left-handed)' : ''}`}
+        aria-label={`${instrument.name} fretboard${leftHanded ? ' (left-handed)' : ''}${isZoomed ? ` (frets ${startFret}-${endFret})` : ''}`}
       >
         {/* Background */}
         <rect
@@ -163,6 +184,24 @@ export function Fretboard({
             totalStrings={stringCount}
           />
         ))}
+
+        {/* Fret numbers (shown when zoomed for orientation) */}
+        {isZoomed &&
+          Array.from({ length: endFret - startFret + 1 }, (_, i) => startFret + i)
+            .filter((f) => f > 0)
+            .map((fret) => (
+              <text
+                key={`fretnum-${fret}`}
+                x={getFretCenterX(fret)}
+                y={PADDING_TOP + fretboardHeight + 18}
+                textAnchor="middle"
+                fontSize={9}
+                fill="#64748b"
+                {...(leftHanded ? { transform: `translate(${2 * getFretCenterX(fret)}, 0) scale(-1, 1)` } : {})}
+              >
+                {fret}
+              </text>
+            ))}
 
         {/* Mute markers (X) for muted strings in voicing mode */}
         {hasVoicing &&

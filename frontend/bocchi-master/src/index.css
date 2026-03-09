@@ -7,3 +7,24 @@ body {
   color: #e2e8f0;
   font-family: system-ui, -apple-system, sans-serif;
 }
+
+/* ── Metronome beat dot pulse animation ── */
+@keyframes beat-pulse {
+  0% { transform: scale(1); }
+  15% { transform: scale(1.5); }
+  100% { transform: scale(1); }
+}
+
+.animate-beat-pulse {
+  animation: beat-pulse 0.2s ease-out;
+}
+
+/* ── Shortcut overlay fade ── */
+@keyframes fade-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.15s ease-out;
+}
