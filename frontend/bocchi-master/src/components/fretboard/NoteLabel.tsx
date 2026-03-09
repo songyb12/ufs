@@ -12,6 +12,7 @@ interface NoteLabelProps {
   isMidiActive?: boolean
   isScaleOverlay?: boolean
   displayLabel?: string  // custom label (for interval/degree modes)
+  leftHanded?: boolean   // counter-transform text when fretboard is mirrored
   onClick?: () => void
 }
 
@@ -37,6 +38,7 @@ export const NoteLabel = memo(function NoteLabel({
   isMidiActive = false,
   isScaleOverlay = false,
   displayLabel,
+  leftHanded = false,
   onClick,
 }: NoteLabelProps) {
   const radius = 12
@@ -140,6 +142,7 @@ export const NoteLabel = memo(function NoteLabel({
         fill={textColor}
         fontWeight={textWeight}
         opacity={isVisible ? textOpacity : 0.6}
+        {...(leftHanded ? { transform: `translate(${2 * x}, 0) scale(-1, 1)` } : {})}
       >
         {label}
       </text>

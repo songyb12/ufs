@@ -41,6 +41,7 @@ import { loadSettings, saveSettings } from './utils/storage'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIntervalTrainer } from './hooks/useIntervalTrainer'
 import { IntervalTrainerPanel } from './components/trainer/IntervalTrainerPanel'
+import { PracticeHistoryPanel } from './components/practice/PracticeHistoryPanel'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -103,6 +104,9 @@ export default function App() {
 
   // Note label mode (name / interval / degree)
   const [labelMode, setLabelMode] = useState<import('./utils/noteLabelFormatter').NoteLabelMode>('name')
+
+  // Fretboard orientation
+  const [leftHanded, setLeftHanded] = useState(false)
 
   // Refs for backing track getters (avoids circular dependency with useMetronome)
   const chordRootRef = useRef<NoteName | null>(null)
@@ -454,8 +458,8 @@ export default function App() {
 
       {/* Fretboard */}
       <section>
-        {/* Label mode toggle */}
-        <div className="flex items-center gap-1.5 mb-1">
+        {/* Fretboard controls bar */}
+        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
           <span className="text-xs text-slate-500 mr-1">Labels:</span>
           {(['name', 'interval', 'degree'] as const).map((m) => (
             <button
@@ -470,6 +474,17 @@ export default function App() {
               {m === 'name' ? 'Note' : m === 'interval' ? 'Interval' : 'Degree'}
             </button>
           ))}
+          <span className="text-slate-700 mx-1">|</span>
+          <button
+            onClick={() => setLeftHanded((v) => !v)}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              leftHanded
+                ? 'bg-sky-500/20 text-sky-400 ring-1 ring-sky-500/40'
+                : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            {leftHanded ? '🫲 Left' : '🫱 Right'}
+          </button>
         </div>
         <Fretboard
           instrument={instrument}
@@ -480,6 +495,7 @@ export default function App() {
           midiNoteName={midiNoteName}
           scaleOverlayNoteNames={scaleOverlayNoteNames}
           labelMode={labelMode}
+          leftHanded={leftHanded}
           onNoteClick={handleNoteClick}
         />
         {highlightedNotes.length > 0 && (
@@ -595,6 +611,9 @@ export default function App() {
           onReset={intervalTrainer.reset}
         />
       </div>
+
+      {/* Practice History (persistent stats) */}
+      <PracticeHistoryPanel />
     </AppShell>
   )
 }

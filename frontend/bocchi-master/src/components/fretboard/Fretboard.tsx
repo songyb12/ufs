@@ -15,6 +15,7 @@ interface FretboardProps {
   midiNoteName?: NoteName      // currently active MIDI note (highlight all instances)
   scaleOverlayNoteNames?: NoteName[]  // improv scale overlay (amber)
   labelMode?: NoteLabelMode    // 'name' | 'interval' | 'degree'
+  leftHanded?: boolean         // mirror fretboard horizontally
   onNoteClick?: (note: Note, stringIndex: number, fret: number) => void
 }
 
@@ -35,6 +36,7 @@ export function Fretboard({
   midiNoteName,
   scaleOverlayNoteNames = [],
   labelMode = 'name',
+  leftHanded = false,
   onNoteClick,
 }: FretboardProps) {
   const { stringCount, fretCount, tuning } = instrument
@@ -99,8 +101,9 @@ export function Fretboard({
         viewBox={`0 0 ${svgWidth} ${svgHeight}`}
         preserveAspectRatio="xMinYMid meet"
         className="w-full min-w-[800px]"
+        style={leftHanded ? { transform: 'scaleX(-1)' } : undefined}
         role="img"
-        aria-label={`${instrument.name} fretboard`}
+        aria-label={`${instrument.name} fretboard${leftHanded ? ' (left-handed)' : ''}`}
       >
         {/* Background */}
         <rect
@@ -178,6 +181,7 @@ export function Fretboard({
                 fontWeight={700}
                 fill="#ef4444"
                 opacity={0.8}
+                {...(leftHanded ? { transform: `translate(${2 * x}, 0) scale(-1, 1)` } : {})}
               >
                 X
               </text>
@@ -225,6 +229,7 @@ export function Fretboard({
                 isMidiActive={isMidi}
                 isScaleOverlay={isOverlay}
                 displayLabel={displayLabel}
+                leftHanded={leftHanded}
                 onClick={() => onNoteClick?.(note, stringIndex, fret)}
               />
             )
