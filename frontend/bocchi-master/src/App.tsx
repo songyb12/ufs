@@ -54,6 +54,7 @@ import { TuningQuickSwitch } from './components/fretboard/TuningQuickSwitch'
 import { ChordTransitionTimer } from './components/trainer/ChordTransitionTimer'
 import { CircleOfFifths } from './components/theory/CircleOfFifths'
 import { BeatFlash } from './components/metronome/BeatFlash'
+import { DroneTonePanel } from './components/practice/DroneTonePanel'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -985,6 +986,9 @@ export default function App() {
         currentMeasure={metronome.currentMeasure}
         onBpmChange={metronome.setBpm}
       />
+
+      {/* Drone Tone (reference pitch) */}
+      <DroneTonePanel activeRoot={progressionKey ?? selectedRoot} />
 
       {/* Chord Transition Timer */}
       <ChordTransitionTimer
