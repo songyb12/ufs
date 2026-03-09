@@ -50,6 +50,7 @@ import { PracticeTimerPanel } from './components/practice/PracticeTimerPanel'
 import { suggestEnharmonicMode, getEnharmonicName, type EnharmonicMode } from './utils/enharmonic'
 import { StrumPatternPanel } from './components/rhythm/StrumPatternPanel'
 import { TempoTrainerPanel } from './components/metronome/TempoTrainerPanel'
+import { TuningQuickSwitch } from './components/fretboard/TuningQuickSwitch'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -539,6 +540,10 @@ export default function App() {
 
       {/* Fretboard */}
       <section>
+        {/* Tuning quick-switch */}
+        <div className="mb-1.5">
+          <TuningQuickSwitch instrument={instrument} onInstrumentChange={setInstrument} />
+        </div>
         {/* Fretboard controls bar */}
         <div className="flex items-center gap-1.5 mb-1 flex-wrap">
           <span className="text-xs text-slate-500 mr-1">Labels:</span>
