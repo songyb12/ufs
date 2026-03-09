@@ -56,6 +56,7 @@ import { ChordTransitionTimer } from './components/trainer/ChordTransitionTimer'
 import { CircleOfFifths } from './components/theory/CircleOfFifths'
 import { BeatFlash } from './components/metronome/BeatFlash'
 import { DroneTonePanel } from './components/practice/DroneTonePanel'
+import { NoteToast, type NoteToastHandle } from './components/ui/NoteToast'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -102,6 +103,9 @@ export default function App() {
 
   // Fingering numbers overlay
   const [showFingering, setShowFingering] = useState(false)
+
+  // Note click toast
+  const noteToastRef = useRef<NoteToastHandle>(null)
 
   // Capo position (0 = no capo, 1-12 = capo at that fret)
   const [capo, setCapo] = useState(0)
@@ -539,8 +543,11 @@ export default function App() {
   )
 
   const handleNoteClick = useCallback(
-    (note: Note) => {
+    (note: Note, stringIndex: number, fret: number) => {
       soundEngine.playFretboardNote(note)
+
+      // Show note info toast
+      noteToastRef.current?.show(note, stringIndex, fret)
 
       // When fretboard quiz is active, intercept clicks for quiz answer
       if (fretboardQuizActive && fretboardQuizRef.current) {
@@ -582,6 +589,9 @@ export default function App() {
 
   return (
     <AppShell instrument={instrument} onInstrumentChange={setInstrument}>
+      {/* Note click info toast */}
+      <NoteToast ref={noteToastRef} rootNote={selectedRoot ?? progressionKey ?? undefined} />
+
       {/* Visual beat flash overlay */}
       <BeatFlash
         currentBeat={metronome.currentBeat}
