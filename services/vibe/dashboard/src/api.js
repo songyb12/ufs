@@ -657,6 +657,22 @@ export async function testNotificationCheck() {
   return fetchJSON('/notifications/test')
 }
 
+// ── SOXL ──
+
+export async function getSoxlDashboard(days = 90) {
+  return fetchJSON(`/soxl/dashboard?days=${days}`)
+}
+
+export async function getSoxlLevels() {
+  return fetchJSON('/soxl/levels')
+}
+
+// ── Geopolitical ──
+
+export async function getIranUsDashboard() {
+  return fetchJSON('/geopolitical/iran-us')
+}
+
 // ── Watchlist ──
 
 export async function getWatchlist(market = null) {

@@ -19,7 +19,7 @@ from app.config import settings
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.database.seed import seed_watchlist
-from app.routers import academy, action_plan, alerts, auth, backtest, briefing, dashboard, data, guru, llm_settings, macro_intel, notification_settings, pipeline, portfolio, portfolio_import, risk, screening, sentiment, signals, strategy_settings, watchlist
+from app.routers import academy, action_plan, alerts, auth, backtest, briefing, dashboard, data, geopolitical, guru, llm_settings, macro_intel, notification_settings, pipeline, portfolio, portfolio_import, risk, screening, sentiment, signals, soxl, strategy_settings, watchlist
 from app.scheduler.jobs import register_jobs
 from app.scheduler.runner import create_scheduler
 
@@ -162,6 +162,8 @@ app.include_router(action_plan.router)
 app.include_router(academy.router)
 app.include_router(notification_settings.router)
 app.include_router(strategy_settings.router)
+app.include_router(soxl.router)
+app.include_router(geopolitical.router)
 
 
 @app.get("/health")

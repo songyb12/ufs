@@ -56,6 +56,8 @@ SEED_DATA = [
     {"symbol": "DIA", "name": "SPDR Dow Jones ETF", "market": "US", "asset_type": "etf"},
     {"symbol": "IWM", "name": "iShares Russell 2000 ETF", "market": "US", "asset_type": "etf"},
     {"symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "market": "US", "asset_type": "etf"},
+    {"symbol": "SOXL", "name": "Direxion Daily Semiconductor Bull 3X", "market": "US", "asset_type": "etf"},
+    {"symbol": "SOXS", "name": "Direxion Daily Semiconductor Bear 3X", "market": "US", "asset_type": "etf"},
 ]
 
 

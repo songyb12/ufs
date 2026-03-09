@@ -7,6 +7,8 @@ const NAV_GROUPS = [
     items: [
       { id: 'overview', icon: '\u2302', label: '오버뷰' },
       { id: 'action-plan', icon: '\uD83D\uDCCB', label: '액션 플랜', accent: true },
+      { id: 'soxl', icon: '\uD83D\uDCB9', label: 'SOXL', accent: true },
+      { id: 'geopolitical', icon: '\uD83C\uDF0D', label: '이란-미국 이슈' },
     ],
   },
   {
