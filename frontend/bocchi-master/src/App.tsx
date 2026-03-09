@@ -53,6 +53,7 @@ import { TempoTrainerPanel } from './components/metronome/TempoTrainerPanel'
 import { TuningQuickSwitch } from './components/fretboard/TuningQuickSwitch'
 import { ChordTransitionTimer } from './components/trainer/ChordTransitionTimer'
 import { CircleOfFifths } from './components/theory/CircleOfFifths'
+import { BeatFlash } from './components/metronome/BeatFlash'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -179,6 +180,9 @@ export default function App() {
 
   // Shortcut help overlay
   const [showShortcutHelp, setShowShortcutHelp] = useState(false)
+
+  // Visual beat flash on screen border
+  const [beatFlashEnabled, setBeatFlashEnabled] = useState(false)
 
   // Refs for backing track getters (avoids circular dependency with useMetronome)
   const chordRootRef = useRef<NoteName | null>(null)
@@ -567,6 +571,13 @@ export default function App() {
 
   return (
     <AppShell instrument={instrument} onInstrumentChange={setInstrument}>
+      {/* Visual beat flash overlay */}
+      <BeatFlash
+        currentBeat={metronome.currentBeat}
+        isPlaying={metronome.isPlaying}
+        enabled={beatFlashEnabled}
+      />
+
       {/* Scale/Chord selector */}
       <ScaleSelector
         selectedRoot={selectedRoot}
@@ -833,6 +844,8 @@ export default function App() {
           onSwingChange={metronome.setSwing}
           accentPattern={metronome.accentPattern}
           onAccentPatternChange={metronome.setAccentPattern}
+          beatFlash={beatFlashEnabled}
+          onBeatFlashChange={setBeatFlashEnabled}
         />
         <BackingTrackPanel
           enabled={backingTrack.enabled}

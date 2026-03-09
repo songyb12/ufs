@@ -54,6 +54,8 @@ export interface MetronomePanelProps {
   onSwingChange: (amount: number) => void
   accentPattern: AccentLevel[] | null
   onAccentPatternChange: (pattern: AccentLevel[] | null) => void
+  beatFlash?: boolean
+  onBeatFlashChange?: (enabled: boolean) => void
 }
 
 /**
@@ -130,6 +132,8 @@ export function MetronomePanel({
   onSwingChange,
   accentPattern,
   onAccentPatternChange,
+  beatFlash,
+  onBeatFlashChange,
 }: MetronomePanelProps) {
   // Build effective accent array (default: beat 0 = accent, rest = normal)
   const effectiveAccents: AccentLevel[] = accentPattern
@@ -264,6 +268,19 @@ export function MetronomePanel({
         >
           Count-in
         </button>
+        {onBeatFlashChange && (
+          <button
+            onClick={() => onBeatFlashChange(!beatFlash)}
+            className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
+              beatFlash
+                ? 'border-orange-500/50 bg-orange-500/20 text-orange-400'
+                : 'border-slate-600 bg-slate-700 text-slate-500 hover:text-slate-300'
+            }`}
+            title="Flash screen border on each beat"
+          >
+            Flash
+          </button>
+        )}
       </div>
 
       {/* Click sound selector */}
