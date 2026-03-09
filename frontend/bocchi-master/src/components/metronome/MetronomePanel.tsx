@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { BpmSlider } from './BpmSlider'
-import { TapTempo } from './TapTempo'
+import { TapTempo, QuickTempos } from './TapTempo'
 import { MetronomePendulum } from './MetronomePendulum'
 import { TempoTrainer } from './TempoTrainer'
 import type { ClickSound, Subdivision, AccentLevel } from '../../utils/audioScheduler'
@@ -244,6 +244,9 @@ export function MetronomePanel({
       {showPendulum && (
         <MetronomePendulum bpm={bpm} isPlaying={isPlaying} currentBeat={currentBeat} />
       )}
+
+      {/* Quick tempo presets */}
+      <QuickTempos currentBpm={bpm} onSelect={setBpm} />
 
       {/* BPM slider + options row */}
       <div className="flex items-center gap-2">
