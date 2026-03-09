@@ -1,6 +1,7 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { BpmSlider } from './BpmSlider'
 import { TapTempo } from './TapTempo'
+import { MetronomePendulum } from './MetronomePendulum'
 import type { ClickSound, Subdivision, AccentLevel } from '../../utils/audioScheduler'
 
 /** Standard tempo marking for a given BPM */
@@ -143,6 +144,7 @@ export function MetronomePanel({
 
   // Reset accent pattern (back to default)
   const hasCustomAccent = accentPattern !== null
+  const [showPendulum, setShowPendulum] = useState(false)
 
   return (
     <div className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3">
@@ -229,11 +231,27 @@ export function MetronomePanel({
         )}
       </div>
 
+      {/* Pendulum animation */}
+      {showPendulum && (
+        <MetronomePendulum bpm={bpm} isPlaying={isPlaying} currentBeat={currentBeat} />
+      )}
+
       {/* BPM slider + options row */}
       <div className="flex items-center gap-2">
         <div className="flex-1">
           <BpmSlider bpm={bpm} onChange={setBpm} />
         </div>
+        <button
+          onClick={() => setShowPendulum((v) => !v)}
+          className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
+            showPendulum
+              ? 'border-sky-500/50 bg-sky-500/20 text-sky-400'
+              : 'border-slate-600 bg-slate-700 text-slate-500 hover:text-slate-300'
+          }`}
+          title="Show animated pendulum"
+        >
+          Pendulum
+        </button>
         <button
           onClick={() => onCountInChange(!countIn)}
           className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
