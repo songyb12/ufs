@@ -5,6 +5,7 @@ import { FretboardString } from './FretboardString'
 import { FretMarker } from './FretMarker'
 import { NoteLabel } from './NoteLabel'
 import { getNoteLabel, type NoteLabelMode } from '../../utils/noteLabelFormatter'
+import { getEnharmonicName, type EnharmonicMode } from '../../utils/enharmonic'
 
 interface FretboardProps {
   instrument: InstrumentConfig
@@ -16,6 +17,7 @@ interface FretboardProps {
   scaleOverlayNoteNames?: NoteName[]  // improv scale overlay (amber)
   patternPositions?: { stringIndex: number; fret: number }[]  // scale pattern overlay (teal)
   labelMode?: NoteLabelMode    // 'name' | 'interval' | 'degree'
+  enharmonicMode?: EnharmonicMode  // 'sharp' | 'flat'
   leftHanded?: boolean         // mirror fretboard horizontally
   fretRange?: [number, number] // [startFret, endFret] for zoom (inclusive)
   dimmedStrings?: Set<number>  // strings to visually dim (for focused practice)
@@ -40,6 +42,7 @@ export function Fretboard({
   scaleOverlayNoteNames = [],
   patternPositions,
   labelMode = 'name',
+  enharmonicMode = 'sharp',
   leftHanded = false,
   fretRange,
   dimmedStrings,
@@ -235,7 +238,7 @@ export function Fretboard({
               fill="#64748b"
               {...(leftHanded ? { transform: `translate(${2 * x}, 0) scale(-1, 1)` } : {})}
             >
-              {openNote}
+              {enharmonicMode === 'flat' ? getEnharmonicName(openNote, 'flat') : openNote}
             </text>
           )
         })}
@@ -292,9 +295,12 @@ export function Fretboard({
 
                 // Compute display label based on mode (only for visible notes)
                 const showLabel = highlighted || isMidi || isVoicing || inScale || isRoot || isOverlay || isPatternPos
-                const displayLabel = showLabel && labelMode !== 'name'
-                  ? getNoteLabel(note.name, rootNote, labelMode)
-                  : undefined
+                let displayLabel: string | undefined
+                if (showLabel && labelMode !== 'name') {
+                  displayLabel = getNoteLabel(note.name, rootNote, labelMode)
+                } else if (enharmonicMode === 'flat') {
+                  displayLabel = getEnharmonicName(note.name, 'flat')
+                }
 
                 return (
                   <NoteLabel

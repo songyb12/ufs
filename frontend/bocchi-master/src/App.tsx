@@ -47,6 +47,7 @@ import { ScaleFinderPanel } from './components/scale/ScaleFinderPanel'
 import { FretboardQuizPanel, type FretboardQuizHandle } from './components/trainer/FretboardQuizPanel'
 import { ScalePatternPanel } from './components/scale/ScalePatternPanel'
 import { PracticeTimerPanel } from './components/practice/PracticeTimerPanel'
+import { suggestEnharmonicMode, getEnharmonicName, type EnharmonicMode } from './utils/enharmonic'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -117,8 +118,17 @@ export default function App() {
   // Note label mode (name / interval / degree)
   const [labelMode, setLabelMode] = useState<import('./utils/noteLabelFormatter').NoteLabelMode>('name')
 
+  // Enharmonic display mode (sharp/flat)
+  const [enharmonicMode, setEnharmonicMode] = useState<import('./utils/enharmonic').EnharmonicMode>('sharp')
+
   // Fretboard orientation
   const [leftHanded, setLeftHanded] = useState(false)
+
+  // Auto-suggest enharmonic mode when root key changes
+  useEffect(() => {
+    const key = selectedRoot ?? progressionKey
+    if (key) setEnharmonicMode(suggestEnharmonicMode(key))
+  }, [selectedRoot, progressionKey])
 
   // Fretboard zoom (fret range) — reset when instrument changes
   const [fretRange, setFretRange] = useState<[number, number]>([0, instrument.fretCount])
@@ -525,6 +535,17 @@ export default function App() {
               {m === 'name' ? 'Note' : m === 'interval' ? 'Interval' : 'Degree'}
             </button>
           ))}
+          <button
+            onClick={() => setEnharmonicMode((m) => m === 'sharp' ? 'flat' : 'sharp')}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              enharmonicMode === 'flat'
+                ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/40'
+                : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+            }`}
+            title={`Show ${enharmonicMode === 'sharp' ? 'flats (♭)' : 'sharps (#)'}`}
+          >
+            {enharmonicMode === 'sharp' ? '#' : '♭'}
+          </button>
           <span className="text-slate-700 mx-1">|</span>
           <button
             onClick={() => setLeftHanded((v) => !v)}
@@ -601,6 +622,7 @@ export default function App() {
           scaleOverlayNoteNames={scaleOverlayNoteNames}
           patternPositions={patternPositions ?? undefined}
           labelMode={labelMode}
+          enharmonicMode={enharmonicMode}
           leftHanded={leftHanded}
           fretRange={fretRange}
           dimmedStrings={dimmedStrings.size > 0 ? dimmedStrings : undefined}
