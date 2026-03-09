@@ -738,6 +738,28 @@ export default function App() {
             </button>
           )}
         </div>
+        {/* Current chord/scale name overlay */}
+        {(activeChord || (selectedRoot && selectedDefinition)) && (
+          <div className="flex items-center gap-2 px-1 py-0.5">
+            {activeChord ? (
+              <>
+                <span className="text-lg font-bold text-white">
+                  {activeChord.root}{activeChord.quality === 'minor' ? 'm' : activeChord.quality === 'diminished' ? 'dim' : activeChord.quality === 'augmented' ? 'aug' : activeChord.quality === 'dominant7' ? '7' : activeChord.quality === 'minor7' ? 'm7' : activeChord.quality === 'major7' ? 'maj7' : ''}
+                </span>
+                {currentVoicing && (
+                  <span className="text-xs text-slate-500">{currentVoicing.name}</span>
+                )}
+                <span className="text-[10px] text-slate-600">
+                  ({activeChordIndex + 1}/{resolvedChords.length})
+                </span>
+              </>
+            ) : (
+              <span className="text-sm font-semibold text-slate-400">
+                {selectedRoot} {selectedDefinition?.name}
+              </span>
+            )}
+          </div>
+        )}
         <Fretboard
           instrument={effectiveInstrument}
           highlightedNotes={highlightedNotes}
