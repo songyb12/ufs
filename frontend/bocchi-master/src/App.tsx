@@ -48,6 +48,7 @@ import { FretboardQuizPanel, type FretboardQuizHandle } from './components/train
 import { ScalePatternPanel } from './components/scale/ScalePatternPanel'
 import { PracticeTimerPanel } from './components/practice/PracticeTimerPanel'
 import { suggestEnharmonicMode, getEnharmonicName, type EnharmonicMode } from './utils/enharmonic'
+import { StrumPatternPanel } from './components/rhythm/StrumPatternPanel'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -773,6 +774,13 @@ export default function App() {
         instrument={instrument}
         selectedRoot={selectedRoot}
         onPatternPositionsChange={setPatternPositions}
+      />
+
+      {/* Strum Patterns */}
+      <StrumPatternPanel
+        currentBeat={metronome.currentBeat}
+        beatsPerMeasure={metronome.beatsPerMeasure}
+        isPlaying={metronome.isPlaying}
       />
 
       {/* Fretboard Quiz */}
