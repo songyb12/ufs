@@ -15,13 +15,22 @@ COPY tests/ ./tests/
 RUN pip install --no-cache-dir pytest pytest-asyncio && \
     python -m pytest tests/ -v --tb=short
 
-# ── Stage 3: Production ──
+# ── Stage 3: Dashboard Build ──
+FROM node:20-slim AS dashboard-build
+
+WORKDIR /build
+COPY dashboard/package*.json ./
+RUN npm ci --production=false
+COPY dashboard/ ./
+RUN npm run build
+
+# ── Stage 4: Production ──
 FROM deps AS production
 
 COPY app/ ./app/
-COPY static/ ./static/
+COPY --from=dashboard-build /static/ ./static/
 
-RUN mkdir -p /app/data && \
+RUN mkdir -p /app/data /app/data/backups && \
     groupadd -r appuser && useradd -r -g appuser -d /app appuser && \
     chown -R appuser:appuser /app
 

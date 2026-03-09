@@ -1,3 +1,4 @@
+import logging
 import re
 
 from fastapi import APIRouter, HTTPException
@@ -8,6 +9,8 @@ from app.models.schemas import (
     WatchlistItemCreate,
     WatchlistItemResponse,
 )
+
+logger = logging.getLogger("vibe.routers.watchlist")
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
@@ -36,6 +39,7 @@ async def add_symbol(item: WatchlistItemCreate):
     )
     if not result:
         raise HTTPException(status_code=500, detail="Failed to add symbol")
+    logger.info("Watchlist symbol added: %s (%s)", item.symbol, item.market)
     return result
 
 
@@ -61,4 +65,5 @@ async def remove_symbol(symbol: str, market: str = "KR"):
     removed = await repo.remove_watchlist_item(symbol=symbol, market=market)
     if not removed:
         raise HTTPException(status_code=404, detail=f"Symbol {symbol} not found in {market} watchlist")
+    logger.info("Watchlist symbol removed: %s (%s)", symbol, market)
     return {"removed": symbol, "market": market}

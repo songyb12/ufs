@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Query
+import logging
+
+from fastapi import APIRouter, HTTPException, Query
 
 from app.database import repositories as repo
 from app.database.connection import get_db
 from app.models.schemas import DashboardResponse
+
+logger = logging.getLogger("vibe.routers.dashboard")
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -29,121 +33,132 @@ async def get_dashboard(market: str | None = None):
 @router.get("/summary")
 async def get_dashboard_summary(portfolio_id: int = Query(1)):
     """Aggregated KPI summary for the web dashboard."""
-    db = await get_db()
+    try:
+        db = await get_db()
 
-    # Signal counts (latest date)
-    c = await db.execute(
-        """SELECT final_signal, COUNT(*) as cnt
-           FROM signals
-           WHERE signal_date = (SELECT MAX(signal_date) FROM signals)
-           GROUP BY final_signal"""
-    )
-    signal_counts = {"BUY": 0, "SELL": 0, "HOLD": 0}
-    for row in await c.fetchall():
-        sig = row["final_signal"]
-        if sig in signal_counts:
-            signal_counts[sig] = row["cnt"]
+        # Signal counts (latest date)
+        c = await db.execute(
+            """SELECT final_signal, COUNT(*) as cnt
+               FROM signals
+               WHERE signal_date = (SELECT MAX(signal_date) FROM signals)
+               GROUP BY final_signal"""
+        )
+        signal_counts = {"BUY": 0, "SELL": 0, "HOLD": 0}
+        for row in await c.fetchall():
+            sig = row["final_signal"]
+            if sig in signal_counts:
+                signal_counts[sig] = row["cnt"]
 
-    # Hard limit count (latest date)
-    c = await db.execute(
-        """SELECT COUNT(*) FROM signals
-           WHERE signal_date = (SELECT MAX(signal_date) FROM signals)
-           AND hard_limit_triggered = 1"""
-    )
-    row = await c.fetchone()
-    hl_count = row[0] if row else 0
+        # Hard limit count (latest date)
+        c = await db.execute(
+            """SELECT COUNT(*) FROM signals
+               WHERE signal_date = (SELECT MAX(signal_date) FROM signals)
+               AND hard_limit_triggered = 1"""
+        )
+        row = await c.fetchone()
+        hl_count = row[0] if row else 0
 
-    # Portfolio P&L — filtered by portfolio_id
-    c = await db.execute(
-        """SELECT ps.symbol, ps.market, ps.entry_price, ps.position_size,
-                  w.name, lp.close as current_price
-           FROM portfolio_state ps
-           LEFT JOIN watchlist w ON ps.symbol = w.symbol AND ps.market = w.market
-           LEFT JOIN (
-               SELECT symbol, market, close
-               FROM price_history
-               WHERE (symbol, market, trade_date) IN (
-                   SELECT symbol, market, MAX(trade_date)
-                   FROM price_history
-                   GROUP BY symbol, market
-               )
-           ) lp ON ps.symbol = lp.symbol AND ps.market = lp.market
-           WHERE ps.position_size > 0 AND ps.portfolio_id = ?""",
-        (portfolio_id,),
-    )
-    positions = [dict(r) for r in await c.fetchall()]
-    total_invested = 0.0
-    total_current = 0.0
-    portfolio_items = []
-    for p in positions:
-        entry = p.get("entry_price") or 0
-        current = p.get("current_price") or entry
-        size = p.get("position_size", 0)
-        pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
-        total_invested += size  # size IS the invested KRW/USD amount
-        if entry > 0:
-            shares = size / entry  # derive share count from invested amount
-            total_current += current * shares
-        else:
-            total_current += size  # no entry price = assume flat
-        portfolio_items.append({
-            "symbol": p["symbol"],
-            "market": p["market"],
-            "name": p.get("name", p["symbol"]),
-            "entry_price": entry,
-            "current_price": current,
-            "position_size": size,
-            "pnl_pct": round(pnl_pct, 2),
-        })
-    portfolio_pnl = round(
-        (total_current - total_invested) / total_invested * 100, 2
-    ) if total_invested > 0 else 0.0
+        # Portfolio P&L — single query for all groups or specific group
+        # portfolio_id=0 → all groups, otherwise specific group
+        portfolio_query = """
+            SELECT ps.symbol, ps.market, ps.entry_price, ps.position_size,
+                   w.name, lp.close as current_price
+            FROM portfolio_state ps
+            LEFT JOIN watchlist w ON ps.symbol = w.symbol AND ps.market = w.market
+            LEFT JOIN (
+                SELECT ph.symbol, ph.market, ph.close
+                FROM price_history ph
+                INNER JOIN (
+                    SELECT symbol, market, MAX(trade_date) AS max_date
+                    FROM price_history
+                    GROUP BY symbol, market
+                ) latest ON ph.symbol = latest.symbol
+                        AND ph.market = latest.market
+                        AND ph.trade_date = latest.max_date
+            ) lp ON ps.symbol = lp.symbol AND ps.market = lp.market
+            WHERE ps.position_size > 0
+        """
+        pf_params: list = []
+        if portfolio_id > 0:
+            portfolio_query += " AND ps.portfolio_id = ?"
+            pf_params.append(portfolio_id)
+        c = await db.execute(portfolio_query, pf_params)
+        positions = [dict(r) for r in await c.fetchall()]
+        total_invested = 0.0
+        total_current = 0.0
+        portfolio_items = []
+        for p in positions:
+            entry = p.get("entry_price") or 0
+            current = p.get("current_price") or entry
+            size = p.get("position_size", 0)
+            pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
+            total_invested += size  # size IS the invested KRW/USD amount
+            if entry > 0:
+                shares = size / entry  # derive share count from invested amount
+                total_current += current * shares
+            else:
+                total_current += size  # no entry price = assume flat
+            portfolio_items.append({
+                "symbol": p["symbol"],
+                "market": p["market"],
+                "name": p.get("name", p["symbol"]),
+                "entry_price": entry,
+                "current_price": current,
+                "position_size": size,
+                "pnl_pct": round(pnl_pct, 2),
+            })
+        portfolio_pnl = round(
+            (total_current - total_invested) / total_invested * 100, 2
+        ) if total_invested > 0 else 0.0
 
-    # Pipeline freshness
-    last_kr = await repo.get_latest_pipeline_run("KR")
-    last_us = await repo.get_latest_pipeline_run("US")
+        # Pipeline freshness
+        last_kr = await repo.get_latest_pipeline_run("KR")
+        last_us = await repo.get_latest_pipeline_run("US")
 
-    # Total data counts (null-safe fetchone)
-    c = await db.execute("SELECT COUNT(*) FROM price_history")
-    row = await c.fetchone()
-    price_count = row[0] if row else 0
-    c = await db.execute("SELECT COUNT(*) FROM signals")
-    row = await c.fetchone()
-    signal_total = row[0] if row else 0
-    c = await db.execute("SELECT COUNT(DISTINCT symbol) FROM watchlist WHERE is_active=1")
-    row = await c.fetchone()
-    watchlist_count = row[0] if row else 0
+        # Total data counts (null-safe fetchone)
+        c = await db.execute("SELECT COUNT(*) FROM price_history")
+        row = await c.fetchone()
+        price_count = row[0] if row else 0
+        c = await db.execute("SELECT COUNT(*) FROM signals")
+        row = await c.fetchone()
+        signal_total = row[0] if row else 0
+        c = await db.execute("SELECT COUNT(DISTINCT symbol) FROM watchlist WHERE is_active=1")
+        row = await c.fetchone()
+        watchlist_count = row[0] if row else 0
 
-    # Latest signal date
-    c = await db.execute("SELECT MAX(signal_date) FROM signals")
-    row = await c.fetchone()
-    latest_date = row[0] if row else None
+        # Latest signal date
+        c = await db.execute("SELECT MAX(signal_date) FROM signals")
+        row = await c.fetchone()
+        latest_date = row[0] if row else None
 
-    return {
-        "latest_signal_date": latest_date,
-        "signals": signal_counts,
-        "hard_limit_count": hl_count,
-        "portfolio": {
-            "positions": portfolio_items,
-            "total_pnl_pct": portfolio_pnl,
-            "holdings_count": len(positions),
-        },
-        "pipelines": {
-            "KR": {
-                "status": last_kr.get("status") if last_kr else "never_run",
-                "last_run": last_kr.get("completed_at") or last_kr.get("started_at") if last_kr else None,
+        return {
+            "latest_signal_date": latest_date,
+            "signals": signal_counts,
+            "hard_limit_count": hl_count,
+            "portfolio": {
+                "positions": portfolio_items,
+                "total_pnl_pct": portfolio_pnl,
+                "holdings_count": len(positions),
             },
-            "US": {
-                "status": last_us.get("status") if last_us else "never_run",
-                "last_run": last_us.get("completed_at") or last_us.get("started_at") if last_us else None,
+            "pipelines": {
+                "KR": {
+                    "status": last_kr.get("status") if last_kr else "never_run",
+                    "last_run": last_kr.get("completed_at") or last_kr.get("started_at") if last_kr else None,
+                },
+                "US": {
+                    "status": last_us.get("status") if last_us else "never_run",
+                    "last_run": last_us.get("completed_at") or last_us.get("started_at") if last_us else None,
+                },
             },
-        },
-        "data": {
-            "prices": price_count,
-            "signals_total": signal_total,
-            "watchlist": watchlist_count,
-        },
-    }
+            "data": {
+                "prices": price_count,
+                "signals_total": signal_total,
+                "watchlist": watchlist_count,
+            },
+        }
+    except Exception as e:
+        logger.error("Dashboard summary SQL query failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Dashboard summary failed. Check server logs for details.")
 
 
 @router.get("/prices/{symbol}")
@@ -153,26 +168,31 @@ async def get_price_chart(
     days: int = Query(60, ge=5, le=365),
 ):
     """Get OHLCV price data for charting."""
-    db = await get_db()
-    c = await db.execute(
-        """SELECT trade_date, open, high, low, close, volume
-           FROM price_history
-           WHERE symbol = ? AND market = ?
-           ORDER BY trade_date DESC
-           LIMIT ?""",
-        (symbol, market, days),
-    )
-    rows = [dict(r) for r in await c.fetchall()]
-    rows.reverse()  # chronological order
-    return {"symbol": symbol, "market": market, "data": rows}
+    try:
+        db = await get_db()
+        c = await db.execute(
+            """SELECT trade_date, open, high, low, close, volume
+               FROM price_history
+               WHERE symbol = ? AND market = ?
+               ORDER BY trade_date DESC
+               LIMIT ?""",
+            (symbol, market, days),
+        )
+        rows = [dict(r) for r in await c.fetchall()]
+        rows.reverse()  # chronological order
+        return {"symbol": symbol, "market": market, "data": rows}
+    except Exception as e:
+        logger.error("Price chart query failed for %s: %s", symbol, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="가격 데이터 조회 실패")
 
 
 @router.get("/signals/history")
 async def get_signal_history(
     market: str | None = None,
     days: int = Query(30, ge=1, le=365),
+    symbol: str | None = None,
 ):
-    """Get signal history for the past N days."""
+    """Get signal history for the past N days, optionally filtered by symbol."""
     db = await get_db()
     query = """
         SELECT s.symbol, s.market, s.signal_date, s.raw_signal, s.raw_score,
@@ -189,7 +209,13 @@ async def get_signal_history(
     if market:
         query += " AND s.market = ?"
         params.append(market.upper())
+    if symbol:
+        query += " AND s.symbol = ?"
+        params.append(symbol)
     query += " ORDER BY s.signal_date DESC, s.raw_score DESC"
+    # Safety LIMIT: days param bounds the date range, but cap row count
+    # to prevent excessive memory usage (50 symbols * 365 days = 18,250 max)
+    query += " LIMIT 20000"
 
     c = await db.execute(query, params)
     rows = [dict(r) for r in await c.fetchall()]
@@ -306,8 +332,8 @@ async def get_monthly_reports(limit: int = Query(12, ge=1, le=24)):
 
 @router.post("/reports/monthly/generate")
 async def generate_monthly_report_endpoint(
-    report_month: str | None = None,
-    market: str = "ALL",
+    report_month: str | None = Query(None),
+    market: str = Query("ALL"),
 ):
     """Generate a monthly report for the given month."""
     from app.reports.monthly_report import generate_monthly_report

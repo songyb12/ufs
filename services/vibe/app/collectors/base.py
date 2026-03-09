@@ -45,7 +45,7 @@ class BaseCollector(ABC):
                 else:
                     logger.warning("[%s] %s: empty data returned", self.market, symbol)
             except Exception as e:
-                logger.error("[%s] %s: fetch failed - %s", self.market, symbol, e)
+                logger.error("[%s] %s: fetch failed - %s", self.market, symbol, e, exc_info=True)
 
             # Rate limiting between requests
             await asyncio.sleep(self.config.COLLECTION_DELAY_SECONDS)

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getPriceChart, getSignalHistory } from '../api'
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
+  ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts'
 
 export default function SymbolModal({ symbol, market, onClose }) {
@@ -16,14 +16,11 @@ export default function SymbolModal({ symbol, market, onClose }) {
     setLoading(true)
     Promise.all([
       getPriceChart(symbol, market, days),
-      getSignalHistory(market, 90),
+      getSignalHistory(market, 90, symbol),
     ])
       .then(([priceRes, sigRes]) => {
         setPriceData(priceRes.data || [])
-        const filtered = (sigRes.signals || []).filter(
-          s => s.symbol === symbol && s.market === market
-        )
-        setSignals(filtered)
+        setSignals(sigRes.signals || [])
         setError(null)
       })
       .catch(err => setError(err.message))
@@ -82,11 +79,11 @@ export default function SymbolModal({ symbol, market, onClose }) {
               ))}
             </div>
 
-            {/* Price Chart */}
+            {/* Price + Volume Chart */}
             {priceData.length > 0 && (
               <div style={{ marginBottom: '1.25rem' }}>
-                <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={priceData}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <ComposedChart data={priceData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                     <XAxis
                       dataKey="trade_date"
@@ -94,23 +91,41 @@ export default function SymbolModal({ symbol, market, onClose }) {
                       tickFormatter={v => v?.slice(5)}
                     />
                     <YAxis
+                      yAxisId="price"
                       domain={['auto', 'auto']}
                       tick={{ fill: '#94a3b8', fontSize: 10 }}
-                      tickFormatter={v => market === 'KR' ? (v / 1000).toFixed(0) + 'k' : v.toFixed(0)}
+                      tickFormatter={v => v != null ? (market === 'KR' ? (v / 1000).toFixed(0) + 'k' : v.toFixed(0)) : ''}
+                    />
+                    <YAxis
+                      yAxisId="volume"
+                      orientation="right"
+                      tick={{ fill: '#475569', fontSize: 9 }}
+                      tickFormatter={v => v != null ? (v >= 1000000 ? `${(v / 1000000).toFixed(0)}M` : `${(v / 1000).toFixed(0)}K`) : ''}
+                      domain={[0, dataMax => dataMax * 3]}
                     />
                     <Tooltip
                       contentStyle={{ background: '#1e293b', border: '1px solid #334155', fontSize: '0.8rem' }}
-                      formatter={(v) => [formatPrice(v), 'Close']}
+                      formatter={(v, name) => {
+                        if (name === 'volume') return [v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`, '거래량']
+                        return [formatPrice(v), name === 'close' ? '종가' : name === 'high' ? '고가' : name === 'low' ? '저가' : name]
+                      }}
                       labelFormatter={(l) => l}
                     />
+                    <Bar
+                      yAxisId="volume"
+                      dataKey="volume"
+                      fill="rgba(59,130,246,0.15)"
+                      radius={[1, 1, 0, 0]}
+                    />
                     <Line
+                      yAxisId="price"
                       type="monotone"
                       dataKey="close"
                       stroke="var(--accent)"
                       strokeWidth={2}
                       dot={false}
                     />
-                  </LineChart>
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
             )}

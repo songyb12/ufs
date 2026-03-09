@@ -1,7 +1,7 @@
-"""API Key authentication middleware.
+"""Authentication middleware — supports JWT Bearer tokens + API Key.
 
-When API_AUTH_ENABLED=True, all endpoints (except /health and /)
-require X-API-Key header matching the configured API_KEY.
+When API_AUTH_ENABLED=True, all endpoints (except public paths)
+require either a valid JWT Bearer token OR X-API-Key header.
 """
 
 import hmac
@@ -17,7 +17,10 @@ logger = logging.getLogger("vibe.auth")
 PUBLIC_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}
 
 # Path prefixes that never require authentication
-PUBLIC_PREFIXES = ("/ui/", "/static/", "/ui")
+PUBLIC_PREFIXES = (
+    "/ui/", "/static/", "/ui",
+    "/auth/status", "/auth/login", "/auth/register",
+)
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
@@ -32,20 +35,34 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if path in PUBLIC_PATHS:
             return await call_next(request)
 
-        # Skip auth for dashboard static assets
+        # Skip auth for public prefixes
         if any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
             return await call_next(request)
 
-        # Check X-API-Key header
-        provided_key = request.headers.get("X-API-Key", "")
-        if not hmac.compare_digest(provided_key, self.api_key):
-            logger.warning(
-                "Auth failed: %s %s from %s",
-                request.method, request.url.path, request.client.host if request.client else "unknown",
-            )
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid or missing API key"},
-            )
+        # 1) Check Bearer JWT token
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            try:
+                from app.routers.auth import decode_token
+                payload = decode_token(token)
+                if payload and payload.get("sub"):
+                    # Valid JWT — allow request
+                    return await call_next(request)
+            except Exception:
+                pass  # Fall through to API key check
 
-        return await call_next(request)
+        # 2) Check X-API-Key header
+        provided_key = request.headers.get("X-API-Key", "")
+        if provided_key and hmac.compare_digest(provided_key, self.api_key):
+            return await call_next(request)
+
+        # 3) Both failed
+        logger.warning(
+            "Auth failed: %s %s from %s",
+            request.method, request.url.path, request.client.host if request.client else "unknown",
+        )
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid or missing authentication"},
+        )

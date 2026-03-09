@@ -21,15 +21,44 @@ import {
 import {
   resolveProgression,
   type ProgressionPreset,
+  type ProgressionStep,
 } from './utils/chordProgression'
 import { getCAGEDVoicings, type ChordVoicing } from './utils/voicingLibrary'
 import { generateVoicings } from './utils/voicingGenerator'
 import { optimizeProgressionVoicings } from './utils/voicingOptimizer'
+import { useSoundEngine } from './hooks/useSoundEngine'
+import { useMidi } from './hooks/useMidi'
+import { CHROMATIC_SCALE } from './constants/notes'
+import { getScaleSuggestions, type ScaleSuggestion } from './utils/scaleAdvisor'
+import { ScaleSuggestionPanel } from './components/scale/ScaleSuggestionPanel'
+import { useBackingTrack } from './hooks/useBackingTrack'
+import { BackingTrackPanel } from './components/backing/BackingTrackPanel'
+import { usePracticeMode } from './hooks/usePracticeMode'
+import { PracticePanel } from './components/practice/PracticePanel'
 
 export default function App() {
   const [instrument, setInstrument] =
     useState<InstrumentConfig>(STANDARD_GUITAR)
   const [highlightedNotes, setHighlightedNotes] = useState<Note[]>([])
+  const soundEngine = useSoundEngine()
+  const midi = useMidi()
+  const practice = usePracticeMode()
+
+  // Derive MIDI active note name for fretboard highlight
+  const midiNoteName: NoteName | undefined = useMemo(() => {
+    if (!midi.lastNote) return undefined
+    return CHROMATIC_SCALE[midi.lastNote.note % 12]
+  }, [midi.lastNote])
+
+  // Play sound + evaluate practice when MIDI note arrives
+  useEffect(() => {
+    if (!midi.lastNote) return
+    const midiNum = midi.lastNote.note
+    const name = CHROMATIC_SCALE[midiNum % 12]
+    const octave = Math.floor(midiNum / 12) - 1
+    soundEngine.playFretboardNote({ name, octave, midiNumber: midiNum })
+    practice.evaluateNote(midiNum)
+  }, [midi.lastNote]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scale/Chord overlay state
   const [selectedRoot, setSelectedRoot] = useState<NoteName | null>(null)
@@ -38,14 +67,56 @@ export default function App() {
   >(SCALES[0]) // Default: Major
   const [mode, setMode] = useState<'scale' | 'chord'>('scale')
 
+  // Refs for backing track getters (avoids circular dependency with useMetronome)
+  const chordRootRef = useRef<NoteName | null>(null)
+  const bpmRef = useRef(120)
+  const getChordRoot = useCallback(() => chordRootRef.current, [])
+  const getBpm = useCallback(() => bpmRef.current, [])
+
+  // Backing track (must be before useMetronome so we can pass onBeatSchedule)
+  const backingTrack = useBackingTrack(getChordRoot, getBpm)
+
   // Metronome state (lifted from MetronomePanel)
-  const metronome = useMetronome()
+  const metronome = useMetronome(backingTrack.onBeatSchedule)
 
   // Chord progression state
   const [progressionKey, setProgressionKey] = useState<NoteName | null>(null)
   const [progressionPreset, setProgressionPreset] =
     useState<ProgressionPreset | null>(null)
   const [activeChordIndex, setActiveChordIndex] = useState(0)
+
+  // Custom progression state
+  const [isCustomProgression, setIsCustomProgression] = useState(false)
+  const [customSteps, setCustomSteps] = useState<ProgressionStep[]>([
+    { degreeIndex: 0 }, // I
+    { degreeIndex: 3 }, // IV
+    { degreeIndex: 4 }, // V
+    { degreeIndex: 0 }, // I
+  ])
+
+  const handleCustomToggle = useCallback(() => {
+    setIsCustomProgression((v) => {
+      const next = !v
+      if (next) {
+        // Switch to custom: create a preset from customSteps
+        onCustomPresetUpdate(customSteps)
+      }
+      return next
+    })
+  }, [customSteps]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onCustomPresetUpdate = useCallback((steps: ProgressionStep[]) => {
+    setCustomSteps(steps)
+    if (steps.length > 0) {
+      setProgressionPreset({ name: 'Custom', steps })
+    } else {
+      setProgressionPreset(null)
+    }
+  }, [])
+
+  const handleCustomStepsChange = useCallback((steps: ProgressionStep[]) => {
+    onCustomPresetUpdate(steps)
+  }, [onCustomPresetUpdate])
 
   // Voicing state
   const [voicingMode, setVoicingMode] = useState<VoicingMode>('all')
@@ -61,6 +132,10 @@ export default function App() {
 
   // Active chord info
   const activeChord = resolvedChords[activeChordIndex] ?? null
+
+  // Sync backing track refs
+  chordRootRef.current = activeChord?.root ?? null
+  bpmRef.current = metronome.bpm
 
   // Compute available voicings for ALL chords in the progression
   const allProgressionVoicings: ChordVoicing[][] = useMemo(() => {
@@ -178,8 +253,51 @@ export default function App() {
       selectedRoot,
     ])
 
+  // Scale suggestions for the active chord
+  const scaleSuggestions: ScaleSuggestion[] = useMemo(() => {
+    if (!activeChord) return []
+    return getScaleSuggestions(activeChord)
+  }, [activeChord])
+
+  // Which suggestion is selected for overlay
+  const [activeScaleSuggestionIdx, setActiveScaleSuggestionIdx] = useState<number | null>(null)
+
+  // Reset suggestion selection when chord changes
+  useEffect(() => {
+    setActiveScaleSuggestionIdx(null)
+  }, [activeChord?.root, activeChord?.quality])
+
+  // Scale overlay note names (for fretboard amber overlay)
+  const scaleOverlayNoteNames: NoteName[] = useMemo(() => {
+    if (activeScaleSuggestionIdx === null) return []
+    return scaleSuggestions[activeScaleSuggestionIdx]?.noteNames ?? []
+  }, [activeScaleSuggestionIdx, scaleSuggestions])
+
+  // Practice target: combine fretboard notes + scale overlay
+  const practiceTargetNotes = useMemo(() => {
+    const notes = [...fretboardNoteNames, ...scaleOverlayNoteNames]
+    return [...new Set(notes)]
+  }, [fretboardNoteNames, scaleOverlayNoteNames])
+
+  // Keep practice mode target in sync
+  useEffect(() => {
+    if (practice.active && practiceTargetNotes.length > 0) {
+      practice.updateTarget(practiceTargetNotes)
+    }
+  }, [practiceTargetNotes]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Practice mode toggle handler
+  const handlePracticeToggle = useCallback(() => {
+    if (practice.active) {
+      practice.deactivate()
+    } else if (practiceTargetNotes.length > 0) {
+      practice.activate(practiceTargetNotes)
+    }
+  }, [practice, practiceTargetNotes])
+
   const handleNoteClick = useCallback(
     (note: Note) => {
+      soundEngine.playFretboardNote(note)
       setHighlightedNotes((prev) => {
         const exists = prev.some(
           (n) => n.name === note.name && n.octave === note.octave,
@@ -192,15 +310,24 @@ export default function App() {
         return [...prev, note]
       })
     },
-    [],
+    [soundEngine],
   )
 
   const handleProgressionChordClick = useCallback(
     (index: number) => {
       isAutoChordChange.current = true
       setActiveChordIndex(index)
+      // Play the voicing or chord tones when clicking a chord block
+      const voicings = allProgressionVoicings[index] ?? []
+      if (voicings.length > 0) {
+        const idx = isOptimized && optimizedIndices.length > 0
+          ? (optimizedIndices[index] ?? 0)
+          : 0
+        const v = voicings[idx]
+        if (v) soundEngine.playVoicing(v, instrument)
+      }
     },
-    [],
+    [allProgressionVoicings, isOptimized, optimizedIndices, soundEngine, instrument],
   )
 
   return (
@@ -223,6 +350,8 @@ export default function App() {
           scaleNoteNames={fretboardNoteNames}
           rootNote={fretboardRootNote}
           voicingPositions={fretboardVoicingPositions}
+          midiNoteName={midiNoteName}
+          scaleOverlayNoteNames={scaleOverlayNoteNames}
           onNoteClick={handleNoteClick}
         />
         {highlightedNotes.length > 0 && (
@@ -248,6 +377,15 @@ export default function App() {
         )}
       </section>
 
+      {/* Scale Suggestions (shown when progression is active) */}
+      {scaleSuggestions.length > 0 && (
+        <ScaleSuggestionPanel
+          suggestions={scaleSuggestions}
+          activeIndex={activeScaleSuggestionIdx}
+          onSelect={setActiveScaleSuggestionIdx}
+        />
+      )}
+
       {/* Chord Progression */}
       <ChordProgressionPanel
         progressionKey={progressionKey}
@@ -267,6 +405,10 @@ export default function App() {
         voicingName={currentVoicing?.name ?? ''}
         isOptimized={isOptimized}
         onOptimizedChange={setIsOptimized}
+        isCustom={isCustomProgression}
+        onCustomToggle={handleCustomToggle}
+        customSteps={customSteps}
+        onCustomStepsChange={handleCustomStepsChange}
       />
 
       {/* Bottom controls */}
@@ -280,7 +422,30 @@ export default function App() {
           beatsPerMeasure={metronome.beatsPerMeasure}
           setBeatsPerMeasure={metronome.setBeatsPerMeasure}
         />
-        <MidiStatus />
+        <BackingTrackPanel
+          enabled={backingTrack.enabled}
+          drumVolume={backingTrack.drumVolume}
+          bassVolume={backingTrack.bassVolume}
+          onToggle={backingTrack.toggle}
+          onDrumVolumeChange={backingTrack.setDrumVolume}
+          onBassVolumeChange={backingTrack.setBassVolume}
+        />
+        <PracticePanel
+          active={practice.active}
+          stats={practice.stats}
+          lastResult={practice.lastResult}
+          hasTarget={practiceTargetNotes.length > 0}
+          onToggle={handlePracticeToggle}
+          onReset={practice.reset}
+        />
+        <MidiStatus
+          isSupported={midi.isSupported}
+          isConnected={midi.isConnected}
+          devices={midi.devices}
+          lastNote={midi.lastNote}
+          error={midi.error}
+          requestAccess={midi.requestAccess}
+        />
       </div>
     </AppShell>
   )

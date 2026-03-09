@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   getHealth, getPipelineRuns, triggerPipeline,
   getWatchlist, addWatchlistItem, removeWatchlistItem,
@@ -6,11 +6,26 @@ import {
   getMonthlyReports, generateMonthlyReport,
   getDataStatus, getLLMSettings, updateLLMSettings,
   getStoredApiKey, setApiKey,
+  getNotificationSchedule, updateNotificationSchedule, testNotificationCheck,
+  getRuntimeSettings, updateRuntimeSetting,
+  authStatus, authChangePassword, logout,
 } from '../api'
 
 import HelpButton from '../components/HelpButton'
+import PageGuide from '../components/PageGuide'
+import { useToast } from '../components/Toast'
 
-export default function System({ onNavigate }) {
+const SYSTEM_TABS = [
+  { key: 'status', label: '\uD83D\uDFE2 시스템 현황' },
+  { key: 'config', label: '\u2699 설정' },
+  { key: 'notify', label: '\uD83D\uDD14 알림' },
+  { key: 'data', label: '\uD83D\uDCCA 데이터' },
+  { key: 'account', label: '\uD83D\uDC64 계정 & 워치리스트' },
+]
+
+export default function System({ onNavigate, refreshKey }) {
+  const toast = useToast()
+  const [tab, setTab] = useState('status')
   const [health, setHealth] = useState(null)
   const [runs, setRuns] = useState([])
   const [loading, setLoading] = useState(true)
@@ -42,7 +57,26 @@ export default function System({ onNavigate }) {
   const [llmSettings, setLlmSettings] = useState(null)
   const [llmToggling, setLlmToggling] = useState(null)
 
+  // Notification schedule state
+  const [notifSchedule, setNotifSchedule] = useState(null)
+  const [notifSaving, setNotifSaving] = useState(false)
+  const [notifTest, setNotifTest] = useState(null)
+
+  // Portfolio capital state
+  const [portfolioTotal, setPortfolioTotal] = useState('')
+  const [capitalSaving, setCapitalSaving] = useState(false)
+
+  // Auth / Password change state
+  const [authUser, setAuthUser] = useState(null)
+  const [showPwChange, setShowPwChange] = useState(false)
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [newPwConfirm, setNewPwConfirm] = useState('')
+  const [pwChanging, setPwChanging] = useState(false)
+
   const [error, setError] = useState(null)
+  const mountedRef = useRef(true)
+  useEffect(() => () => { mountedRef.current = false }, [])
 
   const refresh = () => {
     setLoading(true)
@@ -53,25 +87,31 @@ export default function System({ onNavigate }) {
       getMonthlyReports(6).catch(() => ({ reports: [] })),
       getDataStatus().catch(() => ({ tables: {} })),
       getLLMSettings().catch(() => null),
+      getNotificationSchedule().catch(() => null),
+      getRuntimeSettings().catch(() => null),
+      authStatus().catch(() => null),
     ])
-      .then(([h, r, wl, ac, ah, mr, ds, llm]) => {
+      .then(([h, r, wl, ac, ah, mr, ds, llm, ns, rt, as_]) => {
         setHealth(h); setRuns(r); setWatchlist(wl || [])
         setAlertConfig(ac.config || [])
         setAlertHistory(ah.history || [])
         setMonthlyReports(mr.reports || [])
         setDataStatus(ds?.tables || null)
         setLlmSettings(llm)
+        setNotifSchedule(ns)
+        if (rt?.portfolio_total) setPortfolioTotal(String(rt.portfolio_total))
+        if (as_?.authenticated) setAuthUser(as_.username)
         setError(null)
       })
-      .catch(err => { console.error(err); setError(err.message) })
+      .catch(err => { console.error(err); setError(err.message); toast.error('시스템 데이터 로드 실패') })
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => { refresh() }, [refreshKey])
 
   const showWlMsg = (text, type = 'success') => {
     setWlMessage({ text, type })
-    setTimeout(() => setWlMessage(null), 3000)
+    setTimeout(() => { if (mountedRef.current) setWlMessage(null) }, 3000)
   }
 
   const handleTrigger = async (market) => {
@@ -80,7 +120,7 @@ export default function System({ onNavigate }) {
     try {
       const result = await triggerPipeline(market)
       setTriggerResult(result)
-      setTimeout(refresh, 3000)
+      setTimeout(() => { if (mountedRef.current) refresh() }, 3000)
     } catch (e) {
       setTriggerResult({ status: 'error', message: e.message })
     } finally {
@@ -130,6 +170,7 @@ export default function System({ onNavigate }) {
       setAlertConfig(ac.config || [])
     } catch (err) {
       console.error('Alert save failed:', err)
+      toast.error('알림 설정 저장 실패')
     } finally {
       setAlertSaving(false)
     }
@@ -138,7 +179,7 @@ export default function System({ onNavigate }) {
   // LLM toggle handler
   const handleLLMToggle = async (key) => {
     if (!llmSettings) return
-    const currentValue = llmSettings.features[key]
+    const currentValue = llmSettings.features?.[key]
     setLlmToggling(key)
     try {
       const result = await updateLLMSettings({ [key]: !currentValue })
@@ -148,8 +189,44 @@ export default function System({ onNavigate }) {
       }))
     } catch (err) {
       console.error('LLM toggle failed:', err)
+      toast.error('LLM 설정 변경 실패')
     } finally {
       setLlmToggling(null)
+    }
+  }
+
+  // Notification schedule handlers
+  const handleNotifToggleDay = (day) => {
+    setNotifSchedule(prev => ({
+      ...prev,
+      days: { ...prev.days, [day]: !prev.days[day] },
+    }))
+  }
+  const handleNotifToggleChannel = (ch) => {
+    setNotifSchedule(prev => ({
+      ...prev,
+      channels: { ...prev.channels, [ch]: !prev.channels[ch] },
+    }))
+  }
+  const handleNotifSave = async () => {
+    setNotifSaving(true)
+    try {
+      const result = await updateNotificationSchedule(notifSchedule)
+      setNotifSchedule(result.schedule)
+      toast.success('알림 스케줄 저장 완료')
+    } catch (err) {
+      console.error('Notification schedule save failed:', err)
+      toast.error('알림 스케줄 저장 실패')
+    } finally {
+      setNotifSaving(false)
+    }
+  }
+  const handleNotifTest = async () => {
+    try {
+      const result = await testNotificationCheck()
+      setNotifTest(result)
+    } catch (err) {
+      toast.error('알림 테스트 실패')
     }
   }
 
@@ -162,13 +239,14 @@ export default function System({ onNavigate }) {
       setMonthlyReports(mr.reports || [])
     } catch (err) {
       console.error('Report generation failed:', err)
+      toast.error('월간 리포트 생성 실패')
     } finally {
       setGeneratingReport(false)
     }
   }
 
-  if (loading) return <div className="loading"><span className="spinner" /> Loading...</div>
-  if (error) return <div className="loading" style={{ color: 'var(--red)' }}>Error: {error}</div>
+  if (loading) return <div className="loading"><span className="spinner" /> 로딩 중...</div>
+  if (error) return <div className="loading" style={{ color: 'var(--red)' }}>오류: {error}</div>
 
   const filteredWl = wlFilter === 'ALL' ? watchlist : watchlist.filter(w => w.market === wlFilter)
 
@@ -193,12 +271,38 @@ export default function System({ onNavigate }) {
         </div>
       </div>
 
+      <PageGuide
+        pageId="system"
+        title="시스템 관리 가이드"
+        steps={[
+          '파이프라인 실행 → KR/US 수동 트리거 및 상태 확인',
+          '투자 자본금 → 추천 매수금 계산 기준 설정',
+          'LLM 설정 → AI 기능 ON/OFF 토글',
+          '알림 스케줄 → 요일/시간별 Discord 알림 제어',
+        ]}
+        color="#64748b"
+      />
+
+      {/* Tab Navigation */}
+      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        {SYSTEM_TABS.map(t => (
+          <button key={t.key}
+            className={`btn btn-sm ${tab === t.key ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setTab(t.key)}
+            style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {triggerResult && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: triggerResult.status === 'error' ? 'var(--red)' : 'var(--green)' }}>
           <strong>{triggerResult.status}</strong>: {triggerResult.message || JSON.stringify(triggerResult)}
         </div>
       )}
 
+      {/* ══ Tab: 시스템 현황 ══ */}
+      {tab === 'status' && <>
       {/* Health Status */}
       <div className="card-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div className="card">
@@ -333,10 +437,13 @@ export default function System({ onNavigate }) {
           </div>
         </div>
       </div>
+      </>}
 
+      {/* ══ Tab: 설정 ══ */}
+      {tab === 'config' && <>
       {/* LLM Settings */}
       {llmSettings && (
-        <div className="table-container" style={{ marginTop: '1.5rem' }}>
+        <div className="table-container">
           <div className="table-header">
             <h3>{'\uD83E\uDDE0'} LLM \uC124\uC815</h3>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
@@ -382,7 +489,7 @@ export default function System({ onNavigate }) {
                   costHint: '~\u20A9200/\uC2E4\uD589',
                 },
               ].map(({ key, label, desc, icon, stage, costHint }) => {
-                const enabled = llmSettings.features[key]
+                const enabled = llmSettings?.features?.[key]
                 const isToggling = llmToggling === key
                 const apiKeySet = llmSettings.config?.LLM_API_KEY_SET
                 return (
@@ -449,6 +556,279 @@ export default function System({ onNavigate }) {
                 )}
               </span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Portfolio Capital Setting */}
+      <div className="table-container" style={{ marginTop: '1.5rem' }}>
+        <div className="table-header">
+          <h3>{'\uD83D\uDCB0'} 투자 자본금 설정</h3>
+        </div>
+        <div className="card" style={{ padding: '1rem' }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+            액션 플랜의 추천 매수금액 계산에 사용됩니다. (기본값: 1억 원)
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <input
+              type="number"
+              value={portfolioTotal}
+              onChange={e => setPortfolioTotal(e.target.value)}
+              placeholder="100000000"
+              style={{
+                padding: '0.5rem 0.75rem', borderRadius: '0.375rem',
+                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                color: 'var(--text-primary)', fontSize: '0.9rem', width: '200px',
+              }}
+            />
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              원 ({portfolioTotal ? `${(Number(portfolioTotal) / 10000).toLocaleString()}만 원` : '-'})
+            </span>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={capitalSaving || !portfolioTotal}
+              onClick={async () => {
+                setCapitalSaving(true)
+                try {
+                  await updateRuntimeSetting('portfolio_total', portfolioTotal)
+                  toast.success('자본금 설정 저장됨')
+                } catch (err) {
+                  toast.error('저장 실패: ' + err.message)
+                } finally {
+                  setCapitalSaving(false)
+                }
+              }}
+            >
+              {capitalSaving ? '...' : '저장'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+            {[5000, 10000, 30000, 50000, 100000].map(v => (
+              <button key={v} className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem' }}
+                onClick={() => setPortfolioTotal(String(v * 10000))}
+              >
+                {v >= 10000 ? `${v / 10000}억` : `${v}만`}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      </>}
+
+      {/* ══ Tab: 알림 ══ */}
+      {tab === 'notify' && <>
+      {/* Notification Schedule */}
+      {notifSchedule && (
+        <div className="table-container">
+          <div className="table-header">
+            <h3>{'\uD83D\uDD14'} 알림 스케줄</h3>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button className="btn btn-outline btn-sm" onClick={handleNotifTest}>
+                {'\uD83E\uDDEA'} 테스트
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={handleNotifSave} disabled={notifSaving}>
+                {notifSaving ? '저장 중...' : '\u2714 저장'}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ padding: '1rem 1.25rem' }}>
+            {/* Master toggle */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              marginBottom: '1.25rem', padding: '0.75rem 1rem',
+              background: 'var(--bg-primary)', borderRadius: '0.75rem',
+              border: `1px solid ${notifSchedule.enabled ? 'var(--accent)' : 'var(--border)'}`,
+            }}>
+              <div>
+                <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>전체 알림</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.75rem' }}>
+                  {notifSchedule.enabled ? '활성화 — Discord 알림이 스케줄에 따라 발송됩니다' : '비활성화 — 모든 Discord 알림이 중단됩니다'}
+                </span>
+              </div>
+              <button
+                onClick={() => setNotifSchedule(prev => ({ ...prev, enabled: !prev.enabled }))}
+                style={{
+                  width: '48px', height: '26px', borderRadius: '13px', border: 'none',
+                  background: notifSchedule.enabled ? 'var(--accent)' : 'rgba(148,163,184,0.3)',
+                  cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: '3px',
+                  left: notifSchedule.enabled ? '24px' : '3px',
+                  width: '20px', height: '20px', borderRadius: '50%',
+                  background: '#fff', transition: 'left 0.2s',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                }} />
+              </button>
+            </div>
+
+            {/* Days of week */}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
+                요일별 알림
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {[
+                  { key: 'mon', label: '월' },
+                  { key: 'tue', label: '화' },
+                  { key: 'wed', label: '수' },
+                  { key: 'thu', label: '목' },
+                  { key: 'fri', label: '금' },
+                  { key: 'sat', label: '토' },
+                  { key: 'sun', label: '일' },
+                ].map(({ key, label }) => {
+                  const active = notifSchedule.days?.[key]
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => handleNotifToggleDay(key)}
+                      style={{
+                        width: '44px', height: '44px', borderRadius: '0.5rem',
+                        border: `2px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                        background: active ? 'rgba(99,102,241,0.15)' : 'var(--bg-primary)',
+                        color: active ? 'var(--accent)' : 'var(--text-muted)',
+                        fontWeight: 700, fontSize: '0.85rem',
+                        cursor: 'pointer', transition: 'all 0.15s',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Quiet hours */}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.75rem',
+                marginBottom: '0.5rem',
+              }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  방해금지 시간 (KST)
+                </span>
+                <button
+                  onClick={() => setNotifSchedule(prev => ({
+                    ...prev,
+                    quiet_hours: { ...prev.quiet_hours, enabled: !prev.quiet_hours.enabled },
+                  }))}
+                  style={{
+                    width: '36px', height: '20px', borderRadius: '10px', border: 'none',
+                    background: notifSchedule.quiet_hours?.enabled ? 'var(--accent)' : 'rgba(148,163,184,0.3)',
+                    cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+                  }}
+                >
+                  <span style={{
+                    position: 'absolute', top: '2px',
+                    left: notifSchedule.quiet_hours?.enabled ? '18px' : '2px',
+                    width: '16px', height: '16px', borderRadius: '50%',
+                    background: '#fff', transition: 'left 0.2s',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                  }} />
+                </button>
+              </div>
+              {notifSchedule.quiet_hours?.enabled && (
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    type="time"
+                    value={notifSchedule.quiet_hours?.start || '23:00'}
+                    onChange={e => setNotifSchedule(prev => ({
+                      ...prev,
+                      quiet_hours: { ...prev.quiet_hours, start: e.target.value },
+                    }))}
+                    style={{
+                      padding: '0.35rem 0.5rem', borderRadius: '0.375rem',
+                      background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                      color: 'var(--text-primary)', fontSize: '0.85rem',
+                    }}
+                  />
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>~</span>
+                  <input
+                    type="time"
+                    value={notifSchedule.quiet_hours?.end || '07:00'}
+                    onChange={e => setNotifSchedule(prev => ({
+                      ...prev,
+                      quiet_hours: { ...prev.quiet_hours, end: e.target.value },
+                    }))}
+                    style={{
+                      padding: '0.35rem 0.5rem', borderRadius: '0.375rem',
+                      background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                      color: 'var(--text-primary)', fontSize: '0.85rem',
+                    }}
+                  />
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>이 시간 동안 알림 중단</span>
+                </div>
+              )}
+            </div>
+
+            {/* Channel toggles */}
+            <div style={{ marginBottom: '0.5rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
+                채널별 알림
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                {[
+                  { key: 'pipeline_kr', label: 'KR 파이프라인', desc: '한국 시장 분석 결과', icon: '\uD83C\uDDF0\uD83C\uDDF7' },
+                  { key: 'pipeline_us', label: 'US 파이프라인', desc: '미국 시장 분석 결과', icon: '\uD83C\uDDFA\uD83C\uDDF8' },
+                  { key: 'price_alerts', label: '가격 알림', desc: '손절/목표가 도달 알림', icon: '\uD83D\uDCC8' },
+                  { key: 'weekly_report', label: '주간 리포트', desc: '일요일 주간 성과 요약', icon: '\uD83D\uDCCA' },
+                ].map(({ key, label, desc, icon }) => {
+                  const active = notifSchedule.channels?.[key]
+                  return (
+                    <div
+                      key={key}
+                      onClick={() => handleNotifToggleChannel(key)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.75rem',
+                        padding: '0.65rem 0.85rem', borderRadius: '0.5rem',
+                        border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                        background: active ? 'rgba(99,102,241,0.08)' : 'var(--bg-primary)',
+                        cursor: 'pointer', transition: 'all 0.15s',
+                      }}
+                    >
+                      <span style={{ fontSize: '1.2rem' }}>{icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: active ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                          {label}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{desc}</div>
+                      </div>
+                      <span style={{
+                        width: '10px', height: '10px', borderRadius: '50%',
+                        background: active ? 'var(--green)' : 'rgba(148,163,184,0.3)',
+                        transition: 'background 0.2s',
+                      }} />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Test result */}
+            {notifTest && (
+              <div style={{
+                marginTop: '1rem', padding: '0.75rem', borderRadius: '0.5rem',
+                background: 'var(--bg-primary)', border: '1px solid var(--border)',
+              }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
+                  {'\uD83E\uDDEA'} 현재 시점 알림 테스트 결과
+                </div>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  {Object.entries(notifTest.would_notify || {}).map(([ch, ok]) => (
+                    <span key={ch} style={{
+                      fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '0.25rem',
+                      background: ok ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                      color: ok ? '#22c55e' : '#ef4444',
+                    }}>
+                      {ch}: {ok ? '발송' : '중단'}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -543,10 +923,13 @@ export default function System({ onNavigate }) {
           </table>
         </div>
       )}
+      </>}
 
+      {/* ══ Tab: 데이터 ══ */}
+      {tab === 'data' && <>
       {/* Data Status */}
       {dataStatus && (
-        <div className="table-container" style={{ marginTop: '1.5rem' }}>
+        <div className="table-container">
           <div className="table-header">
             <h3>{'\uD83D\uDDC4'} 수집 데이터 현황</h3>
           </div>
@@ -673,38 +1056,82 @@ export default function System({ onNavigate }) {
           </tbody>
         </table>
       </div>
+      </>}
 
+      {/* ══ Tab: 계정 & 워치리스트 ══ */}
+      {tab === 'account' && <>
       {/* Auth Status */}
-      <div className="card" style={{ marginTop: '1.5rem' }}>
+      <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div className="card-label">{'\uD83D\uDD10'} {'\uC778\uC99D'} {'\uC0C1\uD0DC'}</div>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '0.5rem' }}>
-              <span className={`badge ${getStoredApiKey() ? 'badge-completed' : 'badge-hold'}`}>
-                {getStoredApiKey() ? '\uD83D\uDD12 API Key \uC778\uC99D\uB428' : '\uD83D\uDD13 \uC778\uC99D \uC5C6\uC74C'}
+              <span className={`badge ${authUser ? 'badge-completed' : getStoredApiKey() ? 'badge-completed' : 'badge-hold'}`}>
+                {authUser ? `\uD83D\uDD12 ${authUser}` : getStoredApiKey() ? '\uD83D\uDD12 API Key \uC778\uC99D\uB428' : '\uD83D\uDD13 \uC778\uC99D \uC5C6\uC74C'}
               </span>
-              {getStoredApiKey() && (
+              {!authUser && getStoredApiKey() && (
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   Key: {getStoredApiKey().slice(0, 4)}{'****'}
                 </span>
               )}
             </div>
           </div>
-          {getStoredApiKey() && (
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            {authUser && (
+              <button className="btn btn-outline btn-sm"
+                onClick={() => setShowPwChange(!showPwChange)}>
+                {'\uD83D\uDD11'} {'\uBE44\uBC00\uBC88\uD638 \uBCC0\uACBD'}
+              </button>
+            )}
             <button
               className="btn btn-outline btn-sm"
               onClick={() => {
                 if (confirm('\uB85C\uADF8\uC544\uC6C3 \uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?')) {
-                  setApiKey(null)
-                  window.location.reload()
+                  logout()
                 }
               }}
               style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
             >
               {'\uD83D\uDEAA'} {'\uB85C\uADF8\uC544\uC6C3'}
             </button>
-          )}
+          </div>
         </div>
+
+        {/* Password Change Form */}
+        {showPwChange && (
+          <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--bg-primary)', borderRadius: '0.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxWidth: '300px' }}>
+              <input type="password" placeholder={'\uD604\uC7AC \uBE44\uBC00\uBC88\uD638'} value={currentPw}
+                onChange={e => setCurrentPw(e.target.value)}
+                style={{ padding: '0.5rem', borderRadius: '0.375rem', background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '0.85rem' }} />
+              <input type="password" placeholder={'\uC0C8 \uBE44\uBC00\uBC88\uD638'} value={newPw}
+                onChange={e => setNewPw(e.target.value)}
+                style={{ padding: '0.5rem', borderRadius: '0.375rem', background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '0.85rem' }} />
+              <input type="password" placeholder={'\uC0C8 \uBE44\uBC00\uBC88\uD638 \uD655\uC778'} value={newPwConfirm}
+                onChange={e => setNewPwConfirm(e.target.value)}
+                style={{ padding: '0.5rem', borderRadius: '0.375rem', background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '0.85rem' }} />
+              <button className="btn btn-primary btn-sm" disabled={pwChanging || !currentPw || !newPw || !newPwConfirm}
+                onClick={async () => {
+                  if (newPw !== newPwConfirm) { toast.error('\uC0C8 \uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4'); return }
+                  if (newPw.length < 4) { toast.error('\uBE44\uBC00\uBC88\uD638\uB294 4\uC790 \uC774\uC0C1\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4'); return }
+                  setPwChanging(true)
+                  try {
+                    const r = await authChangePassword(currentPw, newPw)
+                    localStorage.setItem('vibe_auth_token', r.token)
+                    toast.success('\uBE44\uBC00\uBC88\uD638\uAC00 \uBCC0\uACBD\uB418\uC5C8\uC2B5\uB2C8\uB2E4')
+                    setCurrentPw(''); setNewPw(''); setNewPwConfirm(''); setShowPwChange(false)
+                  } catch (err) {
+                    toast.error(err.message || '\uBE44\uBC00\uBC88\uD638 \uBCC0\uACBD \uC2E4\uD328')
+                  } finally { setPwChanging(false) }
+                }}>
+                {pwChanging ? '\uBCC0\uACBD \uC911...' : '\uBE44\uBC00\uBC88\uD638 \uBCC0\uACBD'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Watchlist Management */}
@@ -842,6 +1269,7 @@ export default function System({ onNavigate }) {
           </tbody>
         </table>
       </div>
+      </>}
     </div>
   )
 }

@@ -3,7 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.database import repositories as repo
 
@@ -13,9 +13,9 @@ router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
 class AlertConfigUpdate(BaseModel):
-    key: str
-    value: str
-    description: str | None = None
+    key: str = Field(min_length=1, max_length=50)
+    value: str = Field(min_length=1, max_length=500)
+    description: str | None = Field(default=None, max_length=200)
 
 
 @router.get("/config")

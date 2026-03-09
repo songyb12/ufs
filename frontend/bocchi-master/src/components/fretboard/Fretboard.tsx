@@ -11,6 +11,8 @@ interface FretboardProps {
   scaleNoteNames?: NoteName[]
   rootNote?: NoteName
   voicingPositions?: number[]  // per-string fret array. -1=mute, 0=open, 1+=fret
+  midiNoteName?: NoteName      // currently active MIDI note (highlight all instances)
+  scaleOverlayNoteNames?: NoteName[]  // improv scale overlay (amber)
   onNoteClick?: (note: Note, stringIndex: number, fret: number) => void
 }
 
@@ -28,6 +30,8 @@ export function Fretboard({
   scaleNoteNames = [],
   rootNote,
   voicingPositions,
+  midiNoteName,
+  scaleOverlayNoteNames = [],
   onNoteClick,
 }: FretboardProps) {
   const { stringCount, fretCount, tuning } = instrument
@@ -61,6 +65,7 @@ export function Fretboard({
   )
 
   const scaleSet = useMemo(() => new Set(scaleNoteNames), [scaleNoteNames])
+  const scaleOverlaySet = useMemo(() => new Set(scaleOverlayNoteNames), [scaleOverlayNoteNames])
 
   // Voicing mode: check if a specific (stringIndex, fret) is in the voicing
   const hasVoicing = voicingPositions != null && voicingPositions.length > 0
@@ -195,6 +200,8 @@ export function Fretboard({
               ? isVoicingPosition(stringIndex, fret) && rootNote === note.name
               : rootNote === note.name
             const isVoicing = hasVoicing && isVoicingPosition(stringIndex, fret)
+            const isMidi = midiNoteName === note.name
+            const isOverlay = scaleOverlaySet.has(note.name) && !inScale && !isVoicing
 
             return (
               <NoteLabel
@@ -206,6 +213,8 @@ export function Fretboard({
                 isInScale={inScale}
                 isRoot={isRoot}
                 isVoicing={isVoicing}
+                isMidiActive={isMidi}
+                isScaleOverlay={isOverlay}
                 onClick={() => onNoteClick?.(note, stringIndex, fret)}
               />
             )

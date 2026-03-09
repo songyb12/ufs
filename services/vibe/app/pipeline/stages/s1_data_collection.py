@@ -45,19 +45,22 @@ class DataCollectionStage(BaseStage):
         total_rows = 0
         collected_symbols = []
         for symbol, df in ohlcv_data.items():
-            rows = [
-                {
+            rows = []
+            for date_str, row in df.iterrows():
+                close_val = row.get("close")
+                if close_val is None or (hasattr(close_val, '__float__') and pd.isna(close_val)):
+                    logger.warning("[S1] %s: skipping row %s with null close", symbol, date_str)
+                    continue
+                rows.append({
                     "symbol": symbol,
                     "market": market,
-                    "trade_date": date_str,
+                    "trade_date": str(date_str)[:10],
                     "open": float(row.get("open", 0)) if row.get("open") is not None else None,
                     "high": float(row.get("high", 0)) if row.get("high") is not None else None,
                     "low": float(row.get("low", 0)) if row.get("low") is not None else None,
-                    "close": float(row["close"]),
+                    "close": float(close_val),
                     "volume": int(row.get("volume", 0)) if row.get("volume") is not None else None,
-                }
-                for date_str, row in df.iterrows()
-            ]
+                })
             count = await repo.upsert_price_history(rows)
             total_rows += count
             collected_symbols.append(symbol)
@@ -70,7 +73,7 @@ class DataCollectionStage(BaseStage):
                 await repo.upsert_macro_indicators(macro_data)
                 logger.info("[S1] Macro data collected and stored")
             except Exception as e:
-                logger.error("[S1] Macro collection failed: %s", e)
+                logger.error("[S1] Macro collection failed: %s", e, exc_info=True)
 
         failed_symbols = [s for s in symbols if s not in collected_symbols]
 
@@ -93,7 +96,13 @@ class DataCollectionStage(BaseStage):
                 len(stale_warnings), ", ".join(stale_warnings[:10]),
             )
 
-        status = "success" if not failed_symbols else "partial"
+        # If ALL symbols failed, the pipeline should not continue with empty data
+        if not collected_symbols:
+            status = "failed"
+        elif failed_symbols:
+            status = "partial"
+        else:
+            status = "success"
 
         result_data: dict[str, Any] = {
             "collected_symbols": collected_symbols,

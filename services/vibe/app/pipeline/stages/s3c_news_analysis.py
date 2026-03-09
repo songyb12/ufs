@@ -111,7 +111,7 @@ class NewsAnalysisStage(BaseStage):
         # Store news data to DB
         try:
             await _store_news_data(
-                context["run_id"], context["date"], market,
+                context.get("run_id", ""), context.get("date", ""), market,
                 per_symbol_news, market_news_data,
             )
         except Exception as e:

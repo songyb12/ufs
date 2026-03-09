@@ -76,7 +76,7 @@ class USMarketCollector(BaseCollector):
         try:
             raw = await self._run_sync(_download_all)
         except Exception as e:
-            logger.error("Batch download failed, falling back to individual: %s", e)
+            logger.error("Batch download failed, falling back to individual: %s", e, exc_info=True)
             return await super().fetch_ohlcv_batch(symbols, start_date, end_date)
 
         if raw is None or raw.empty:

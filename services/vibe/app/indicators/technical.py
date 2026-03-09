@@ -1,5 +1,7 @@
 """Technical indicator calculations using ta library + pandas."""
 
+import math
+
 import pandas as pd
 import ta
 
@@ -44,11 +46,11 @@ def compute_all_indicators(df: pd.DataFrame) -> dict:
     bb_lower = bb.bollinger_lband()
 
     # Disparity (20-day) = (close / MA20) * 100
-    disparity_20 = (close / ma_20) * 100
+    disparity_20 = (close / ma_20.replace(0, float("nan"))) * 100
 
     # Volume Ratio = today volume / 20-day avg volume
     vol_avg_20 = volume.rolling(window=20).mean()
-    volume_ratio = volume / vol_avg_20
+    volume_ratio = volume / vol_avg_20.replace(0, float("nan"))
 
     # Get latest values
     idx = -1
@@ -99,10 +101,14 @@ def compute_indicators_series(df: pd.DataFrame) -> pd.DataFrame:
     result["bollinger_middle"] = bb.bollinger_mavg()
     result["bollinger_lower"] = bb.bollinger_lband()
 
-    result["disparity_20"] = (close / result["ma_20"]) * 100
+    disparity = (close / result["ma_20"]) * 100
+    disparity = disparity.replace([float("inf"), float("-inf")], pd.NA)
+    result["disparity_20"] = disparity
 
     vol_avg_20 = volume.rolling(window=20).mean()
-    result["volume_ratio"] = volume / vol_avg_20
+    vol_ratio = volume / vol_avg_20
+    vol_ratio = vol_ratio.replace([float("inf"), float("-inf")], pd.NA)
+    result["volume_ratio"] = vol_ratio
 
     return result
 
@@ -113,6 +119,9 @@ def _safe_float(series: pd.Series, idx: int) -> float | None:
         val = series.iloc[idx]
         if pd.isna(val):
             return None
-        return round(float(val), 4)
-    except (IndexError, TypeError):
+        fval = float(val)
+        if not math.isfinite(fval):
+            return None
+        return round(fval, 4)
+    except (IndexError, TypeError, ValueError, OverflowError):
         return None

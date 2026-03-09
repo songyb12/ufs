@@ -38,6 +38,16 @@ SECTOR_MAP: dict[str, str] = {
     "MRK": "Healthcare", "ABBV": "Healthcare",
     # US ETFs
     "SPY": "ETF", "QQQ": "ETF", "DIA": "ETF", "IWM": "ETF", "VTI": "ETF",
+    "TLT": "ETF", "SOXL": "ETF",
+    # Additional US Stocks
+    "PWR": "Infrastructure", "CEG": "Energy",
+    # Additional KR Stocks (portfolio)
+    "329180": "조선/중공업",   # HD현대중공업
+    "009540": "조선/중공업",   # HD한국조선해양
+    "042660": "조선/중공업",   # 한화오션
+    "012450": "방산/항공",     # 한화에어로스페이스
+    "267260": "전기/전력장비", # HD현대일렉트릭
+    "034020": "에너지/플랜트", # 두산에너빌리티
 }
 
 

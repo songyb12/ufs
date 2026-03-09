@@ -4,8 +4,10 @@ import {
   PROGRESSION_PRESETS,
   resolveProgression,
   type ProgressionPreset,
+  type ProgressionStep,
   type ResolvedChord,
 } from '../../utils/chordProgression'
+import { CustomProgressionEditor } from './CustomProgressionEditor'
 
 export type VoicingMode = 'all' | 'voicing'
 export type VoicingSource = 'caged' | 'auto'
@@ -30,6 +32,11 @@ interface ChordProgressionPanelProps {
   // Voice leading optimization
   isOptimized: boolean
   onOptimizedChange: (optimized: boolean) => void
+  // Custom progression
+  isCustom: boolean
+  onCustomToggle: () => void
+  customSteps: ProgressionStep[]
+  onCustomStepsChange: (steps: ProgressionStep[]) => void
 }
 
 export function ChordProgressionPanel({
@@ -50,6 +57,10 @@ export function ChordProgressionPanel({
   voicingName,
   isOptimized,
   onOptimizedChange,
+  isCustom,
+  onCustomToggle,
+  customSteps,
+  onCustomStepsChange,
 }: ChordProgressionPanelProps) {
   // Resolve progression into concrete chords
   const resolvedChords: ResolvedChord[] =
@@ -85,12 +96,17 @@ export function ChordProgressionPanel({
       <div className="flex items-center gap-3 flex-wrap">
         {/* Preset dropdown */}
         <select
-          value={progressionPreset?.name ?? ''}
+          value={isCustom ? '__custom__' : (progressionPreset?.name ?? '')}
           onChange={(e) => {
-            const found = PROGRESSION_PRESETS.find(
-              (p) => p.name === e.target.value,
-            )
-            onPresetChange(found ?? null)
+            if (e.target.value === '__custom__') {
+              onCustomToggle()
+            } else {
+              if (isCustom) onCustomToggle()
+              const found = PROGRESSION_PRESETS.find(
+                (p) => p.name === e.target.value,
+              )
+              onPresetChange(found ?? null)
+            }
           }}
           className="bg-slate-700 text-slate-300 text-sm rounded px-2 py-1 outline-none border border-slate-600"
         >
@@ -100,6 +116,7 @@ export function ChordProgressionPanel({
               {preset.name}
             </option>
           ))}
+          <option value="__custom__">Custom...</option>
         </select>
 
         {/* Key label */}
@@ -109,6 +126,14 @@ export function ChordProgressionPanel({
           </span>
         )}
       </div>
+
+      {/* Custom editor */}
+      {isCustom && (
+        <CustomProgressionEditor
+          steps={customSteps}
+          onStepsChange={onCustomStepsChange}
+        />
+      )}
 
       {/* Key buttons */}
       <div className="flex gap-1 flex-wrap">

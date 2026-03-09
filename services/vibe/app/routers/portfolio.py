@@ -307,3 +307,43 @@ async def get_latest_scenarios(market: str | None = None):
         "entry_scenarios": entry,
         "total": len(scenarios),
     }
+
+
+# ── Position Exits ──
+
+
+@router.post("/position/{market}/{symbol}/exit")
+async def exit_position_endpoint(
+    market: str, symbol: str,
+    exit_reason: str = Query("manual"),
+    portfolio_id: int = Query(1),
+):
+    """Exit a position and record exit history."""
+    result = await repo.exit_position(
+        symbol=symbol, market=market.upper(),
+        exit_reason=exit_reason, portfolio_id=portfolio_id,
+    )
+    if result.get("status") == "not_found":
+        raise HTTPException(404, f"Position {symbol}/{market} not found")
+    return result
+
+
+@router.post("/batch-exit")
+async def batch_exit(portfolio_id: int = Query(1)):
+    """Exit all positions that have breached stop-loss."""
+    from app.config import settings
+    count = await repo.batch_exit_stop_loss(
+        portfolio_id=portfolio_id,
+        stop_pct=settings.BACKTEST_STOP_LOSS_PCT,
+    )
+    return {"status": "ok", "exited_count": count}
+
+
+@router.get("/exits")
+async def get_exits(
+    portfolio_id: int = Query(1),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Get position exit history."""
+    exits = await repo.get_exit_history(portfolio_id, limit)
+    return {"exits": exits, "count": len(exits)}

@@ -9,17 +9,21 @@ interface NoteLabelProps {
   isInScale?: boolean
   isRoot?: boolean
   isVoicing?: boolean
+  isMidiActive?: boolean
+  isScaleOverlay?: boolean
   onClick?: () => void
 }
 
 /**
  * Color priority:
  * 1. Click highlight     — orange solid
- * 2. Voicing root        — emerald solid + thick stroke
- * 3. Voicing chord tone  — emerald translucent
- * 4. Root note           — sky-blue solid + thick stroke
- * 5. Scale/chord         — sky-blue translucent
- * 6. Default             — transparent
+ * 2. MIDI active         — purple solid
+ * 3. Voicing root        — emerald solid + thick stroke
+ * 4. Voicing chord tone  — emerald translucent
+ * 5. Root note           — sky-blue solid + thick stroke
+ * 6. Scale/chord         — sky-blue translucent
+ * 7. Scale overlay       — amber translucent (improv suggestions)
+ * 8. Default             — transparent
  */
 export const NoteLabel = memo(function NoteLabel({
   note,
@@ -29,13 +33,15 @@ export const NoteLabel = memo(function NoteLabel({
   isInScale = false,
   isRoot = false,
   isVoicing = false,
+  isMidiActive = false,
+  isScaleOverlay = false,
   onClick,
 }: NoteLabelProps) {
   const radius = 12
   const isSharp = note.name.includes('#')
 
   // Determine visual state
-  const isVisible = isHighlighted || isVoicing || isInScale || isRoot
+  const isVisible = isHighlighted || isMidiActive || isVoicing || isInScale || isRoot || isScaleOverlay
 
   let fillColor = 'transparent'
   let strokeColor = '#475569'
@@ -49,6 +55,15 @@ export const NoteLabel = memo(function NoteLabel({
     // Click highlight — orange
     fillColor = '#f97316'
     strokeColor = '#f97316'
+    fillOpacity = 1
+    textColor = '#fff'
+    textWeight = 700
+    textOpacity = 1
+  } else if (isMidiActive) {
+    // MIDI active — purple
+    fillColor = '#a855f7'
+    strokeColor = '#9333ea'
+    strokeWidth = 2
     fillOpacity = 1
     textColor = '#fff'
     textWeight = 700
@@ -87,6 +102,14 @@ export const NoteLabel = memo(function NoteLabel({
     textColor = '#7dd3fc'
     textWeight = 500
     textOpacity = 1
+  } else if (isScaleOverlay) {
+    // Scale overlay — translucent amber (improv suggestions)
+    fillColor = '#fbbf24'
+    strokeColor = '#fbbf24'
+    fillOpacity = 0.25
+    textColor = '#fcd34d'
+    textWeight = 400
+    textOpacity = 0.85
   }
 
   return (

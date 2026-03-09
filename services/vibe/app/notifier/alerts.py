@@ -65,12 +65,12 @@ async def check_and_send_alerts(config: Settings) -> int:
                 json=payload,
                 timeout=15.0,
             )
-            if resp.status_code == 204:
+            if resp.status_code in (200, 204):
                 logger.info("Sent %d price alerts", len(alerts))
             else:
                 logger.error("Alert send failed: %d", resp.status_code)
     except Exception as e:
-        logger.error("Alert send error: %s", e)
+        logger.error("Alert send error: %s", e, exc_info=True)
 
     # Log alerts to history
     for alert_msg in alerts[:15]:
@@ -113,7 +113,7 @@ async def _check_portfolio_stops(config: Settings, alert_cfg: dict | None = None
         current = r.get("current_price")
         name = r.get("name", r["symbol"])
 
-        if not entry or not current:
+        if not entry or not current or entry <= 0 or current <= 0:
             logger.debug("Skipped alert for %s: entry_price=%s, current_price=%s", r["symbol"], entry, current)
             continue
 
@@ -126,7 +126,7 @@ async def _check_portfolio_stops(config: Settings, alert_cfg: dict | None = None
                 f"\U0001f6a8 **{name}**: 손절가 하회! "
                 f"P&L {pnl_pct:+.1f}% (현재 \u20a9{current:,.0f})"
             )
-        elif distance_to_stop <= 2.0:
+        elif 0 < distance_to_stop <= 2.0:
             alerts.append(
                 f"\u26a0\ufe0f **{name}**: 손절가 접근 "
                 f"(현재 {pnl_pct:+.1f}%, 손절까지 {distance_to_stop:.1f}%p)"
@@ -157,7 +157,7 @@ async def _check_rsi_alerts(config: Settings, alert_cfg: dict | None = None) -> 
     for row in rows:
         r = dict(row)
         name = r.get("name", r["symbol"])
-        rsi = r.get("rsi_value", 0)
+        rsi = r.get("rsi_value") or 0
         alerts.append(
             f"\U0001f7e0 **{name}**: RSI {rsi:.0f} (Hard Limit 65 접근)"
         )

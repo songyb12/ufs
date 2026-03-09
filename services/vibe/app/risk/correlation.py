@@ -1,6 +1,7 @@
 """Return correlation analysis for concurrent BUY signals."""
 
 import logging
+import math
 
 import numpy as np
 import pandas as pd
@@ -25,7 +26,7 @@ def compute_return_correlation(
     for symbol, df in price_data.items():
         if df is not None and not df.empty and "close" in df.columns:
             closes = pd.to_numeric(df["close"], errors="coerce").dropna()
-            if len(closes) >= window:
+            if len(closes) > window:
                 daily_ret = closes.pct_change().dropna().tail(window)
                 returns[symbol] = daily_ret.values
 
@@ -47,6 +48,8 @@ def compute_return_correlation(
                 min_len = min(len(r1), len(r2))
                 if min_len > 5:
                     corr = float(np.corrcoef(r1[-min_len:], r2[-min_len:])[0, 1])
+                    if not math.isfinite(corr):
+                        corr = 0.0
                     corr_matrix[symbols[i]][symbols[j]] = round(corr, 4)
                 else:
                     corr_matrix[symbols[i]][symbols[j]] = 0.0

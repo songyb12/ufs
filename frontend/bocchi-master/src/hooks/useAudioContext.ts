@@ -1,24 +1,20 @@
-import { useRef, useCallback } from 'react'
+import { useCallback } from 'react'
+import {
+  getSharedAudioContext,
+  getSharedAudioContextSync,
+} from '../utils/audioContextSingleton'
 
 /**
- * Manages a single AudioContext instance.
+ * Hook that provides access to the shared AudioContext singleton.
  * Browsers require a user gesture to start AudioContext (Autoplay Policy).
  */
 export function useAudioContext() {
-  const ctxRef = useRef<AudioContext | null>(null)
-
   const ensureResumed = useCallback(async (): Promise<AudioContext> => {
-    if (!ctxRef.current) {
-      ctxRef.current = new AudioContext()
-    }
-    if (ctxRef.current.state === 'suspended') {
-      await ctxRef.current.resume()
-    }
-    return ctxRef.current
+    return getSharedAudioContext()
   }, [])
 
   return {
-    audioContext: ctxRef.current,
+    audioContext: getSharedAudioContextSync(),
     ensureResumed,
   }
 }

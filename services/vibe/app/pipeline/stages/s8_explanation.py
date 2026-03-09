@@ -105,7 +105,7 @@ class SignalExplanationStage(BaseStage):
                         len(llm_explanations),
                     )
             except Exception as e:
-                logger.error("[S8] LLM explanation failed, using rule-based: %s", e)
+                logger.error("[S8] LLM explanation failed, using rule-based: %s", e, exc_info=True)
 
         logger.info("[S8] Explanations generated for %d symbols", len(result_data))
 
@@ -132,7 +132,7 @@ class SignalExplanationStage(BaseStage):
                 f"Disp: {_fmt(signal.get('disparity_value'))}%, "
                 f"Fund: {signal.get('fundamental_score', 0):+.0f}, "
                 f"Weekly: {signal.get('weekly_trend', 'N/A')}, "
-                f"Conf: {signal.get('confidence', 1.0):.0%}"
+                f"Conf: {(signal.get('confidence') if signal.get('confidence') is not None else 1.0):.0%}"
             )
 
         prompt = (
@@ -171,7 +171,7 @@ class SignalExplanationStage(BaseStage):
             logger.warning("[S8] LLM response not valid JSON, skipping")
             return None
         except Exception as e:
-            logger.error("[S8] Anthropic API call failed: %s", e)
+            logger.error("[S8] Anthropic API call failed: %s", e, exc_info=True)
             return None
 
     async def _call_openai(self, prompt: str) -> dict[str, str] | None:
@@ -196,7 +196,7 @@ class SignalExplanationStage(BaseStage):
             logger.warning("[S8] LLM response not valid JSON, skipping")
             return None
         except Exception as e:
-            logger.error("[S8] OpenAI API call failed: %s", e)
+            logger.error("[S8] OpenAI API call failed: %s", e, exc_info=True)
             return None
 
 
@@ -235,10 +235,16 @@ def _generate_rule_based_explanation(
 
     # Disparity interpretation
     if disparity is not None:
+        disp_text = ""
         if disparity > 105:
-            parts[-1] += f", 이격도 {disparity:.1f}%로 고평가"
+            disp_text = f"이격도 {disparity:.1f}%로 고평가"
         elif disparity < 95:
-            parts[-1] += f", 이격도 {disparity:.1f}%로 저평가"
+            disp_text = f"이격도 {disparity:.1f}%로 저평가"
+        if disp_text:
+            if parts:
+                parts[-1] += f", {disp_text}"
+            else:
+                parts.append(disp_text)
 
     # Fundamental
     if fund_score > 30:

@@ -76,8 +76,8 @@ class FundamentalAnalysisStage(BaseStage):
                 )
 
             except Exception as e:
-                logger.error("[S2b] %s: fundamental fetch failed - %s", symbol, e)
-                errors.append(f"{symbol}: {e}")
+                logger.error("[S2b] %s: fundamental fetch failed - %s", symbol, e, exc_info=True)
+                errors.append(f"{symbol}: fundamental analysis failed")
                 per_symbol[symbol] = {
                     "fundamental_score": 0,
                     "value_score": 0,

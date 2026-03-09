@@ -5,12 +5,13 @@ __pycache__
 .gitignore
 .env
 .env.*
-tests/
 *.md
 .pytest_cache
 .venv
 venv/
 *.db
 data/backups/
+dashboard/node_modules/
+dashboard/dist/
 .claude/
 *.log

@@ -90,12 +90,14 @@ async def build_weekly_report_payloads() -> list[dict]:
 
     # ── Top BUY Signals ──
     top_buys = [s for s in signals if s["final_signal"] == "BUY"]
-    top_buys.sort(key=lambda s: s["raw_score"], reverse=True)
+    top_buys.sort(key=lambda s: s.get("raw_score") or 0, reverse=True)
     if top_buys[:5]:
         lines = []
         for s in top_buys[:5]:
             name = s.get("name", s["symbol"])
-            lines.append(f"**{name}** (score: {s['raw_score']:+.1f}, RSI: {s.get('rsi_value', 0):.0f})")
+            raw = s.get("raw_score") or 0
+            rsi = s.get("rsi_value") if s.get("rsi_value") is not None else 0
+            lines.append(f"**{name}** (score: {raw:+.1f}, RSI: {rsi:.0f})")
         embeds.append({
             "title": "\U0001f7e2 주간 Top BUY",
             "description": "\n".join(lines),
@@ -148,7 +150,10 @@ async def _gather_weekly_data(start_date: str, end_date: str) -> dict[str, Any]:
         (start_date, end_date),
     )
     perf_row = await cursor.fetchone()
-    performance = dict(perf_row) if perf_row else {"total": 0}
+    performance = dict(perf_row) if perf_row else {}
+    # Ensure total is always numeric (COUNT(*) returns 0 for empty, but guard against None)
+    if performance.get("total") is None:
+        performance["total"] = 0
 
     return {
         "pipeline_runs": pipeline_runs,

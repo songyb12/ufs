@@ -106,7 +106,7 @@ class RiskSizingStage(BaseStage):
 
         # Collect global event descriptions for formatter (reuse cached market_events)
         global_events = [
-            f"{e['event_type'].upper()}: {e['description']} ({e['event_date']})"
+            f"{e.get('event_type', 'EVENT').upper()}: {e.get('description', '')} ({e.get('event_date', '')})"
             for e in market_events[:5]
         ]
 

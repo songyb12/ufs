@@ -1,8 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getMarketBriefings, getLatestBriefing, generateBriefing, analyzeWithAI } from '../api'
+import { getMarketBriefings, getLatestBriefing, generateBriefing, analyzeWithAI, getSentimentHistory } from '../api'
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
+} from 'recharts'
 import HelpButton from '../components/HelpButton'
+import PageGuide from '../components/PageGuide'
+import { useToast } from '../components/Toast'
 
-export default function MarketBrief({ onNavigate }) {
+export default function MarketBrief({ onNavigate, refreshKey }) {
+  const toast = useToast()
   const [briefing, setBriefing] = useState(null)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -15,24 +21,31 @@ export default function MarketBrief({ onNavigate }) {
   const [aiQuestion, setAIQuestion] = useState('')
   const [aiResult, setAIResult] = useState(null)
   const [aiLoading, setAILoading] = useState(false)
+  const [aiHistory, setAIHistory] = useState([])
+
+  // Sentiment history
+  const [sentimentData, setSentimentData] = useState([])
 
   const loadData = useCallback(() => {
     setLoading(true)
-    Promise.all([getLatestBriefing(), getMarketBriefings(10)])
-      .then(([latest, hist]) => {
-        if (latest && !latest.status) {
-          setBriefing(latest)
-        } else {
-          setBriefing(null)
-        }
+    Promise.all([
+      getLatestBriefing().catch(() => null),  // 404 graceful fallback
+      getMarketBriefings(10),
+      getSentimentHistory(30).catch(() => ({ sentiment: [] })),
+    ])
+      .then(([latest, hist, sentHist]) => {
+        setBriefing(latest || null)
         setHistory(hist?.briefings || [])
+        // Sentiment history for chart (reverse for chronological order)
+        const sentArr = (sentHist?.sentiment || []).slice().reverse()
+        setSentimentData(sentArr)
         setError(null)
       })
-      .catch(err => { setError(err.message) })
+      .catch(err => { setError(err.message); toast.error('브리핑 로드 실패: ' + err.message) })
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => { loadData() }, [loadData, refreshKey])
 
   const handleGenerate = async () => {
     setGenerating(true)
@@ -44,6 +57,7 @@ export default function MarketBrief({ onNavigate }) {
       loadData()
     } catch (err) {
       setError(`생성 실패: ${err.message}`)
+      toast.error('브리핑 생성 실패: ' + err.message)
     } finally {
       setGenerating(false)
     }
@@ -51,14 +65,22 @@ export default function MarketBrief({ onNavigate }) {
 
   const handleAIAnalyze = async (question = null) => {
     setAILoading(true)
-    setAIResult(null)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 90000) // 90s timeout
     try {
       const q = question || aiQuestion || undefined
-      const result = await analyzeWithAI(q)
+      const result = await analyzeWithAI(q, { signal: controller.signal })
+      // Multi-turn: append to history
+      setAIHistory(prev => [...prev, result])
       setAIResult(result)
+      setAIQuestion('')
     } catch (err) {
-      setAIResult({ status: 'error', message: err.message })
+      const msg = err.name === 'AbortError' ? 'AI 분석 시간 초과 (90초). 다시 시도해주세요.' : err.message
+      const errResult = { status: 'error', message: msg, question: question || aiQuestion || '(질문 없음)' }
+      setAIHistory(prev => [...prev, errResult])
+      setAIResult(errResult)
     } finally {
+      clearTimeout(timeout)
       setAILoading(false)
     }
   }
@@ -75,7 +97,7 @@ export default function MarketBrief({ onNavigate }) {
     setBriefing(item.content ? { ...item.content, llm_summary: item.llm_summary } : item)
   }
 
-  if (loading) return <div className="loading"><span className="spinner" /> Loading...</div>
+  if (loading) return <div className="loading"><span className="spinner" /> 로딩 중...</div>
 
   const macro = briefing?.macro || {}
   const sentiment = briefing?.sentiment || {}
@@ -120,9 +142,22 @@ export default function MarketBrief({ onNavigate }) {
           >
             {generating ? '생성 중...' : '\uD83D\uDD04 브리핑 생성'}
           </button>
+          <button className="btn btn-outline" onClick={loadData}>{'\u21BB'} Refresh</button>
           <HelpButton section="quickstart" onNavigate={onNavigate} />
         </div>
       </div>
+
+      <PageGuide
+        pageId="market-brief"
+        title="시황 브리핑 읽는 법"
+        steps={[
+          '브리핑 생성 → 오늘의 매크로/심리 요약 자동 생성',
+          'AI 분석 → 자유 질문 또는 프리셋으로 심층 분석',
+          '매크로 지표 → VIX, F&G, 환율, DXY 한눈에',
+          '시그널 요약 → 오늘 BUY/SELL 개수 확인',
+        ]}
+        color="#3b82f6"
+      />
 
       {error && (
         <div className="card" style={{ borderColor: 'var(--red)', padding: '0.75rem 1.25rem', marginBottom: '1rem' }}>
@@ -184,52 +219,51 @@ export default function MarketBrief({ onNavigate }) {
             </button>
           </div>
 
-          {/* AI Result */}
-          {aiResult && (
+          {/* AI Conversation History */}
+          {aiHistory.length > 0 && (
             <div style={{
-              marginTop: '1rem', padding: '1rem', borderRadius: '0.5rem',
-              background: 'var(--bg-primary)', border: '1px solid var(--border)',
+              marginTop: '1rem', maxHeight: '400px', overflowY: 'auto',
+              display: 'flex', flexDirection: 'column', gap: '0.75rem',
             }}>
-              {aiResult.status === 'error' ? (
-                <div style={{ color: 'var(--red)' }}>
-                  {'\u274C'} {aiResult.message}
-                </div>
-              ) : (
-                <>
-                  <div style={{ marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>
-                      {'\u2728'} {aiResult.question}
-                    </span>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                      {aiResult.metadata?.model || 'N/A'} | {aiResult.metadata?.generated_at ? new Date(aiResult.metadata.generated_at).toLocaleTimeString('ko-KR') : '-'}
-                    </span>
-                  </div>
-                  <div style={{
-                    lineHeight: 1.8, color: 'var(--text-primary)',
-                    whiteSpace: 'pre-line', fontSize: '0.9rem',
-                  }}>
-                    {aiResult.analysis || '분석 결과가 비어 있습니다.'}
-                  </div>
-                  {aiResult.metadata?.context_snapshot && (
-                    <div style={{
-                      marginTop: '0.75rem', paddingTop: '0.5rem',
-                      borderTop: '1px solid var(--border)',
-                      display: 'flex', gap: '1rem', flexWrap: 'wrap',
-                    }}>
-                      {[
-                        { label: '\uC2DC\uADF8\uB110', val: aiResult.metadata.context_snapshot?.signal_markets?.join(', ') || '-' },
-                        { label: '\uC8FC\uC694\uC885\uBAA9', val: `${aiResult.metadata.context_snapshot?.top_movers_count ?? 0}\uAC1C` },
-                        { label: '\uD3EC\uD2B8\uD3F4\uB9AC\uC624', val: `${aiResult.metadata.context_snapshot?.portfolio_positions ?? 0}\uC885\uBAA9` },
-                      ].map(({ label, val }, i) => (
-                        <span key={i} style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                          {label}: <strong style={{ color: 'var(--text-secondary)' }}>{val}</strong>
-                        </span>
-                      ))}
+              {aiHistory.map((item, idx) => (
+                <div key={idx} style={{
+                  padding: '1rem', borderRadius: '0.5rem',
+                  background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                }}>
+                  {item.status === 'error' ? (
+                    <div style={{ color: 'var(--red)' }}>
+                      {'\u274C'} {item.message}
                     </div>
+                  ) : (
+                    <>
+                      <div style={{ marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>
+                          {'\u2728'} {item.question}
+                        </span>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                          {item.metadata?.model || 'N/A'} | {item.metadata?.generated_at ? new Date(item.metadata.generated_at).toLocaleTimeString('ko-KR') : '-'}
+                        </span>
+                      </div>
+                      <div style={{
+                        lineHeight: 1.8, color: 'var(--text-primary)',
+                        whiteSpace: 'pre-line', fontSize: '0.9rem',
+                      }}>
+                        {item.analysis || '분석 결과가 비어 있습니다.'}
+                      </div>
+                    </>
                   )}
-                </>
-              )}
+                </div>
+              ))}
             </div>
+          )}
+          {aiHistory.length > 1 && (
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => { setAIHistory([]); setAIResult(null) }}
+              style={{ marginTop: '0.5rem', fontSize: '0.7rem' }}
+            >
+              대화 초기화
+            </button>
           )}
         </div>
       )}
@@ -300,8 +334,8 @@ export default function MarketBrief({ onNavigate }) {
             </div>
           </div>
 
-          {/* Row 2: Yield, WTI, Gold, Put/Call */}
-          <div className="card-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          {/* Row 2: Yield, Commodities */}
+          <div className="card-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
             <div className="card">
               <div className="card-label">US 10Y</div>
               <div className="card-value blue">{macro.us_10y ? `${macro.us_10y.toFixed(2)}%` : 'N/A'}</div>
@@ -318,6 +352,11 @@ export default function MarketBrief({ onNavigate }) {
               <div className="card-value" style={{ color: '#eab308' }}>${macro.gold?.toFixed(0) || 'N/A'}</div>
             </div>
             <div className="card">
+              <div className="card-label">구리 (Copper)</div>
+              <div className="card-value" style={{ color: '#d97706' }}>${macro.copper?.toFixed(2) || 'N/A'}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Dr. Copper</div>
+            </div>
+            <div className="card">
               <div className="card-label">Put/Call Ratio</div>
               <div className={`card-value ${(sentiment.put_call_ratio || 0) > 1.0 ? 'red' : 'green'}`}>
                 {sentiment.put_call_ratio?.toFixed(2) || 'N/A'}
@@ -327,6 +366,74 @@ export default function MarketBrief({ onNavigate }) {
               </div>
             </div>
           </div>
+
+          {/* Sentiment Trend Chart */}
+          {sentimentData.length >= 2 && (
+            <div className="table-container" style={{ marginBottom: '1.5rem' }}>
+              <div className="table-header">
+                <h3>📈 센티먼트 추이 (최근 {sentimentData.length}일)</h3>
+              </div>
+              <div style={{ padding: '0.5rem 0' }}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={sentimentData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis
+                      dataKey="indicator_date"
+                      tick={{ fill: '#94a3b8', fontSize: 10 }}
+                      tickFormatter={v => v?.slice(5)}
+                    />
+                    <YAxis
+                      yAxisId="fg"
+                      domain={[0, 100]}
+                      tick={{ fill: '#94a3b8', fontSize: 10 }}
+                      label={{ value: 'F&G', angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 10 }}
+                    />
+                    <YAxis
+                      yAxisId="pc"
+                      orientation="right"
+                      domain={[0.5, 1.5]}
+                      tick={{ fill: '#475569', fontSize: 10 }}
+                      label={{ value: 'P/C', angle: 90, position: 'insideRight', fill: '#475569', fontSize: 10 }}
+                    />
+                    <Tooltip
+                      contentStyle={{ background: '#1e293b', border: '1px solid #334155', fontSize: '0.8rem' }}
+                      formatter={(v, name) => {
+                        if (name === 'fear_greed_index') return [v, 'Fear & Greed']
+                        if (name === 'put_call_ratio') return [v?.toFixed(3), 'Put/Call']
+                        return [v, name]
+                      }}
+                      labelFormatter={(l) => l}
+                    />
+                    <Legend
+                      formatter={(val) => val === 'fear_greed_index' ? 'Fear & Greed' : 'Put/Call Ratio'}
+                      wrapperStyle={{ fontSize: '0.75rem' }}
+                    />
+                    <Line
+                      yAxisId="fg"
+                      type="monotone"
+                      dataKey="fear_greed_index"
+                      stroke="#eab308"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: '#eab308' }}
+                    />
+                    <Line
+                      yAxisId="pc"
+                      type="monotone"
+                      dataKey="put_call_ratio"
+                      stroke="#ef4444"
+                      strokeWidth={1.5}
+                      strokeDasharray="5 5"
+                      dot={{ r: 2, fill: '#ef4444' }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+                {/* Reference lines description */}
+                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '0.25rem' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>F&G: 0-25 극도공포 | 25-45 공포 | 45-55 중립 | 55-75 탐욕 | 75+ 극도탐욕</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Signal Summary */}
           <div className="card-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>

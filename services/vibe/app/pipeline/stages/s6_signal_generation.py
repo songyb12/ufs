@@ -5,9 +5,11 @@ from typing import Any
 
 from app.config import Settings
 from app.indicators.scoring import compute_aggregate_signal, compute_technical_score
+from app.indicators.sector_macro import compute_sector_macro_adjustment
 from app.indicators.weekly import compute_timeframe_multiplier
 from app.models.enums import SignalType
 from app.pipeline.base import BaseStage, StageResult
+from app.risk.sector import get_sector
 
 logger = logging.getLogger("vibe.pipeline.s6")
 
@@ -33,9 +35,11 @@ class SignalGenerationStage(BaseStage):
         # Macro score (from S3)
         macro_result = context.get("s3_macro_analysis")
         macro_score_normalized = 0.0
+        raw_macro_data: dict = {}
         if macro_result:
             # Convert -1..+1 macro score to -100..+100 range
             macro_score_normalized = macro_result.data.get("macro_score", 0.0) * 100
+            raw_macro_data = macro_result.data.get("raw_data", {})
 
         # Fund flow scores (from S4, KR only)
         fund_flow_data = {}
@@ -74,7 +78,7 @@ class SignalGenerationStage(BaseStage):
             tech_score = compute_technical_score(indicators)
 
             # Fund flow score (KR only)
-            ff_score = None
+            ff_score = 0.0
             if symbol in fund_flow_data:
                 ff_score = fund_flow_data[symbol].get("fund_flow_score", 0.0)
 
@@ -95,10 +99,16 @@ class SignalGenerationStage(BaseStage):
                 news_score = news_data[symbol].get("news_score", 0.0)
                 news_count = news_data[symbol].get("article_count", 0)
 
+            # Sector-macro cross-impact adjustment (Phase K)
+            sector = get_sector(symbol)
+            sector_adj = compute_sector_macro_adjustment(sector, raw_macro_data)
+            adjusted_macro = macro_score_normalized + sector_adj["adjustment_score"]
+            adjusted_macro = max(-100.0, min(100.0, adjusted_macro))
+
             # First pass: get preliminary signal for timeframe alignment
             prelim_signal, _ = compute_aggregate_signal(
                 technical_score=tech_score,
-                macro_score=macro_score_normalized,
+                macro_score=adjusted_macro,
                 fund_flow_score=ff_score,
                 market=market,
                 config=self.config,
@@ -114,7 +124,7 @@ class SignalGenerationStage(BaseStage):
             # Final aggregate signal with timeframe alignment
             raw_signal, raw_score = compute_aggregate_signal(
                 technical_score=tech_score,
-                macro_score=macro_score_normalized,
+                macro_score=adjusted_macro,
                 fund_flow_score=ff_score,
                 market=market,
                 config=self.config,
@@ -142,7 +152,9 @@ class SignalGenerationStage(BaseStage):
                 "rsi_value": indicators.get("rsi_14"),
                 "disparity_value": indicators.get("disparity_20"),
                 "technical_score": tech_score,
-                "macro_score": macro_score_normalized,
+                "macro_score": adjusted_macro,
+                "macro_score_base": macro_score_normalized,
+                "sector_adjustment": sector_adj.get("adjustment_score", 0.0),
                 "fund_flow_score": ff_score,
                 "fundamental_score": fund_score,
                 "news_score": news_score,
@@ -151,8 +163,9 @@ class SignalGenerationStage(BaseStage):
                 "timeframe_multiplier": tf_multiplier,
                 "rationale": _build_rationale(
                     symbol, raw_signal, final_signal,
-                    tech_score, macro_score_normalized, ff_score,
+                    tech_score, adjusted_macro, ff_score,
                     fund_score, news_score, weekly_trend, tf_multiplier, hl,
+                    sector_adj=sector_adj,
                 ),
             }
 
@@ -186,8 +199,13 @@ def _build_rationale(
     weekly_trend: str,
     tf_multiplier: float,
     hard_limit: dict,
+    sector_adj: dict | None = None,
 ) -> str:
     parts = [f"Tech={tech_score:+.1f}", f"Macro={macro_score:+.1f}"]
+    if sector_adj and sector_adj.get("adjustment_score", 0) != 0:
+        adj = sector_adj["adjustment_score"]
+        sec = sector_adj.get("sector", "")
+        parts.append(f"SectorAdj={adj:+.1f}({sec})")
     if ff_score is not None:
         parts.append(f"FundFlow={ff_score:+.1f}")
     if fund_score != 0:
@@ -200,6 +218,6 @@ def _build_rationale(
     rationale = f"Scores: {', '.join(parts)}"
 
     if hard_limit.get("hard_limit_triggered"):
-        rationale += f" | HARD LIMIT: {raw_signal}->{final_signal} ({hard_limit['hard_limit_reason']})"
+        rationale += f" | HARD LIMIT: {raw_signal}->{final_signal} ({hard_limit.get('hard_limit_reason', 'unknown')})"
 
     return rationale

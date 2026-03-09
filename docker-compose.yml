@@ -45,6 +45,7 @@ services:
       - .env
     volumes:
       - vibe-data:/app/data
+      - vibe-backups:/app/data/backups
     networks:
       - ufs-network
     restart: unless-stopped
@@ -143,6 +144,7 @@ services:
 # ============================================
 volumes:
   vibe-data:
+  vibe-backups:
   lab-studio-data:
   engineering-ops-data:
   life-master-data:

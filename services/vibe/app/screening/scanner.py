@@ -42,6 +42,7 @@ class DynamicScreener:
             triggers.extend(self._check_volume_spike(df, symbol, days_back))
             triggers.extend(self._check_new_high(df, symbol, days_back))
             triggers.extend(self._check_breakout(df, symbol, days_back))
+            triggers.extend(self._check_capitulation(df, symbol, days_back))
 
             for t in triggers:
                 t["market"] = market
@@ -85,7 +86,7 @@ class DynamicScreener:
         if len(df) < 20:
             return results
 
-        lookback = min(252, len(df) - 1)  # 52 weeks or max available
+        lookback = max(1, min(252, len(df) - 1))  # 52 weeks or max available
         recent = df.tail(days_back)
 
         for idx, row in recent.iterrows():
@@ -128,12 +129,63 @@ class DynamicScreener:
             vol = df["volume"].iloc[i]
             avg_vol = vol_avg.iloc[i]
 
-            if price > upper and vol > avg_vol * 1.5:
+            if pd.notna(upper) and pd.notna(avg_vol) and price > upper and vol > avg_vol * 1.5:
                 results.append({
                     "symbol": symbol,
                     "detected_date": str(df["trade_date"].iloc[i].date()),
                     "trigger_type": "breakout",
                     "trigger_value": round(float(price), 2),
                     "trigger_description": f"BB upper breakout at {price:.0f} with volume",
+                })
+        return results
+
+    def _check_capitulation(
+        self, df: pd.DataFrame, symbol: str, days_back: int,
+    ) -> list[dict]:
+        """Detect capitulation (panic selling) volume.
+
+        Criteria:
+          - Volume > 2x 20-day average (heavy selling pressure)
+          - Price dropped > 3% vs close 5 trading days earlier
+
+        This identifies panic selling — potential "true bottom" signal.
+        """
+        results = []
+        if "volume" not in df.columns or "close" not in df.columns or len(df) < 25:
+            return results
+
+        vol_avg_20 = df["volume"].rolling(20).mean()
+        recent = df.tail(days_back)
+
+        for idx, row in recent.iterrows():
+            i = df.index.get_loc(idx)
+            if i < 20:
+                continue
+
+            avg_vol = vol_avg_20.iloc[i]
+            if not avg_vol or avg_vol <= 0:
+                continue
+
+            vol_ratio = row["volume"] / avg_vol
+            if vol_ratio < 2.0:
+                continue
+
+            # Check price drop vs 5 days ago
+            close_5d_ago = df["close"].iloc[i - 5]
+            if pd.isna(close_5d_ago) or close_5d_ago <= 0:
+                continue
+
+            price_change = (row["close"] - close_5d_ago) / close_5d_ago
+
+            if price_change < -0.03:  # > 3% drop
+                results.append({
+                    "symbol": symbol,
+                    "detected_date": str(row["trade_date"].date()),
+                    "trigger_type": "capitulation",
+                    "trigger_value": round(vol_ratio, 2),
+                    "trigger_description": (
+                        f"Capitulation: volume {vol_ratio:.1f}x avg, "
+                        f"price {price_change * 100:+.1f}% vs 5d ago"
+                    ),
                 })
         return results

@@ -93,3 +93,40 @@ async def load_runtime_overrides():
                 logger.info("Runtime override loaded: %s = %s", key, val)
     except Exception as e:
         logger.warning("Failed to load runtime config: %s", e)
+
+
+# ── General runtime config (portfolio_total etc.) ──
+
+ALLOWED_RUNTIME_KEYS = {"portfolio_total"}
+
+
+@router.get("/runtime")
+async def get_runtime_settings():
+    """Get user-editable runtime settings."""
+    config = await repo.get_runtime_config()
+    return {
+        "portfolio_total": float(config.get("portfolio_total", settings.PORTFOLIO_TOTAL)),
+    }
+
+
+@router.post("/runtime")
+async def update_runtime_settings(updates: dict):
+    """Update user-editable runtime settings."""
+    applied = {}
+    for key, value in updates.items():
+        if key not in ALLOWED_RUNTIME_KEYS:
+            continue
+        # Validate portfolio_total is a reasonable positive number
+        if key == "portfolio_total":
+            try:
+                num_val = float(value)
+                if num_val <= 0 or num_val > 100_000_000_000:
+                    logger.warning("Invalid portfolio_total value rejected: %s", value)
+                    continue
+            except (TypeError, ValueError):
+                logger.warning("Non-numeric portfolio_total value rejected: %s", value)
+                continue
+        await repo.upsert_runtime_config(key, str(value))
+        applied[key] = value
+        logger.info("Runtime setting updated: %s = %s", key, value)
+    return {"status": "ok", "applied": applied}

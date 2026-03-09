@@ -41,9 +41,14 @@ def register_jobs(
                 run_type="scheduled",
             )
 
-            # Send Discord dashboard
+            # Send Discord dashboard (only if notifications enabled)
             if context.get("status") == "completed":
-                await notifier.send_dashboard(context)
+                from app.routers.notification_settings import should_notify
+                channel = f"pipeline_{market.lower()}"
+                if await should_notify(channel):
+                    await notifier.send_dashboard(context)
+                else:
+                    logger.info("Pipeline %s completed, Discord notification suppressed by schedule", market)
             else:
                 logger.error("Pipeline %s failed, dashboard not sent", market)
 
@@ -121,6 +126,11 @@ def register_jobs(
     # Weekly report (Sunday 06:00 UTC = 15:00 KST)
     async def send_weekly_report():
         try:
+            from app.routers.notification_settings import should_notify
+            if not await should_notify("weekly_report"):
+                logger.info("Weekly report skipped: notification schedule disabled")
+                return
+
             import asyncio as _asyncio
 
             from app.notifier.discord import _get_discord_client
@@ -134,7 +144,7 @@ def register_jobs(
                         config.DISCORD_WEBHOOK_URL,
                         json=payload,
                     )
-                    if resp.status_code == 204:
+                    if resp.status_code in (200, 204):
                         logger.info("Weekly report sent to Discord")
                     else:
                         logger.error("Weekly report Discord failed: %d", resp.status_code)
@@ -158,6 +168,11 @@ def register_jobs(
     # Price alert check (every 2 hours during market hours)
     async def check_price_alerts():
         try:
+            from app.routers.notification_settings import should_notify
+            if not await should_notify("price_alerts"):
+                logger.info("Price alerts skipped: notification schedule disabled")
+                return
+
             from app.notifier.alerts import check_and_send_alerts
             await check_and_send_alerts(config)
         except Exception as e:

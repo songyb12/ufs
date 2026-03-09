@@ -52,9 +52,9 @@ KR_HOLIDAYS = {
     ],
     2026: [
         ("2026-01-01", "New Year's Day"),
-        ("2026-01-28", "Lunar New Year"),
-        ("2026-01-29", "Lunar New Year"),
-        ("2026-01-30", "Lunar New Year"),
+        ("2026-02-16", "Lunar New Year"),
+        ("2026-02-17", "Lunar New Year"),
+        ("2026-02-18", "Lunar New Year"),
         ("2026-03-01", "Independence Movement Day"),
         ("2026-05-05", "Children's Day"),
         ("2026-05-24", "Buddha's Birthday"),

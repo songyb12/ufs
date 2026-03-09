@@ -49,7 +49,7 @@ class WeeklyAnalysisStage(BaseStage):
                 )
 
             except Exception as e:
-                logger.error("[S2c] %s: weekly analysis failed - %s", symbol, e)
+                logger.error("[S2c] %s: weekly analysis failed - %s", symbol, e, exc_info=True)
                 per_symbol[symbol] = {"trend_direction": "neutral"}
 
         # Persist to weekly_indicators table

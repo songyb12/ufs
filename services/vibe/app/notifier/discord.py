@@ -14,14 +14,16 @@ logger = logging.getLogger("vibe.notifier")
 
 
 _discord_client: httpx.AsyncClient | None = None
+_discord_lock = asyncio.Lock()
 
 
-def _get_discord_client() -> httpx.AsyncClient:
+async def _get_discord_client() -> httpx.AsyncClient:
     """Get or create a shared httpx client for Discord webhook calls."""
     global _discord_client
-    if _discord_client is None or _discord_client.is_closed:
-        _discord_client = httpx.AsyncClient(timeout=15.0)
-    return _discord_client
+    async with _discord_lock:
+        if _discord_client is None or _discord_client.is_closed:
+            _discord_client = httpx.AsyncClient(timeout=15.0)
+        return _discord_client
 
 
 async def close_discord_client() -> None:
@@ -80,13 +82,13 @@ class DiscordNotifier:
     async def _send_payload(self, payload: dict) -> bool:
         """Send a single payload to Discord webhook."""
         try:
-            client = _get_discord_client()
+            client = await _get_discord_client()
             resp = await client.post(
                 self.webhook_url,
                 json=payload,
             )
 
-            if resp.status_code == 204:
+            if resp.status_code in (200, 204):
                 return True
             elif resp.status_code == 429:
                 # Rate limited — wait and retry once
@@ -99,7 +101,7 @@ class DiscordNotifier:
                 resp2 = await client.post(
                     self.webhook_url, json=payload,
                 )
-                return resp2.status_code == 204
+                return resp2.status_code in (200, 204)
             else:
                 logger.error(
                     "Discord send failed: status=%d body=%s",
@@ -111,5 +113,5 @@ class DiscordNotifier:
             logger.error("Discord webhook timed out")
             return False
         except Exception as e:
-            logger.error("Discord send error: %s", e)
+            logger.error("Discord send error: %s", e, exc_info=True)
             return False

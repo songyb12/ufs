@@ -25,7 +25,16 @@ def compute_backtest_metrics(trades: list[dict]) -> dict:
 
     returns = [t["return_pct"] for t in trades if t.get("return_pct") is not None]
     if not returns:
-        return {"total_trades": len(trades)}
+        return {
+            "total_trades": len(trades),
+            "hit_rate": None,
+            "avg_return": None,
+            "sharpe_ratio": None,
+            "max_drawdown": None,
+            "profit_factor": None,
+            "win_loss_ratio": None,
+            "total_return": None,
+        }
 
     # Hit rate
     wins = [r for r in returns if r > 0]
@@ -52,6 +61,7 @@ def compute_backtest_metrics(trades: list[dict]) -> dict:
         trades_per_year = 252 / max(avg_holding, 1)
 
         sharpe_ratio = (mean_r / std_r) * math.sqrt(trades_per_year) if std_r > 0 else 0
+        sharpe_ratio = max(-99, min(99, sharpe_ratio))  # Cap to reasonable range
     else:
         sharpe_ratio = 0
 

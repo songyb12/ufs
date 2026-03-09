@@ -64,17 +64,20 @@ async def add_watchlist_item(symbol: str, name: str, market: str, asset_type: st
 
 
 async def add_watchlist_bulk(items: list[dict]) -> int:
+    if not items:
+        return 0
     db = await get_db()
-    count = 0
-    for item in items:
-        cursor = await db.execute(
-            """INSERT OR IGNORE INTO watchlist (symbol, name, market, asset_type)
-               VALUES (?, ?, ?, ?)""",
-            (item["symbol"], item["name"], item["market"], item.get("asset_type", "stock")),
-        )
-        count += cursor.rowcount
+    cursor = await db.executemany(
+        """INSERT OR IGNORE INTO watchlist (symbol, name, market, asset_type)
+           VALUES (?, ?, ?, ?)""",
+        [
+            (item["symbol"], item["name"], item["market"], item.get("asset_type", "stock"))
+            for item in items
+        ],
+    )
     await db.commit()
-    return count
+    # executemany rowcount returns total affected rows
+    return cursor.rowcount if hasattr(cursor, 'rowcount') else len(items)
 
 
 async def remove_watchlist_item(symbol: str, market: str) -> bool:
@@ -183,15 +186,15 @@ async def upsert_macro_indicators(row: dict) -> bool:
         """INSERT OR REPLACE INTO macro_indicators
            (indicator_date, us_10y_yield, us_2y_yield, us_yield_spread,
             fed_funds_rate, dxy_index, vix, fear_greed_index,
-            kr_base_rate, usd_krw, wti_crude, gold_price)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            kr_base_rate, usd_krw, wti_crude, gold_price, copper_price)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             row["indicator_date"],
             row.get("us_10y_yield"), row.get("us_2y_yield"), row.get("us_yield_spread"),
             row.get("fed_funds_rate"), row.get("dxy_index"),
             row.get("vix"), row.get("fear_greed_index"),
             row.get("kr_base_rate"), row.get("usd_krw"),
-            row.get("wti_crude"), row.get("gold_price"),
+            row.get("wti_crude"), row.get("gold_price"), row.get("copper_price"),
         ),
     )
     await db.commit()
@@ -331,17 +334,29 @@ async def insert_signals(rows: list[dict]) -> int:
 
 async def get_latest_signals(market: str | None = None) -> list[dict]:
     db = await get_db()
-    query = """
-        SELECT s.*, w.name FROM signals s
-        INNER JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
-            AND w.is_active = 1
-        WHERE s.signal_date = (SELECT MAX(signal_date) FROM signals)
-    """
-    params: list = []
     if market:
-        query += " AND s.market = ?"
-        params.append(market)
-    query += " ORDER BY s.raw_score DESC"
+        # Use market-specific max date to avoid cross-market date mismatch
+        query = """
+            SELECT s.*, w.name FROM signals s
+            INNER JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+                AND w.is_active = 1
+            WHERE s.market = ?
+            AND s.signal_date = (SELECT MAX(signal_date) FROM signals WHERE market = ?)
+            ORDER BY s.raw_score DESC
+        """
+        params: list = [market, market]
+    else:
+        # No market filter: get each market's latest date via correlated subquery
+        query = """
+            SELECT s.*, w.name FROM signals s
+            INNER JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market
+                AND w.is_active = 1
+            WHERE s.signal_date = (
+                SELECT MAX(s2.signal_date) FROM signals s2 WHERE s2.market = s.market
+            )
+            ORDER BY s.raw_score DESC
+        """
+        params = []
     cursor = await db.execute(query, params)
     rows = await cursor.fetchall()
     return [dict(r) for r in rows]
@@ -455,6 +470,8 @@ async def get_backtest_run(backtest_id: str) -> dict | None:
         result = dict(row)
         if result.get("results_json"):
             result["results_json"] = _safe_json_loads(result["results_json"], {})
+        if result.get("config_snapshot"):
+            result["config_snapshot"] = _safe_json_loads(result["config_snapshot"], {})
         return result
     return None
 
@@ -653,11 +670,24 @@ async def get_fund_flow_range(symbol: str, start_date: str, end_date: str) -> li
 
 
 async def get_signal_id_for_performance(run_id: str, symbol: str, market: str) -> int | None:
-    """Get signal row id for creating performance tracking record."""
+    """Get signal row id for creating performance tracking record.
+
+    Uses symbol+market+signal_date lookup (matches UNIQUE constraint) instead of
+    run_id, which may change if the pipeline re-runs on the same day.
+    """
     db = await get_db()
+    # First try exact run_id match
     cursor = await db.execute(
         "SELECT id FROM signals WHERE run_id = ? AND symbol = ? AND market = ?",
         (run_id, symbol, market),
+    )
+    row = await cursor.fetchone()
+    if row:
+        return row["id"]
+    # Fallback: latest signal for this symbol (handles INSERT OR REPLACE re-runs)
+    cursor = await db.execute(
+        "SELECT id FROM signals WHERE symbol = ? AND market = ? ORDER BY signal_date DESC LIMIT 1",
+        (symbol, market),
     )
     row = await cursor.fetchone()
     return row["id"] if row else None
@@ -667,22 +697,28 @@ async def get_signal_id_for_performance(run_id: str, symbol: str, market: str) -
 
 
 async def insert_events(events: list[dict]) -> int:
+    if not events:
+        return 0
     db = await get_db()
-    count = 0
+    valid_rows = []
     for e in events:
         try:
-            cursor = await db.execute(
-                """INSERT OR IGNORE INTO event_calendar
-                   (event_date, event_type, market, symbol, description, impact_level)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (e["event_date"], e["event_type"], e.get("market"),
-                 e.get("symbol") or "", e["description"], e.get("impact_level", "medium")),
-            )
-            count += cursor.rowcount
-        except Exception as exc:
-            logger.debug("Event insert skipped: %s", exc)
+            valid_rows.append((
+                e["event_date"], e["event_type"], e.get("market"),
+                e.get("symbol") or "", e["description"], e.get("impact_level", "medium"),
+            ))
+        except (KeyError, TypeError) as exc:
+            logger.debug("Event insert skipped (bad data): %s", exc)
+    if not valid_rows:
+        return 0
+    cursor = await db.executemany(
+        """INSERT OR IGNORE INTO event_calendar
+           (event_date, event_type, market, symbol, description, impact_level)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        valid_rows,
+    )
     await db.commit()
-    return count
+    return cursor.rowcount if hasattr(cursor, 'rowcount') else len(valid_rows)
 
 
 async def get_upcoming_events(
@@ -771,16 +807,25 @@ async def get_portfolio_state(
     db = await get_db()
     query = """
         SELECT ps.*, w.name,
-               lp.close AS current_price
+               lp.close AS current_price,
+               lp.trade_date AS price_date,
+               CASE
+                   WHEN ps.entry_price > 0 AND lp.close IS NOT NULL
+                   THEN ROUND((lp.close - ps.entry_price) / ps.entry_price * 100, 2)
+                   ELSE NULL
+               END AS pnl_pct
         FROM portfolio_state ps
         LEFT JOIN watchlist w ON ps.symbol = w.symbol AND ps.market = w.market
         LEFT JOIN (
-            SELECT symbol, market, close
-            FROM price_history
-            WHERE (symbol, market, trade_date) IN (
-                SELECT symbol, market, MAX(trade_date)
-                FROM price_history GROUP BY symbol, market
-            )
+            SELECT ph.symbol, ph.market, ph.close, ph.trade_date
+            FROM price_history ph
+            INNER JOIN (
+                SELECT symbol, market, MAX(trade_date) AS max_date
+                FROM price_history
+                GROUP BY symbol, market
+            ) latest ON ph.symbol = latest.symbol
+                    AND ph.market = latest.market
+                    AND ph.trade_date = latest.max_date
         ) lp ON ps.symbol = lp.symbol AND ps.market = lp.market
         WHERE ps.portfolio_id = ? AND ps.position_size > 0
     """
@@ -858,6 +903,123 @@ async def clear_portfolio_positions(
     return cursor.rowcount
 
 
+# ── Position Exits (Phase H) ──
+
+
+async def exit_position(
+    symbol: str, market: str, exit_reason: str = "manual", portfolio_id: int = 1,
+) -> dict:
+    """Record a position exit and zero-out the position."""
+    db = await get_db()
+    # Get current position data with latest price via JOIN
+    cursor = await db.execute(
+        """SELECT ps.entry_price, ps.position_size, ps.entry_date,
+                  lp.close AS exit_price
+           FROM portfolio_state ps
+           LEFT JOIN (
+               SELECT ph.symbol, ph.market, ph.close
+               FROM price_history ph
+               INNER JOIN (
+                   SELECT symbol, market, MAX(trade_date) AS max_date
+                   FROM price_history GROUP BY symbol, market
+               ) latest ON ph.symbol = latest.symbol
+                       AND ph.market = latest.market
+                       AND ph.trade_date = latest.max_date
+           ) lp ON ps.symbol = lp.symbol AND ps.market = lp.market
+           WHERE ps.portfolio_id = ? AND ps.symbol = ? AND ps.market = ?
+           AND ps.position_size > 0""",
+        (portfolio_id, symbol, market),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        return {"status": "not_found"}
+    r = dict(row)
+    entry = r.get("entry_price") or 0
+    exit_p = r.get("exit_price") if r.get("exit_price") is not None else entry
+    pnl = round((exit_p - entry) / entry * 100, 2) if entry > 0 else 0.0
+    # Insert exit record
+    await db.execute(
+        """INSERT INTO position_exits
+           (portfolio_id, symbol, market, entry_price, exit_price, position_size,
+            entry_date, exit_reason, pnl_pct)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (portfolio_id, symbol, market, entry, exit_p, r.get("position_size"),
+         r.get("entry_date"), exit_reason, pnl),
+    )
+    # Zero-out position
+    await db.execute(
+        """UPDATE portfolio_state SET position_size = 0, updated_at = datetime('now')
+           WHERE portfolio_id = ? AND symbol = ? AND market = ?""",
+        (portfolio_id, symbol, market),
+    )
+    await db.commit()
+    return {"status": "exited", "symbol": symbol, "market": market,
+            "exit_reason": exit_reason, "pnl_pct": pnl}
+
+
+async def batch_exit_stop_loss(portfolio_id: int = 1, stop_pct: float = -7.0) -> int:
+    """Exit all positions at or below the stop-loss threshold."""
+    db = await get_db()
+    # Use JOIN with latest price instead of correlated subquery per row
+    cursor = await db.execute(
+        """SELECT ps.symbol, ps.market, ps.entry_price, ps.position_size, ps.entry_date,
+                  lp.close AS exit_price
+           FROM portfolio_state ps
+           LEFT JOIN (
+               SELECT ph.symbol, ph.market, ph.close
+               FROM price_history ph
+               INNER JOIN (
+                   SELECT symbol, market, MAX(trade_date) AS max_date
+                   FROM price_history GROUP BY symbol, market
+               ) latest ON ph.symbol = latest.symbol
+                       AND ph.market = latest.market
+                       AND ph.trade_date = latest.max_date
+           ) lp ON ps.symbol = lp.symbol AND ps.market = lp.market
+           WHERE ps.portfolio_id = ? AND ps.position_size > 0""",
+        (portfolio_id,),
+    )
+    rows = [dict(r) for r in await cursor.fetchall()]
+    exited = 0
+    for r in rows:
+        entry = r.get("entry_price") or 0
+        exit_p = r.get("exit_price") if r.get("exit_price") is not None else entry
+        if entry <= 0:
+            continue
+        pnl = (exit_p - entry) / entry * 100
+        if pnl <= stop_pct:
+            await db.execute(
+                """INSERT INTO position_exits
+                   (portfolio_id, symbol, market, entry_price, exit_price,
+                    position_size, entry_date, exit_reason, pnl_pct)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'stop_loss', ?)""",
+                (portfolio_id, r["symbol"], r["market"], entry, exit_p,
+                 r.get("position_size"), r.get("entry_date"), round(pnl, 2)),
+            )
+            await db.execute(
+                """UPDATE portfolio_state SET position_size = 0, updated_at = datetime('now')
+                   WHERE portfolio_id = ? AND symbol = ? AND market = ?""",
+                (portfolio_id, r["symbol"], r["market"]),
+            )
+            exited += 1
+    if exited > 0:
+        await db.commit()
+    return exited
+
+
+async def get_exit_history(portfolio_id: int = 1, limit: int = 50) -> list[dict]:
+    """Get recent position exit records."""
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT pe.*, w.name
+           FROM position_exits pe
+           LEFT JOIN watchlist w ON pe.symbol = w.symbol AND pe.market = w.market
+           WHERE pe.portfolio_id = ?
+           ORDER BY pe.created_at DESC LIMIT ?""",
+        (portfolio_id, limit),
+    )
+    return [dict(r) for r in await cursor.fetchall()]
+
+
 # ── Fundamental Data (Phase C) ──
 
 
@@ -916,6 +1078,17 @@ async def get_latest_fundamental(symbol: str, market: str) -> dict | None:
 # ── Screening Candidates (Phase C) ──
 
 
+async def update_screening_status(candidate_id: int, status: str) -> int:
+    """Update screening candidate status (new/approved/rejected)."""
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE screening_candidates SET status = ? WHERE id = ?",
+        (status, candidate_id),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
 async def insert_screening_candidate(data: dict) -> int:
     db = await get_db()
     cursor = await db.execute(
@@ -935,15 +1108,228 @@ async def get_screening_candidates(
     market: str, status: str | None = None,
 ) -> list[dict]:
     db = await get_db()
-    query = "SELECT * FROM screening_candidates WHERE market = ?"
+    # Use correlated subqueries instead of full-table ROW_NUMBER scans
+    # to leverage existing indexes on (symbol, market, trade_date)
+    query = """
+        SELECT sc.*,
+               w.name,
+               (SELECT ti2.rsi_14 FROM technical_indicators ti2
+                WHERE ti2.symbol = sc.symbol AND ti2.market = sc.market
+                ORDER BY ti2.trade_date DESC LIMIT 1) AS rsi,
+               (SELECT ti3.volume_ratio FROM technical_indicators ti3
+                WHERE ti3.symbol = sc.symbol AND ti3.market = sc.market
+                ORDER BY ti3.trade_date DESC LIMIT 1) AS volume_ratio,
+               (SELECT ph_cur.close FROM price_history ph_cur
+                WHERE ph_cur.symbol = sc.symbol AND ph_cur.market = sc.market
+                ORDER BY ph_cur.trade_date DESC LIMIT 1) AS current_price,
+               (SELECT ph_prev.close FROM price_history ph_prev
+                WHERE ph_prev.symbol = sc.symbol AND ph_prev.market = sc.market
+                ORDER BY ph_prev.trade_date DESC LIMIT 1 OFFSET 1) AS prev_price
+        FROM screening_candidates sc
+        LEFT JOIN watchlist w ON sc.symbol = w.symbol AND sc.market = w.market
+        WHERE sc.market = ?
+    """
     params: list = [market]
     if status:
-        query += " AND status = ?"
+        query += " AND sc.status = ?"
         params.append(status)
-    query += " ORDER BY detected_date DESC LIMIT 100"
+    query += " ORDER BY sc.detected_date DESC LIMIT 100"
     cursor = await db.execute(query, params)
     rows = await cursor.fetchall()
-    return [dict(r) for r in rows]
+    results = []
+    for r in rows:
+        d = dict(r)
+        # Map screening fields to UI expectations
+        d["reason"] = d.get("trigger_description") or d.get("trigger_type") or ""
+        d["scan_date"] = d.get("detected_date")
+
+        # Compute price_change from current_price and prev_price
+        cur = d.get("current_price")
+        prev = d.get("prev_price")
+        if cur is not None and prev is not None and prev > 0:
+            d["price_change"] = round((cur - prev) / prev * 100, 2)
+        else:
+            d["price_change"] = None
+
+        # Compute composite conviction score (0-10) from available indicators
+        _score = 0.0
+        _factors = 0
+        rsi = d.get("rsi")
+        vol_ratio = d.get("volume_ratio")
+        price_chg = d.get("price_change")
+        trigger = d.get("trigger_type", "")
+        if rsi is not None:
+            # Lower RSI = more upside potential (inverted, 30→high score, 70→low)
+            _score += max(0, min(10, (70 - rsi) / 4))
+            _factors += 1
+        if vol_ratio is not None:
+            # Higher volume ratio = stronger conviction
+            _score += max(0, min(10, vol_ratio * 2.5))
+            _factors += 1
+        if price_chg is not None:
+            # Positive momentum contribution
+            _score += max(0, min(10, price_chg * 0.8 + 3))
+            _factors += 1
+        # Trigger type bonus
+        if trigger in ("volume_spike", "breakout"):
+            _score += 2
+            _factors += 1
+        elif trigger == "new_high":
+            _score += 1.5
+            _factors += 1
+        d["score"] = round(_score / max(_factors, 1), 1)
+        results.append(d)
+    return results
+
+
+# ── Macro Intelligence Queries ──
+
+
+async def get_macro_history(days: int = 30) -> list[dict]:
+    """Get macro indicators for the past N days, chronological order."""
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT * FROM macro_indicators
+           WHERE indicator_date >= date('now', ?)
+           ORDER BY indicator_date ASC""",
+        (f"-{days} days",),
+    )
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_signal_stats_by_market() -> dict:
+    """Get latest-date signal statistics grouped by market.
+
+    Uses per-market max date to avoid cross-market date mismatch
+    (e.g., KR pipeline runs at different time than US).
+    """
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT market,
+                  COUNT(*) as total_count,
+                  AVG(raw_score) as avg_score,
+                  AVG(technical_score) as avg_technical,
+                  AVG(macro_score) as avg_macro,
+                  AVG(fund_flow_score) as avg_fund_flow,
+                  SUM(CASE WHEN final_signal = 'BUY' THEN 1 ELSE 0 END) as buy_count,
+                  SUM(CASE WHEN final_signal = 'SELL' THEN 1 ELSE 0 END) as sell_count,
+                  SUM(CASE WHEN final_signal = 'HOLD' THEN 1 ELSE 0 END) as hold_count
+           FROM signals s
+           WHERE signal_date = (
+               SELECT MAX(s2.signal_date) FROM signals s2 WHERE s2.market = s.market
+           )
+           GROUP BY market"""
+    )
+    return {r["market"]: dict(r) for r in await cursor.fetchall()}
+
+
+async def get_sector_fund_flow_kr(days: int = 5) -> list[dict]:
+    """Get KR fund flow for recent N trading days (all symbols)."""
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT * FROM fund_flow_kr
+           WHERE trade_date >= date('now', ?)
+           ORDER BY trade_date DESC, symbol
+           LIMIT 5000""",
+        (f"-{days} days",),
+    )
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_us_fund_flow_recent(days: int = 5) -> list[dict]:
+    """Compute US ETF proxy fund flow from price_history data.
+
+    Uses SPY/QQQ/IWM/TLT daily price changes + volume ratios
+    to derive a risk appetite score (equity up + bond down = risk-on).
+    """
+    db = await get_db()
+    etf_symbols = ["SPY", "QQQ", "IWM", "TLT", "DIA"]
+    placeholders = ",".join(["?" for _ in etf_symbols])
+    # Fetch extra days for computing day-over-day changes
+    cursor = await db.execute(
+        f"""SELECT symbol, trade_date, close, volume
+           FROM price_history
+           WHERE symbol IN ({placeholders})
+           AND trade_date >= date('now', ?)
+           ORDER BY symbol, trade_date ASC""",
+        (*etf_symbols, f"-{days + 10} days"),
+    )
+    rows = [dict(r) for r in await cursor.fetchall()]
+
+    # Group by symbol
+    by_symbol: dict[str, list[dict]] = {}
+    for r in rows:
+        by_symbol.setdefault(r["symbol"], []).append(r)
+
+    # Compute daily returns per symbol per date
+    flow_data: dict[str, dict] = {}
+    for symbol, prices in by_symbol.items():
+        for i in range(1, len(prices)):
+            date = prices[i]["trade_date"]
+            prev_close = prices[i - 1]["close"] if prices[i - 1]["close"] is not None else 0
+            curr_close = prices[i]["close"] if prices[i]["close"] is not None else 0
+            prev_vol = prices[i - 1]["volume"] if prices[i - 1]["volume"] is not None else 0
+            curr_vol = prices[i]["volume"] if prices[i]["volume"] is not None else 0
+            pct_change = ((curr_close - prev_close) / prev_close * 100) if prev_close > 0 else 0
+            volume_ratio = curr_vol / prev_vol if prev_vol > 0 else 1.0
+
+            if date not in flow_data:
+                flow_data[date] = {}
+            flow_data[date][symbol] = {
+                "pct_change": round(pct_change, 2),
+                "volume_ratio": round(volume_ratio, 2),
+                "close": curr_close,
+            }
+
+    # Build results with risk appetite score
+    results = []
+    for date in sorted(flow_data.keys()):
+        d = flow_data[date]
+        spy = d.get("SPY", {})
+        qqq = d.get("QQQ", {})
+        iwm = d.get("IWM", {})
+        tlt = d.get("TLT", {})
+
+        # Risk-on proxy: equity ETFs up + bond down = risk on
+        equity_flow = (
+            spy.get("pct_change", 0) * 0.4
+            + qqq.get("pct_change", 0) * 0.3
+            + iwm.get("pct_change", 0) * 0.3
+        )
+        bond_flow = tlt.get("pct_change", 0)
+        risk_appetite = round(equity_flow - bond_flow * 0.5, 2)
+
+        results.append({
+            "trade_date": date,
+            "risk_appetite_score": risk_appetite,
+            "spy_change": spy.get("pct_change", 0),
+            "qqq_change": qqq.get("pct_change", 0),
+            "iwm_change": iwm.get("pct_change", 0),
+            "tlt_change": tlt.get("pct_change", 0),
+            "spy_volume_ratio": spy.get("volume_ratio", 1.0),
+        })
+
+    # Return only the last N days
+    if len(results) > days:
+        results = results[-days:]
+    return results
+
+
+async def get_kr_daily_foreign_total(days: int = 30) -> list[dict]:
+    """Get daily total foreign net buying across all KR symbols."""
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT trade_date,
+                  SUM(foreign_net_buy) as total_foreign_net,
+                  SUM(institution_net_buy) as total_institution_net,
+                  SUM(individual_net_buy) as total_individual_net
+           FROM fund_flow_kr
+           WHERE trade_date >= date('now', ?)
+           GROUP BY trade_date
+           ORDER BY trade_date ASC""",
+        (f"-{days} days",),
+    )
+    return [dict(r) for r in await cursor.fetchall()]
 
 
 # ── Sentiment Data (Phase D) ──
@@ -965,8 +1351,9 @@ async def get_sentiment_history(days: int = 7) -> list[dict]:
     db = await get_db()
     cursor = await db.execute(
         """SELECT * FROM sentiment_data
-           ORDER BY indicator_date DESC LIMIT ?""",
-        (days,),
+           WHERE indicator_date >= date('now', ?)
+           ORDER BY indicator_date DESC""",
+        (f"-{days} days",),
     )
     rows = await cursor.fetchall()
     return [dict(r) for r in rows]
@@ -1259,14 +1646,254 @@ async def upsert_runtime_config(key: str, value: str) -> None:
 
 async def set_runtime_configs(updates: dict[str, str]) -> None:
     """Batch update runtime config entries."""
+    if not updates:
+        return
     db = await get_db()
-    for key, value in updates.items():
-        await db.execute(
-            """INSERT INTO runtime_config (key, value, updated_at)
-               VALUES (?, ?, datetime('now'))
-               ON CONFLICT(key) DO UPDATE SET
-               value = excluded.value,
-               updated_at = datetime('now')""",
-            (key, value),
-        )
+    await db.executemany(
+        """INSERT INTO runtime_config (key, value, updated_at)
+           VALUES (?, ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = datetime('now')""",
+        [(key, value) for key, value in updates.items()],
+    )
     await db.commit()
+
+
+# ── Users (Authentication) ──
+
+
+async def count_users() -> int:
+    """Count total users. Used to determine if setup is needed."""
+    db = await get_db()
+    cursor = await db.execute("SELECT COUNT(*) FROM users")
+    row = await cursor.fetchone()
+    return row[0] if row else 0
+
+
+async def create_user(username: str, password_hash: str) -> int:
+    """Create a new user. Returns the user ID."""
+    db = await get_db()
+    cursor = await db.execute(
+        "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+        (username, password_hash),
+    )
+    await db.commit()
+    return cursor.lastrowid or 0
+
+
+async def get_user_by_username(username: str) -> dict | None:
+    """Get user by username. Returns dict or None."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT * FROM users WHERE username = ?", (username,)
+    )
+    row = await cursor.fetchone()
+    return dict(row) if row else None
+
+
+async def update_last_login(username: str) -> None:
+    """Update user's last_login timestamp."""
+    db = await get_db()
+    await db.execute(
+        "UPDATE users SET last_login = datetime('now') WHERE username = ?",
+        (username,),
+    )
+    await db.commit()
+
+
+async def update_user_password(username: str, new_password_hash: str) -> bool:
+    """Update user's password hash. Returns True if updated."""
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE users SET password_hash = ? WHERE username = ?",
+        (new_password_hash, username),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+# ── Market Season / Investment Clock Support (Phase J) ──
+
+
+async def get_etf_momentum() -> dict:
+    """Get SPY 60-day return for market season growth proxy.
+
+    Computes price change from ~60 trading days ago vs latest.
+    Returns {"spy_return_60d": float | None}.
+    """
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT close, trade_date FROM price_history
+           WHERE symbol = 'SPY' AND market = 'US'
+           ORDER BY trade_date DESC LIMIT 70"""
+    )
+    rows = await cursor.fetchall()
+    if len(rows) < 30:
+        return {"spy_return_60d": None}
+
+    latest = rows[0]["close"]
+    # Use the 60th row or last available
+    older_idx = min(59, len(rows) - 1)
+    older = rows[older_idx]["close"]
+    if older and older > 0 and latest is not None:
+        ret = (latest - older) / older
+    else:
+        ret = None
+    return {"spy_return_60d": round(ret, 4) if ret is not None else None}
+
+
+async def get_portfolio_season_summary() -> dict:
+    """Get portfolio summary for strategy-match checks.
+
+    Returns portfolio composition metrics for current season alignment.
+    """
+    db = await get_db()
+
+    # Total positions and invested
+    cursor = await db.execute(
+        """SELECT market, sector, position_size, entry_price
+           FROM portfolio_state
+           WHERE portfolio_id = 1 AND is_hidden = 0 AND position_size > 0"""
+    )
+    positions = [dict(r) for r in await cursor.fetchall()]
+
+    if not positions:
+        return {
+            "total_positions": 0,
+            "total_invested": 0,
+            "kr_pct": 0,
+            "us_pct": 0,
+            "tech_pct": 0,
+        }
+
+    total_invested = sum(p.get("position_size", 0) for p in positions)
+    kr_invested = sum(
+        p.get("position_size", 0) for p in positions if p.get("market") == "KR"
+    )
+    us_invested = sum(
+        p.get("position_size", 0) for p in positions if p.get("market") == "US"
+    )
+    tech_sectors = {"Tech", "Semiconductor", "반도체", "인터넷"}
+    tech_invested = sum(
+        p.get("position_size", 0) for p in positions
+        if p.get("sector") in tech_sectors
+    )
+
+    denom = max(total_invested, 1)
+    return {
+        "total_positions": len(positions),
+        "total_invested": total_invested,
+        "kr_pct": round(kr_invested / denom * 100, 1),
+        "us_pct": round(us_invested / denom * 100, 1),
+        "tech_pct": round(tech_invested / denom * 100, 1),
+    }
+
+
+async def get_signal_season_summary() -> dict:
+    """Get latest signal buy/sell/hold counts for strategy-match.
+
+    Returns {"buy_count": int, "sell_count": int, "hold_count": int}.
+    """
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT final_signal, COUNT(*) as cnt
+           FROM signals
+           WHERE signal_date = (SELECT MAX(s2.signal_date) FROM signals s2 WHERE s2.market = signals.market)
+           GROUP BY final_signal"""
+    )
+    rows = await cursor.fetchall()
+    result = {"buy_count": 0, "sell_count": 0, "hold_count": 0}
+    for r in rows:
+        sig = (r["final_signal"] or "").upper()
+        if sig == "BUY":
+            result["buy_count"] = r["cnt"]
+        elif sig == "SELL":
+            result["sell_count"] = r["cnt"]
+        else:
+            result["hold_count"] = r["cnt"]
+    return result
+
+
+# ── Crisis Analysis Support (Phase K) ──
+
+
+async def get_benchmark_prices(days: int = 200) -> dict[str, list[dict]]:
+    """Get price history for benchmark symbols (KOSPI ETF 069500 + SPY).
+
+    Returns {"KOSPI": [...], "SPY": [...]} with trade_date and close,
+    sorted oldest→newest.
+    """
+    db = await get_db()
+    result: dict[str, list[dict]] = {"KOSPI": [], "SPY": []}
+
+    benchmarks = [("069500", "KR", "KOSPI"), ("SPY", "US", "SPY")]
+    for symbol, market, key in benchmarks:
+        cursor = await db.execute(
+            """SELECT trade_date, close FROM price_history
+               WHERE symbol = ? AND market = ?
+               ORDER BY trade_date DESC LIMIT ?""",
+            (symbol, market, days),
+        )
+        rows = [dict(r) for r in await cursor.fetchall()]
+        rows.reverse()  # oldest→newest
+        result[key] = rows
+
+    return result
+
+
+async def get_symbol_returns(market: str, days: int = 20) -> dict[str, float]:
+    """Compute N-day return % for all active symbols in a market.
+
+    Returns {symbol: return_pct} where return_pct = (latest/oldest - 1) * 100.
+    Uses a single batch query with ROW_NUMBER to avoid N+1 per-symbol queries.
+    """
+    db = await get_db()
+    cursor = await db.execute(
+        """WITH ranked AS (
+               SELECT ph.symbol, ph.close,
+                      ROW_NUMBER() OVER (PARTITION BY ph.symbol ORDER BY ph.trade_date DESC) AS rn
+               FROM price_history ph
+               INNER JOIN watchlist w ON ph.symbol = w.symbol AND ph.market = w.market
+                   AND w.is_active = 1
+               WHERE ph.market = ?
+               AND ph.trade_date >= date('now', ?)
+           )
+           SELECT r1.symbol,
+                  r1.close AS latest_close,
+                  r2.close AS oldest_close
+           FROM ranked r1
+           INNER JOIN (
+               SELECT symbol, MAX(rn) AS max_rn FROM ranked GROUP BY symbol
+           ) mx ON r1.symbol = mx.symbol
+           INNER JOIN ranked r2 ON r1.symbol = r2.symbol AND r2.rn = mx.max_rn
+           WHERE r1.rn = 1 AND mx.max_rn >= 2""",
+        (market, f"-{days + 10} days"),
+    )
+    rows = await cursor.fetchall()
+    returns: dict[str, float] = {}
+    for r in rows:
+        latest = r["latest_close"]
+        oldest = r["oldest_close"]
+        if oldest and oldest > 0 and latest:
+            ret = (latest - oldest) / oldest * 100
+            returns[r["symbol"]] = round(ret, 4)
+    return returns
+
+
+async def get_fx_history(days: int = 200) -> list[dict]:
+    """Get USD/KRW history from macro_indicators for MA computation.
+
+    Returns list of {"indicator_date": str, "close": float} oldest→newest.
+    """
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT indicator_date, usd_krw as close
+           FROM macro_indicators
+           WHERE usd_krw IS NOT NULL
+           ORDER BY indicator_date DESC LIMIT ?""",
+        (days,),
+    )
+    rows = [dict(r) for r in await cursor.fetchall()]
+    rows.reverse()
+    return rows

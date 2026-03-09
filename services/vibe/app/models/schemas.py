@@ -26,7 +26,7 @@ class WatchlistItemResponse(BaseModel):
 
 
 class WatchlistBulkCreate(BaseModel):
-    items: list[WatchlistItemCreate]
+    items: list[WatchlistItemCreate] = Field(max_length=200)
 
 
 # ── Pipeline ──
@@ -148,6 +148,7 @@ class BacktestResultResponse(BaseModel):
     profit_factor: float | None = None
     win_loss_ratio: float | None = None
     total_return: float | None = None
+    config_snapshot: dict | None = None
 
 
 class BacktestTradeResponse(BaseModel):
@@ -179,24 +180,24 @@ class SignalPerformanceResponse(BaseModel):
 
 class PortfolioGroupCreate(BaseModel):
     """Create a new portfolio group."""
-    name: str
-    description: str | None = None
+    name: str = Field(min_length=1, max_length=50)
+    description: str | None = Field(default=None, max_length=200)
 
 
 class PortfolioGroupUpdate(BaseModel):
     """Update a portfolio group."""
-    name: str
-    description: str | None = None
+    name: str = Field(min_length=1, max_length=50)
+    description: str | None = Field(default=None, max_length=200)
 
 
 class PortfolioPositionCreate(BaseModel):
-    symbol: str
+    symbol: str = Field(min_length=1, max_length=10)
     market: Market
-    position_size: float
+    position_size: float = Field(gt=0)
     entry_date: str | None = None
-    entry_price: float | None = None
+    entry_price: float | None = Field(default=None, gt=0)
     sector: str | None = None
-    portfolio_id: int = 1
+    portfolio_id: int = Field(default=1, ge=1)
 
 
 class PortfolioQuickAdd(BaseModel):
@@ -205,14 +206,14 @@ class PortfolioQuickAdd(BaseModel):
     entry_price is auto-filled from the latest DB price.
     entry_date defaults to today.
     """
-    symbol: str
+    symbol: str = Field(min_length=1, max_length=10)
     market: Market
-    position_size: float
+    position_size: float = Field(gt=0)
 
 
 class PortfolioBulkCreate(BaseModel):
     """Register multiple portfolio positions at once."""
-    items: list[PortfolioPositionCreate]
+    items: list[PortfolioPositionCreate] = Field(max_length=200)
     portfolio_id: int = 1
 
 

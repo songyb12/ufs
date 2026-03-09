@@ -21,12 +21,13 @@ def compute_technical_score(indicators: dict) -> float:
     """Score technical indicators. Range: -100 to +100.
 
     Positive = bullish, Negative = bearish.
+    Uses _safe_num() to guard against NaN/Inf values from upstream.
     """
     score = 0.0
     count = 0
 
     # RSI scoring (-30 to +30)
-    rsi = indicators.get("rsi_14")
+    rsi = _safe_num(indicators.get("rsi_14"))
     if rsi is not None:
         if rsi < 30:
             score += 30  # Oversold = strong buy signal
@@ -42,29 +43,31 @@ def compute_technical_score(indicators: dict) -> float:
             score -= 30  # Overbought = strong sell signal
         count += 1
 
-    # MACD scoring (-20 to +20)
-    macd_hist = indicators.get("macd_histogram")
-    if macd_hist is not None:
-        if macd_hist > 0:
-            score += min(20, macd_hist * 10)
+    # MACD scoring (-20 to +20), normalized by close price
+    macd_hist = _safe_num(indicators.get("macd_histogram"))
+    close_price = _safe_num(indicators.get("close"))
+    if macd_hist is not None and close_price is not None and close_price > 0:
+        macd_pct = macd_hist / close_price * 100  # as % of price
+        if macd_pct > 0:
+            score += min(20, macd_pct * 10)
         else:
-            score += max(-20, macd_hist * 10)
+            score += max(-20, macd_pct * 10)
         count += 1
 
     # Bollinger Band position (-20 to +20)
-    close = indicators.get("close")
-    bb_upper = indicators.get("bollinger_upper")
-    bb_lower = indicators.get("bollinger_lower")
-    bb_middle = indicators.get("bollinger_middle")
+    close = _safe_num(indicators.get("close"))
+    bb_upper = _safe_num(indicators.get("bollinger_upper"))
+    bb_lower = _safe_num(indicators.get("bollinger_lower"))
+    bb_middle = _safe_num(indicators.get("bollinger_middle"))
     if all(v is not None for v in [close, bb_upper, bb_lower, bb_middle]):
         bb_range = bb_upper - bb_lower
         if bb_range > 0:
-            bb_position = (close - bb_lower) / bb_range  # 0 to 1
+            bb_position = max(0.0, min(1.0, (close - bb_lower) / bb_range))
             score += (0.5 - bb_position) * 40  # -20 to +20
             count += 1
 
     # Disparity scoring (-15 to +15)
-    disparity = indicators.get("disparity_20")
+    disparity = _safe_num(indicators.get("disparity_20"))
     if disparity is not None:
         deviation = disparity - 100  # 0 = at MA20
         disp_contribution = max(-15, min(15, -deviation * 3))  # Bound ±15
@@ -72,7 +75,7 @@ def compute_technical_score(indicators: dict) -> float:
         count += 1
 
     # Volume ratio scoring (-15 to +15)
-    vol_ratio = indicators.get("volume_ratio")
+    vol_ratio = _safe_num(indicators.get("volume_ratio"))
     if vol_ratio is not None:
         if vol_ratio > 2.0:
             score += 10  # High volume = confirms trend
@@ -131,7 +134,7 @@ def compute_aggregate_signal(
     sentiment_w = config.WEIGHT_SENTIMENT
     news_w = config.WEIGHT_NEWS
 
-    has_fund_flow = fund_flow_score is not None and fund_flow_score != 0.0
+    has_fund_flow = fund_flow_score is not None
 
     if market == Market.KR and has_fund_flow:
         # KR with fund flow data

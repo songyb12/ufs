@@ -19,14 +19,39 @@ from app.config import settings
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.database.seed import seed_watchlist
-from app.routers import alerts, backtest, briefing, dashboard, llm_settings, pipeline, portfolio, risk, screening, sentiment, signals, watchlist
+from app.routers import academy, action_plan, alerts, auth, backtest, briefing, dashboard, data, guru, llm_settings, macro_intel, notification_settings, pipeline, portfolio, portfolio_import, risk, screening, sentiment, signals, strategy_settings, watchlist
 from app.scheduler.jobs import register_jobs
 from app.scheduler.runner import create_scheduler
 
-logging.basicConfig(
-    level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-)
+def _setup_logging() -> None:
+    """Configure logging: text (dev) or JSON (production)."""
+    log_level = getattr(logging, os.environ.get("LOG_LEVEL", "DEBUG" if settings.DEBUG else "INFO").upper(), logging.INFO)
+    log_format = os.environ.get("LOG_FORMAT", "text").lower()
+
+    if log_format == "json":
+        import json as _json
+        class JsonFormatter(logging.Formatter):
+            def format(self, record):
+                return _json.dumps({
+                    "ts": self.formatTime(record),
+                    "level": record.levelname,
+                    "logger": record.name,
+                    "msg": record.getMessage(),
+                    "module": record.module,
+                    "func": record.funcName,
+                    **({"exc": self.formatException(record.exc_info)} if record.exc_info else {}),
+                }, ensure_ascii=False)
+        handler = logging.StreamHandler()
+        handler.setFormatter(JsonFormatter())
+        logging.root.handlers = [handler]
+        logging.root.setLevel(log_level)
+    else:
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        )
+
+_setup_logging()
 logger = logging.getLogger("vibe")
 
 
@@ -79,8 +104,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="UFS VIBE",
+    description=(
+        "Investment Intelligence — 7-stage quant analysis engine "
+        "with Hard Limit safety + Red-Team validation.\n\n"
+        "**Pipeline Stages**: S1(Collection) → S2(Technical) → S3(Macro) → "
+        "S4(Fund Flow) → S5(Hard Limit) → S6(Signal) → S7(Red-Team)\n\n"
+        "**Markets**: KR (pykrx), US (yfinance) | **Scheduler**: APScheduler (KR 16:00 KST, US 17:00 EST)"
+    ),
     version=settings.VERSION,
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 # CORS middleware (for dashboard frontend)
@@ -107,18 +141,27 @@ if settings.API_AUTH_ENABLED and settings.API_KEY:
     logger.info("API authentication enabled")
 
 # Register routers
+app.include_router(auth.router)
 app.include_router(watchlist.router)
 app.include_router(pipeline.router)
 app.include_router(signals.router)
 app.include_router(dashboard.router)
 app.include_router(backtest.router)
 app.include_router(risk.router)
+app.include_router(macro_intel.router)
 app.include_router(screening.router)
 app.include_router(sentiment.router)
 app.include_router(portfolio.router)
+app.include_router(portfolio_import.router)
 app.include_router(alerts.router)
 app.include_router(briefing.router)
 app.include_router(llm_settings.router)
+app.include_router(data.router)
+app.include_router(guru.router)
+app.include_router(action_plan.router)
+app.include_router(academy.router)
+app.include_router(notification_settings.router)
+app.include_router(strategy_settings.router)
 
 
 @app.get("/health")

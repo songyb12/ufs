@@ -157,8 +157,8 @@ class LLMRedTeamStage(BaseStage):
                             "signal_override": llm_result.get("recommended_action"),
                         })
                 except Exception as e:
-                    logger.error("[S7] LLM review failed for %s: %s", symbol, e)
-                    warnings.append(f"LLM review failed: {e}")
+                    logger.error("[S7] LLM review failed for %s: %s", symbol, e, exc_info=True)
+                    warnings.append("LLM review failed")
 
             # Confidence floor
             confidence = max(0.1, min(1.0, confidence))
@@ -238,7 +238,7 @@ Challenge this BUY recommendation. Find 3 reasons it could fail."""
         except json.JSONDecodeError:
             return {"concern_level": "LOW", "risk_flags": [], "reasoning": text[:200]}
         except Exception as e:
-            logger.error("Anthropic API call failed: %s", e)
+            logger.error("Anthropic API call failed: %s", e, exc_info=True)
             return None
 
     async def _call_openai(self, prompt: str) -> dict | None:
@@ -262,7 +262,7 @@ Challenge this BUY recommendation. Find 3 reasons it could fail."""
         except json.JSONDecodeError:
             return {"concern_level": "LOW", "risk_flags": [], "reasoning": text[:200]}
         except Exception as e:
-            logger.error("OpenAI API call failed: %s", e)
+            logger.error("OpenAI API call failed: %s", e, exc_info=True)
             return None
 
     def _build_llm_context(self, signal: dict, context: dict) -> dict:

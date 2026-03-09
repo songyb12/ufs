@@ -125,7 +125,7 @@ class PortfolioScenarioStage(BaseStage):
                             entry_scenarios[symbol]["scenario_llm"] = text
                     logger.info("[S9] LLM scenarios generated")
             except Exception as e:
-                logger.error("[S9] LLM scenario generation failed: %s", e)
+                logger.error("[S9] LLM scenario generation failed: %s", e, exc_info=True)
 
         # Store scenarios to DB
         try:
@@ -163,7 +163,7 @@ class PortfolioScenarioStage(BaseStage):
             if scenario_rows:
                 await repo.insert_portfolio_scenarios(scenario_rows)
         except Exception as e:
-            logger.error("[S9] Failed to store scenarios: %s", e)
+            logger.error("[S9] Failed to store scenarios: %s", e, exc_info=True)
 
         logger.info(
             "[S9] Scenarios: %d held, %d entry opportunities",
@@ -210,7 +210,7 @@ class PortfolioScenarioStage(BaseStage):
             + "\n\n각 종목에 대해 2~3문장 시나리오를 작성하세요."
         )
 
-        provider = self.config.LLM_PROVIDER
+        provider = self.config.LLM_PROVIDER.lower()
 
         if provider == "anthropic":
             return await self._call_anthropic(prompt)
@@ -236,7 +236,7 @@ class PortfolioScenarioStage(BaseStage):
             logger.warning("[S9] LLM response not valid JSON")
             return None
         except Exception as e:
-            logger.error("[S9] Anthropic API failed: %s", e)
+            logger.error("[S9] Anthropic API failed: %s", e, exc_info=True)
             return None
 
     async def _call_openai(self, prompt: str) -> dict | None:
@@ -259,7 +259,7 @@ class PortfolioScenarioStage(BaseStage):
         except json.JSONDecodeError:
             return None
         except Exception as e:
-            logger.error("[S9] OpenAI API failed: %s", e)
+            logger.error("[S9] OpenAI API failed: %s", e, exc_info=True)
             return None
 
 

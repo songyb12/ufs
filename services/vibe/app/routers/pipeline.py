@@ -66,7 +66,7 @@ async def run_pipeline(request: PipelineRunRequest, req: Request):
             results.append({
                 "market": market,
                 "status": "failed",
-                "error": str(e),
+                "error": "Pipeline execution failed. Check server logs.",
             })
 
     return {"results": results}

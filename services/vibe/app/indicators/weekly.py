@@ -130,7 +130,7 @@ def _determine_trend(
         bearish_signals += 1
 
     # Price momentum (last 4 weeks)
-    if len(close) >= 4:
+    if len(close) >= 4 and close.iloc[-4] != 0:
         recent_return = (close.iloc[-1] - close.iloc[-4]) / close.iloc[-4] * 100
         if recent_return > 3:
             bullish_signals += 1

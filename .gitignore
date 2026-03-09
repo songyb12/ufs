@@ -39,3 +39,4 @@ node_modules/
 
 # Frontend build output
 frontend/*/dist/
+.claude/

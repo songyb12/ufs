@@ -37,8 +37,8 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
 
     # Get macro data
     macro_result = context.get("s3_macro_analysis")
-    macro_data = macro_result.data.get("raw_data", {}) if macro_result else {}
-    macro_details = macro_result.data.get("details", {}) if macro_result else {}
+    macro_data = (macro_result.data or {}).get("raw_data", {}) if macro_result and macro_result.data else {}
+    macro_details = (macro_result.data or {}).get("details", {}) if macro_result and macro_result.data else {}
 
     all_embeds = []
 
@@ -64,7 +64,7 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
     # Sentiment data (Phase D)
     sentiment_result = context.get("s3b_sentiment_analysis")
     sentiment_line = ""
-    if sentiment_result and sentiment_result.status == "success":
+    if sentiment_result and sentiment_result.status == "success" and sentiment_result.data:
         s_score = sentiment_result.data.get("sentiment_score", 0)
         s_emoji = _score_emoji(s_score)
         fg = sentiment_result.data.get("raw_data", {}).get("fear_greed_index")
@@ -97,8 +97,8 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
     for symbol, sig in per_symbol.items():
         name = symbol_names.get(symbol, symbol)
         hl = " [HL]" if sig.get("hard_limit_triggered") else ""
-        entry = (name, sig["raw_score"], hl)
-        if sig["final_signal"] == "BUY":
+        entry = (name, sig.get("raw_score", 0), hl)
+        if sig.get("final_signal") == "BUY":
             buy_symbols.append(entry)
         elif sig["final_signal"] == "SELL":
             sell_symbols.append(entry)
@@ -209,7 +209,7 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
             for symbol, scenario in held.items():
                 name = scenario.get("name", symbol_names.get(symbol, symbol))
                 pnl = scenario.get("pnl_pct", 0)
-                pnl_emoji = "\U0001f7e2" if pnl > 0 else "\U0001f534"
+                pnl_emoji = "\U0001f7e2" if pnl > 0 else "\U0001f7e1" if pnl == 0 else "\U0001f534"
                 targets = scenario.get("target_prices", {})
                 cur = scenario.get("current_price", 0)
                 sl = targets.get("stop_loss", 0)
@@ -258,7 +258,7 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
                     score = ns.get("news_score", 0)
                     emoji = "\U0001f7e2" if score > 0 else "\U0001f534" if score < 0 else "\U0001f7e1"
                     headlines = ns.get("headlines", [])
-                    top_headline = headlines[0]["title"][:60] if headlines else ""
+                    top_headline = headlines[0].get("title", "")[:60] if headlines else ""
                     news_lines.append(
                         f"{emoji} **{name}** ({score:+.0f}): {top_headline}"
                     )

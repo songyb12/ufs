@@ -55,6 +55,10 @@ class SignalPerformanceTracker:
             entry_price = record["entry_price"]
             signal_type = record["signal_type"]
 
+            if not entry_price or entry_price <= 0:
+                logger.warning("Skipping tracker for %s: invalid entry_price=%s", symbol, entry_price)
+                continue
+
             updates = {}
 
             # T+1

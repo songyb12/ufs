@@ -1,10 +1,23 @@
-import { useMidi } from '../../hooks/useMidi'
+import type { MidiDeviceInfo, MidiNoteEvent } from '../../types/midi'
 import { MidiDeviceList } from './MidiDeviceList'
 
-export function MidiStatus() {
-  const { isSupported, isConnected, devices, lastNote, error, requestAccess } =
-    useMidi()
+interface MidiStatusProps {
+  isSupported: boolean
+  isConnected: boolean
+  devices: MidiDeviceInfo[]
+  lastNote: MidiNoteEvent | null
+  error: string | null
+  requestAccess: () => void
+}
 
+export function MidiStatus({
+  isSupported,
+  isConnected,
+  devices,
+  lastNote,
+  error,
+  requestAccess,
+}: MidiStatusProps) {
   if (!isSupported) {
     return (
       <div className="bg-slate-800 rounded-lg p-4">

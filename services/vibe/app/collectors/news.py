@@ -84,7 +84,10 @@ async def fetch_market_news(market: str, max_articles: int = 10) -> list[dict[st
     seen_titles = set()
     unique = []
     for a in all_articles:
-        title_key = a["title"][:30].lower()
+        title = a.get("title", "")
+        if not title:
+            continue
+        title_key = title[:30].lower()
         if title_key not in seen_titles:
             seen_titles.add(title_key)
             unique.append(a)

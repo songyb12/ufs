@@ -42,8 +42,15 @@ class KRMarketCollector(BaseCollector):
             "거래량": "volume",
         })
 
-        # Convert index to date string
-        df.index = df.index.strftime("%Y-%m-%d")
+        # Drop rows where close is NaN (invalid data from pykrx)
+        if "close" in df.columns:
+            df = df.dropna(subset=["close"])
+
+        # Convert index to date string (guard against non-DatetimeIndex)
+        if hasattr(df.index, "strftime"):
+            df.index = df.index.strftime("%Y-%m-%d")
+        else:
+            df.index = pd.to_datetime(df.index).strftime("%Y-%m-%d")
         return df
 
     @async_retry(max_attempts=3, base_delay=2.0)
@@ -70,7 +77,11 @@ class KRMarketCollector(BaseCollector):
             "개인": "individual_net_buy",
         })
 
-        df.index = df.index.strftime("%Y-%m-%d")
+        # Convert index to date string (guard against non-DatetimeIndex)
+        if hasattr(df.index, "strftime"):
+            df.index = df.index.strftime("%Y-%m-%d")
+        else:
+            df.index = pd.to_datetime(df.index).strftime("%Y-%m-%d")
         return df
 
     @async_retry(max_attempts=2, base_delay=1.0)
@@ -88,9 +99,20 @@ class KRMarketCollector(BaseCollector):
             return {}
 
         row = df.iloc[0]
+
+        def _safe_val(series_row, col):
+            """Extract float from pandas row, returning None for NaN/missing."""
+            import math
+            if col not in series_row.index:
+                return None
+            val = series_row[col]
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                return None
+            return float(val)
+
         return {
-            "per": float(row.get("PER", 0)) if row.get("PER") else None,
-            "pbr": float(row.get("PBR", 0)) if row.get("PBR") else None,
-            "eps": float(row.get("EPS", 0)) if row.get("EPS") else None,
-            "div_yield": float(row.get("DIV", 0)) if row.get("DIV") else None,
+            "per": _safe_val(row, "PER"),
+            "pbr": _safe_val(row, "PBR"),
+            "eps": _safe_val(row, "EPS"),
+            "div_yield": _safe_val(row, "DIV"),
         }

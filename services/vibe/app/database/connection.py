@@ -32,8 +32,8 @@ async def get_db() -> aiosqlite.Connection:
                 logger.warning("DB connection stale, reconnecting: %s", e)
                 try:
                     await _connection.close()
-                except Exception:
-                    pass
+                except Exception as close_err:
+                    logger.warning("Error closing stale DB connection: %s", close_err)
                 _connection = None
 
         db = await aiosqlite.connect(_db_path)

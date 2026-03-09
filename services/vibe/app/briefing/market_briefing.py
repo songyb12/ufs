@@ -87,6 +87,7 @@ async def generate_market_briefing(target_date: str | None = None) -> dict:
             "yield_label": _yield_label(macro.get("us_yield_spread")),
             "wti": macro.get("wti_crude"),
             "gold": macro.get("gold_price"),
+            "copper": macro.get("copper_price"),
         }
 
     # --- 2. Sentiment ---
@@ -187,11 +188,11 @@ async def generate_market_briefing(target_date: str | None = None) -> dict:
         lines.append(f"VIX {macro_section.get('vix', 'N/A')} ({macro_section.get('vix_label', '')})")
         lines.append(f"DXY {macro_section.get('dxy', 'N/A')} | USD/KRW {macro_section.get('usd_krw', 'N/A')}")
         lines.append(f"US10Y {macro_section.get('us_10y', 'N/A')}% | Spread {macro_section.get('yield_spread', 'N/A')} ({macro_section.get('yield_label', '')})")
-        lines.append(f"WTI ${macro_section.get('wti', 'N/A')} | Gold ${macro_section.get('gold', 'N/A')}")
+        lines.append(f"WTI ${macro_section.get('wti', 'N/A')} | Gold ${macro_section.get('gold', 'N/A')} | Copper ${macro_section.get('copper', 'N/A')}")
     if sentiment_section:
         lines.append(f"Fear&Greed {sentiment_section.get('fear_greed', 'N/A')} ({sentiment_section.get('fear_greed_label', '')})")
         pcr = sentiment_section.get("put_call_ratio")
-        if pcr:
+        if pcr is not None:
             lines.append(f"Put/Call {pcr:.2f}")
     if latest_signal_date:
         kr = signal_summary.get("KR", {})
@@ -240,7 +241,7 @@ async def _generate_llm_commentary(content: dict) -> str | None:
         prompt = f"""아래 데이터를 바탕으로 오늘의 시황을 3~5문장의 한국어 브리핑으로 작성하세요.
 개인 투자자가 이해할 수 있도록 핵심만 전달하세요.
 
-매크로: VIX={macro.get('vix')}, DXY={macro.get('dxy')}, USD/KRW={macro.get('usd_krw')}, US10Y={macro.get('us_10y')}%, 금리스프레드={macro.get('yield_spread')}, WTI=${macro.get('wti')}, Gold=${macro.get('gold')}
+매크로: VIX={macro.get('vix')}, DXY={macro.get('dxy')}, USD/KRW={macro.get('usd_krw')}, US10Y={macro.get('us_10y')}%, 금리스프레드={macro.get('yield_spread')}, WTI=${macro.get('wti')}, Gold=${macro.get('gold')}, Copper=${macro.get('copper')}
 심리: Fear&Greed={sentiment.get('fear_greed')}({sentiment.get('fear_greed_label')}), Put/Call={sentiment.get('put_call_ratio')}, VIX구조={sentiment.get('vix_term_structure')}
 시그널: KR({signals.get('summary',{}).get('KR',{})}), US({signals.get('summary',{}).get('US',{})})
 주요종목: {', '.join(f"{m['name']}({m['signal']} {m['score']})" for m in movers[:5])}
@@ -272,5 +273,5 @@ async def _generate_llm_commentary(content: dict) -> str | None:
             logger.warning("Unknown LLM provider: %s", provider)
             return None
     except Exception as e:
-        logger.error("LLM commentary generation failed: %s", e)
+        logger.error("LLM commentary generation failed: %s", e, exc_info=True)
         return None

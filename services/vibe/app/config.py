@@ -38,11 +38,11 @@ class Settings(BaseSettings):
     MAX_RETRY_ATTEMPTS: int = 3
     RETRY_BASE_DELAY: float = 2.0
 
-    # Signal scoring weights
-    WEIGHT_TECHNICAL: float = 0.35
-    WEIGHT_MACRO: float = 0.20
-    WEIGHT_FUND_FLOW: float = 0.25  # KR only; US redistributes to tech/macro
-    WEIGHT_FUNDAMENTAL: float = 0.20
+    # Signal scoring weights (must sum to 1.0 with WEIGHT_SENTIMENT + WEIGHT_NEWS)
+    WEIGHT_TECHNICAL: float = 0.30
+    WEIGHT_MACRO: float = 0.18
+    WEIGHT_FUND_FLOW: float = 0.22  # KR only; US redistributes to tech/macro
+    WEIGHT_FUNDAMENTAL: float = 0.18
 
     # Red-Team (Stage 7)
     RED_TEAM_ENABLED: bool = True
@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     LLM_RED_TEAM_ENABLED: bool = False  # Enable after API key setup
     LLM_PROVIDER: str = "anthropic"  # 'anthropic' or 'openai'
     LLM_API_KEY: str = ""
-    LLM_MODEL: str = "claude-3-5-haiku-20241022"
+    LLM_MODEL: str = "claude-haiku-4-5-20251001"
 
     # US Fund Flow (Phase D)
     US_FUND_FLOW_ENABLED: bool = True
@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     API_KEY: str = ""  # Set via .env; empty = no auth required
     API_AUTH_ENABLED: bool = False  # Enable API key authentication
 
+    # JWT Authentication (ID/Password login)
+    JWT_SECRET: str = ""  # Empty = auto-generate at startup (uuid4)
+    JWT_EXPIRE_HOURS: int = 168  # 7 days (personal server)
+
     # CORS (comma-separated extra origins for external access)
     CORS_EXTRA_ORIGINS: str = ""  # e.g. "https://vibe.example.com"
 
@@ -106,8 +110,12 @@ class Settings(BaseSettings):
 
     # News Analysis (Phase F)
     NEWS_ENABLED: bool = True
-    WEIGHT_NEWS: float = 0.0  # News weight in signal scoring (0=disabled in scoring)
+    WEIGHT_NEWS: float = 0.02  # News weight in signal scoring (sum with other weights = 1.0)
     NEWS_MAX_ARTICLES: int = 5  # Max articles per symbol
+
+    # Logging
+    LOG_FORMAT: str = "text"  # 'text' (human-readable) or 'json' (structured)
+    LOG_LEVEL: str = "INFO"   # DEBUG, INFO, WARNING, ERROR
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

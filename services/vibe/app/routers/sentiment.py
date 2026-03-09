@@ -1,8 +1,12 @@
 """Sentiment API endpoints."""
 
-from fastapi import APIRouter
+import logging
+
+from fastapi import APIRouter, HTTPException
 
 from app.database import repositories as repo
+
+logger = logging.getLogger("vibe.routers.sentiment")
 
 router = APIRouter(prefix="/sentiment", tags=["sentiment"])
 
@@ -19,4 +23,6 @@ async def get_sentiment(days: int = 7):
 async def get_latest_sentiment():
     """Get the most recent sentiment reading."""
     data = await repo.get_latest_sentiment()
-    return data or {"message": "No sentiment data available"}
+    if not data:
+        raise HTTPException(status_code=404, detail="No sentiment data available")
+    return data

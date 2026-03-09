@@ -16,6 +16,9 @@ const SCHEDULE_INTERVAL = 25 // ms between scheduling checks
 export interface SchedulerCallbacks {
   onBeat: (beatNumber: number, time: number) => void
   onMeasureChange?: (measure: number) => void
+  /** Fires at scheduling time (in lookahead window) with precise audio time.
+   *  Use for sample-accurate audio scheduling (backing track, etc.) */
+  onBeatSchedule?: (beat: number, measure: number, time: number) => void
 }
 
 export class AudioScheduler {
@@ -43,6 +46,13 @@ export class AudioScheduler {
   }
 
   private scheduleNote(time: number): void {
+    // Fire scheduling callback BEFORE creating audio nodes
+    this.callbacks.onBeatSchedule?.(
+      this.currentBeat,
+      this.currentMeasure,
+      time,
+    )
+
     const osc = this.audioContext.createOscillator()
     const gain = this.audioContext.createGain()
     osc.connect(gain)

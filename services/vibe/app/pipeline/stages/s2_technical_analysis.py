@@ -52,7 +52,7 @@ class TechnicalAnalysisStage(BaseStage):
                 per_symbol[symbol] = indicators
 
                 # Store latest to DB
-                trade_date = df.index[-1]
+                trade_date = str(df.index[-1])[:10]
                 await repo.upsert_technical_indicators([{
                     "symbol": symbol,
                     "market": market,
@@ -61,8 +61,8 @@ class TechnicalAnalysisStage(BaseStage):
                 }])
 
             except Exception as e:
-                logger.error("[S2] %s: indicator computation failed - %s", symbol, e)
-                errors.append(f"{symbol}: {e}")
+                logger.error("[S2] %s: indicator computation failed - %s", symbol, e, exc_info=True)
+                errors.append(f"{symbol}: indicator computation failed")
 
         logger.info(
             "[S2] Computed indicators for %d/%d symbols",

@@ -1,5 +1,6 @@
 """Stage 4: Fund Flow Analysis - KR market investor trends (외국인/기관 수급)."""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -86,12 +87,11 @@ class FundFlowStage(BaseStage):
                 ]
                 await repo.upsert_fund_flow_kr(rows)
 
-                import asyncio
                 await asyncio.sleep(self.config.COLLECTION_DELAY_SECONDS)
 
             except Exception as e:
-                logger.error("[S4] %s: fund flow fetch failed - %s", symbol, e)
-                errors.append(f"{symbol}: {e}")
+                logger.error("[S4] %s: fund flow fetch failed - %s", symbol, e, exc_info=True)
+                errors.append(f"{symbol}: fund flow fetch failed")
 
         logger.info("[S4] Fund flow analyzed for %d/%d symbols", len(per_symbol), len(symbols))
 

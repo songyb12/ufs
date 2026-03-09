@@ -24,6 +24,11 @@ RETENTION_TARGETS = [
     ("macro_indicators", "indicator_date", "RETENTION_PRICE_DAYS"),
     ("portfolio_scenarios", "scenario_date", "RETENTION_NEWS_DAYS"),
     ("llm_reviews", "review_date", "RETENTION_NEWS_DAYS"),
+    ("position_exits", "exit_date", "RETENTION_SIGNAL_DAYS"),
+    ("alert_history", "fired_at", "RETENTION_NEWS_DAYS"),
+    ("screening_candidates", "detected_date", "RETENTION_NEWS_DAYS"),
+    ("backtest_trades", "entry_date", "RETENTION_SIGNAL_DAYS"),
+    ("backtest_runs", "started_at", "RETENTION_SIGNAL_DAYS"),
 ]
 
 

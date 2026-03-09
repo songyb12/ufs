@@ -9,7 +9,14 @@ logger = logging.getLogger("vibe.collectors.sentiment")
 
 
 async def fetch_fear_greed_index() -> dict[str, Any]:
-    """Fetch CNN Fear & Greed Index from alternative.me API."""
+    """Fetch Crypto Fear & Greed Index from alternative.me API.
+
+    NOTE: This is the crypto market Fear & Greed index, NOT the CNN equity
+    Fear & Greed index. It serves as a general market sentiment proxy but
+    may diverge from equity sentiment during crypto-specific events.
+    A CNN equity Fear & Greed scraper would require HTML parsing from
+    money.cnn.com which is fragile and rate-limited.
+    """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get("https://api.alternative.me/fng/?limit=1")
@@ -46,11 +53,13 @@ async def fetch_vix_term_structure() -> dict[str, Any]:
             if not vix3m_hist.empty:
                 result["vix3m_current"] = round(float(vix3m_hist["Close"].iloc[-1]), 2)
 
-            if result.get("vix_current") and result.get("vix3m_current"):
+            vix_val = result.get("vix_current")
+            vix3m_val = result.get("vix3m_current")
+            if vix_val is not None and vix3m_val is not None and vix3m_val > 0:
                 # Contango (VIX < VIX3M) = normal/bullish
                 # Backwardation (VIX > VIX3M) = stress/bearish
-                result["vix_term_structure"] = "contango" if result["vix_current"] < result["vix3m_current"] else "backwardation"
-                result["vix_ratio"] = round(result["vix_current"] / result["vix3m_current"], 4)
+                result["vix_term_structure"] = "contango" if vix_val < vix3m_val else "backwardation"
+                result["vix_ratio"] = round(vix_val / vix3m_val, 4)
 
             return result
         except Exception as e:
@@ -80,11 +89,12 @@ async def fetch_put_call_ratio() -> dict[str, Any]:
                     chain = spy.option_chain(exp_dates[0])
                     puts_vol = chain.puts["volume"].sum()
                     calls_vol = chain.calls["volume"].sum()
-                    if calls_vol > 0:
+                    import math
+                    if calls_vol > 0 and not math.isnan(calls_vol) and not math.isnan(puts_vol):
                         return {
-                            "put_call_ratio": round(puts_vol / calls_vol, 4),
-                            "puts_volume": int(puts_vol),
-                            "calls_volume": int(calls_vol),
+                            "put_call_ratio": round(float(puts_vol) / float(calls_vol), 4),
+                            "puts_volume": int(float(puts_vol)),
+                            "calls_volume": int(float(calls_vol)),
                         }
             except Exception as e:
                 logger.debug("SPY options chain parsing failed: %s", e)

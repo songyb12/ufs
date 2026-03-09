@@ -64,7 +64,7 @@ async def gather_analysis_context(
             (mkt,),
         )
         rows = [dict(r) for r in await c.fetchall()]
-        signal_summary[mkt] = {r["final_signal"]: {"count": r["cnt"], "avg_score": round(r["avg_score"], 1)} for r in rows}
+        signal_summary[mkt] = {r["final_signal"]: {"count": r["cnt"], "avg_score": round(r["avg_score"], 1) if r["avg_score"] is not None else 0} for r in rows}
 
     ctx["signals_summary"] = signal_summary
 
@@ -282,7 +282,7 @@ async def run_ai_analysis(
     # 3. Call LLM
     analysis_text = None
     model = settings.LLM_EXPLANATION_MODEL or settings.LLM_MODEL
-    provider = settings.LLM_PROVIDER.lower()
+    provider = (settings.LLM_PROVIDER or "").lower()
 
     try:
         if provider == "anthropic":
@@ -306,8 +306,8 @@ async def run_ai_analysis(
         else:
             return {"status": "error", "message": f"Unknown LLM provider: {provider}"}
     except Exception as e:
-        logger.error("AI analysis LLM call failed: %s", e)
-        return {"status": "error", "message": f"LLM 호출 실패: {str(e)}"}
+        logger.error("AI analysis LLM call failed: %s", e, exc_info=True)
+        return {"status": "error", "message": "LLM 호출 실패. 서버 로그를 확인하세요."}
 
     # 4. Build response
     return {

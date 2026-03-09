@@ -50,7 +50,8 @@ async def generate_monthly_report(
     )
     signal_counts = {"BUY": 0, "SELL": 0, "HOLD": 0}
     for row in await cursor.fetchall():
-        signal_counts[row["final_signal"]] = row["cnt"]
+        if row["final_signal"] in signal_counts:
+            signal_counts[row["final_signal"]] = row["cnt"]
 
     # 2. Performance hit rates
     cursor = await db.execute(

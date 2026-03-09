@@ -1,5 +1,6 @@
 """Backtest API endpoints."""
 
+import logging
 from datetime import date, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -9,6 +10,8 @@ from app.backtesting.optimizer import ParameterOptimizer
 from app.config import settings
 from app.database import repositories as repo
 from app.models.schemas import BacktestRequest, BacktestResultResponse, BacktestRunResponse
+
+logger = logging.getLogger("vibe.routers.backtest")
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
@@ -21,6 +24,7 @@ async def run_backtest(request: BacktestRequest, bg: BackgroundTasks):
         date.today() - timedelta(days=settings.BACKTEST_DEFAULT_DAYS)
     ).strftime("%Y-%m-%d")
 
+    logger.info("Backtest triggered (async): market=%s, period=%s to %s", request.market, start, end)
     engine = BacktestEngine(settings)
 
     async def _run():
@@ -48,21 +52,35 @@ async def run_backtest_sync(request: BacktestRequest):
         date.today() - timedelta(days=settings.BACKTEST_DEFAULT_DAYS)
     ).strftime("%Y-%m-%d")
 
-    engine = BacktestEngine(settings)
-    result = await engine.run(
-        market=request.market.value if hasattr(request.market, "value") else request.market,
-        start_date=start,
-        end_date=end,
-        config_overrides=request.config_overrides,
-    )
-    return result
+    logger.info("Backtest triggered (sync): market=%s, period=%s to %s", request.market, start, end)
+    try:
+        engine = BacktestEngine(settings)
+        result = await engine.run(
+            market=request.market.value if hasattr(request.market, "value") else request.market,
+            start_date=start,
+            end_date=end,
+            config_overrides=request.config_overrides,
+        )
+        return result
+    except Exception as e:
+        logger.error("Sync backtest failed: market=%s, error=%s", request.market, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Backtest execution failed. Check server logs for details.")
 
 
 @router.get("/results", response_model=list[BacktestResultResponse])
 async def get_backtest_results(limit: int = 20):
     """List recent backtest runs."""
+    import json as _json
     limit = min(max(limit, 1), 100)
     runs = await repo.get_backtest_runs(limit=limit)
+    # Parse config_snapshot JSON for display
+    for run in runs:
+        cs = run.get("config_snapshot")
+        if isinstance(cs, str):
+            try:
+                run["config_snapshot"] = _json.loads(cs)
+            except (ValueError, TypeError):
+                run["config_snapshot"] = None
     return runs
 
 

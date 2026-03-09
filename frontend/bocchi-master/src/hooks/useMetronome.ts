@@ -1,9 +1,15 @@
 import { useState, useRef, useCallback } from 'react'
 import { AudioScheduler } from '../utils/audioScheduler'
-import { useAudioContext } from './useAudioContext'
+import { getSharedAudioContext } from '../utils/audioContextSingleton'
 
-export function useMetronome() {
-  const { ensureResumed } = useAudioContext()
+export function useMetronome(
+  externalOnBeatSchedule?: (
+    beat: number,
+    measure: number,
+    time: number,
+    ctx: AudioContext,
+  ) => void,
+) {
   const schedulerRef = useRef<AudioScheduler | null>(null)
 
   const [bpm, setBpmState] = useState(120)
@@ -12,8 +18,12 @@ export function useMetronome() {
   const [currentBeat, setCurrentBeat] = useState(-1)
   const [currentMeasure, setCurrentMeasure] = useState(0)
 
+  // Keep a ref to the latest callback to avoid stale closures
+  const onBeatScheduleRef = useRef(externalOnBeatSchedule)
+  onBeatScheduleRef.current = externalOnBeatSchedule
+
   const start = useCallback(async () => {
-    const ctx = await ensureResumed()
+    const ctx = await getSharedAudioContext()
 
     if (schedulerRef.current) {
       schedulerRef.current.stop()
@@ -22,10 +32,13 @@ export function useMetronome() {
     schedulerRef.current = new AudioScheduler(ctx, bpm, beatsPerMeasure, {
       onBeat: (beat) => setCurrentBeat(beat),
       onMeasureChange: (measure) => setCurrentMeasure(measure),
+      onBeatSchedule: (beat, measure, time) => {
+        onBeatScheduleRef.current?.(beat, measure, time, ctx)
+      },
     })
     schedulerRef.current.start()
     setIsPlaying(true)
-  }, [bpm, beatsPerMeasure, ensureResumed])
+  }, [bpm, beatsPerMeasure])
 
   const stop = useCallback(() => {
     schedulerRef.current?.stop()

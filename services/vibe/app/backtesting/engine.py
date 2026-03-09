@@ -147,7 +147,7 @@ class BacktestEngine:
         except Exception as e:
             logger.exception("Backtest failed: %s", e)
             await repo.update_backtest_run(backtest_id, "failed")
-            return {"backtest_id": backtest_id, "error": str(e)}
+            return {"backtest_id": backtest_id, "error": "Backtest execution failed. Check server logs."}
 
     def _simulate(
         self,
@@ -185,6 +185,10 @@ class BacktestEngine:
 
                 current_price = window.iloc[-1]["close"]
 
+                # Skip if price is invalid (NaN from coercion or zero)
+                if pd.isna(current_price) or current_price <= 0:
+                    continue
+
                 # Compute technical indicators
                 indicators = compute_all_indicators(window)
                 if not indicators:
@@ -194,7 +198,7 @@ class BacktestEngine:
                 # Compute scores
                 tech_score = compute_technical_score(indicators)
 
-                fund_flow_score = 0.0
+                fund_flow_score = None
                 if market == "KR" and symbol in fund_flow_by_symbol:
                     ff_data = fund_flow_by_symbol[symbol].get(day_str)
                     if ff_data:
@@ -229,6 +233,8 @@ class BacktestEngine:
                 if symbol in open_positions:
                     pos = open_positions[symbol]
                     entry_price = pos["entry_price"]
+                    if entry_price is None or entry_price <= 0:
+                        continue  # Skip invalid entry price
                     current_return = (current_price - entry_price) / entry_price * 100
                     holding_days = (
                         datetime.strptime(day_str, "%Y-%m-%d")
@@ -272,6 +278,8 @@ class BacktestEngine:
                 last_price = last_row["close"]
                 last_date = last_row["trade_date"]
                 entry_price = pos["entry_price"]
+                if entry_price is None or entry_price <= 0 or pd.isna(last_price) or last_price <= 0:
+                    continue  # Skip positions with invalid prices
                 current_return = (last_price - entry_price) / entry_price * 100
                 holding_days = (
                     datetime.strptime(last_date, "%Y-%m-%d")
