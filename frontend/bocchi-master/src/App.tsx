@@ -141,6 +141,7 @@ export default function App() {
 
   // Fretboard zoom (fret range) — reset when instrument changes
   const [fretRange, setFretRange] = useState<[number, number]>([0, instrument.fretCount])
+  const [autoZoom, setAutoZoom] = useState(false)
   useEffect(() => {
     setFretRange([0, instrument.fretCount])
   }, [instrument.fretCount])
@@ -329,6 +330,25 @@ export default function App() {
     voicingMode === 'voicing' && availableVoicings.length > 0
       ? availableVoicings[voicingIndex] ?? null
       : null
+
+  // Auto-zoom fretboard to fit current voicing (when enabled)
+  useEffect(() => {
+    if (!autoZoom) return
+    if (currentVoicing) {
+      const frettedFrets = currentVoicing.frets.filter((f) => f > 0)
+      if (frettedFrets.length > 0) {
+        const min = Math.min(...frettedFrets)
+        const max = Math.max(...frettedFrets)
+        const hasOpen = currentVoicing.frets.some((f) => f === 0)
+        const start = hasOpen ? 0 : Math.max(0, min - 1)
+        const end = Math.min(instrument.fretCount, max + 2)
+        setFretRange([start, end])
+      }
+    } else {
+      // No voicing — reset to full
+      setFretRange([0, instrument.fretCount])
+    }
+  }, [autoZoom, currentVoicing, instrument.fretCount])
 
   // Sync activeChordIndex with metronome measure + auto-stop
   useEffect(() => {
@@ -629,12 +649,23 @@ export default function App() {
           </select>
           {(fretRange[0] !== 0 || fretRange[1] !== instrument.fretCount) && (
             <button
-              onClick={() => setFretRange([0, instrument.fretCount])}
+              onClick={() => { setFretRange([0, instrument.fretCount]); setAutoZoom(false) }}
               className="text-xs text-slate-500 hover:text-slate-300"
             >
               Reset
             </button>
           )}
+          <button
+            onClick={() => setAutoZoom((v) => !v)}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              autoZoom
+                ? 'bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-500/40'
+                : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+            }`}
+            title="Auto-zoom fretboard to fit current voicing position"
+          >
+            Auto
+          </button>
           {/* String focus toggles */}
           <span className="text-slate-700 mx-1">|</span>
           <span className="text-xs text-slate-500">Strings:</span>
