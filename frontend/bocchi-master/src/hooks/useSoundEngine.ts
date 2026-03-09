@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { getSharedAudioContext } from '../utils/audioContextSingleton'
-import { playNote, playChord, midiNoteToFrequency } from '../utils/synthEngine'
+import { playNote, playChord, midiNoteToFrequency, type ChordPlayMode } from '../utils/synthEngine'
 import type { Note, InstrumentConfig } from '../types/music'
 import type { ChordVoicing } from '../utils/voicingLibrary'
 
@@ -13,6 +13,7 @@ export function useSoundEngine() {
   const playVoicing = useCallback(async (
     voicing: ChordVoicing,
     instrument: InstrumentConfig,
+    mode: ChordPlayMode = 'strum',
   ) => {
     const ctx = await getSharedAudioContext()
     // Collect MIDI numbers for non-muted strings, low to high
@@ -21,7 +22,7 @@ export function useSoundEngine() {
         fret >= 0 ? instrument.tuning[stringIdx].midiNumber + fret : null,
       )
       .filter((n): n is number => n !== null)
-    playChord(ctx, midiNotes)
+    playChord(ctx, midiNotes, mode)
   }, [])
 
   return { playFretboardNote, playVoicing }
