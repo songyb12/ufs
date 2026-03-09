@@ -39,6 +39,8 @@ import { usePracticeMode } from './hooks/usePracticeMode'
 import { PracticePanel } from './components/practice/PracticePanel'
 import { loadSettings, saveSettings } from './utils/storage'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { useIntervalTrainer } from './hooks/useIntervalTrainer'
+import { IntervalTrainerPanel } from './components/trainer/IntervalTrainerPanel'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -72,6 +74,7 @@ export default function App() {
   const soundEngine = useSoundEngine()
   const midi = useMidi()
   const practice = usePracticeMode()
+  const intervalTrainer = useIntervalTrainer()
 
   // Derive MIDI active note name for fretboard highlight
   const midiNoteName: NoteName | undefined = useMemo(() => {
@@ -97,6 +100,9 @@ export default function App() {
     ScaleDefinition | ChordDefinition | null
   >(resolveDefinition(initialSettings.selectedDefinitionName, initialSettings.mode))
   const [mode, setMode] = useState<'scale' | 'chord'>(initialSettings.mode)
+
+  // Note label mode (name / interval / degree)
+  const [labelMode, setLabelMode] = useState<import('./utils/noteLabelFormatter').NoteLabelMode>('name')
 
   // Refs for backing track getters (avoids circular dependency with useMetronome)
   const chordRootRef = useRef<NoteName | null>(null)
@@ -448,6 +454,23 @@ export default function App() {
 
       {/* Fretboard */}
       <section>
+        {/* Label mode toggle */}
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="text-xs text-slate-500 mr-1">Labels:</span>
+          {(['name', 'interval', 'degree'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setLabelMode(m)}
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                m === labelMode
+                  ? 'bg-sky-500/20 text-sky-400 ring-1 ring-sky-500/40'
+                  : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              {m === 'name' ? 'Note' : m === 'interval' ? 'Interval' : 'Degree'}
+            </button>
+          ))}
+        </div>
         <Fretboard
           instrument={instrument}
           highlightedNotes={highlightedNotes}
@@ -456,6 +479,7 @@ export default function App() {
           voicingPositions={fretboardVoicingPositions}
           midiNoteName={midiNoteName}
           scaleOverlayNoteNames={scaleOverlayNoteNames}
+          labelMode={labelMode}
           onNoteClick={handleNoteClick}
         />
         {highlightedNotes.length > 0 && (
@@ -552,6 +576,23 @@ export default function App() {
           lastNote={midi.lastNote}
           error={midi.error}
           requestAccess={midi.requestAccess}
+        />
+        <IntervalTrainerPanel
+          active={intervalTrainer.active}
+          question={intervalTrainer.question}
+          stats={intervalTrainer.stats}
+          setIndex={intervalTrainer.setIndex}
+          direction={intervalTrainer.direction}
+          lastAnswer={intervalTrainer.lastAnswer}
+          revealed={intervalTrainer.revealed}
+          onStart={intervalTrainer.start}
+          onStop={intervalTrainer.stop}
+          onSetChange={intervalTrainer.setSetIndex}
+          onDirectionChange={intervalTrainer.setDirection}
+          onAnswer={intervalTrainer.answer}
+          onReplay={intervalTrainer.replay}
+          onNext={intervalTrainer.next}
+          onReset={intervalTrainer.reset}
         />
       </div>
     </AppShell>

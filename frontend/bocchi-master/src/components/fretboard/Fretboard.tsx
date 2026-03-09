@@ -4,6 +4,7 @@ import { getNoteAtFret, calculateFretX } from '../../utils/noteCalculator'
 import { FretboardString } from './FretboardString'
 import { FretMarker } from './FretMarker'
 import { NoteLabel } from './NoteLabel'
+import { getNoteLabel, type NoteLabelMode } from '../../utils/noteLabelFormatter'
 
 interface FretboardProps {
   instrument: InstrumentConfig
@@ -13,6 +14,7 @@ interface FretboardProps {
   voicingPositions?: number[]  // per-string fret array. -1=mute, 0=open, 1+=fret
   midiNoteName?: NoteName      // currently active MIDI note (highlight all instances)
   scaleOverlayNoteNames?: NoteName[]  // improv scale overlay (amber)
+  labelMode?: NoteLabelMode    // 'name' | 'interval' | 'degree'
   onNoteClick?: (note: Note, stringIndex: number, fret: number) => void
 }
 
@@ -32,6 +34,7 @@ export function Fretboard({
   voicingPositions,
   midiNoteName,
   scaleOverlayNoteNames = [],
+  labelMode = 'name',
   onNoteClick,
 }: FretboardProps) {
   const { stringCount, fretCount, tuning } = instrument
@@ -203,6 +206,12 @@ export function Fretboard({
             const isMidi = midiNoteName === note.name
             const isOverlay = scaleOverlaySet.has(note.name) && !inScale && !isVoicing
 
+            // Compute display label based on mode (only for visible notes)
+            const showLabel = highlighted || isMidi || isVoicing || inScale || isRoot || isOverlay
+            const displayLabel = showLabel && labelMode !== 'name'
+              ? getNoteLabel(note.name, rootNote, labelMode)
+              : undefined
+
             return (
               <NoteLabel
                 key={`note-${stringIndex}-${fret}`}
@@ -215,6 +224,7 @@ export function Fretboard({
                 isVoicing={isVoicing}
                 isMidiActive={isMidi}
                 isScaleOverlay={isOverlay}
+                displayLabel={displayLabel}
                 onClick={() => onNoteClick?.(note, stringIndex, fret)}
               />
             )

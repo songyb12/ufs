@@ -11,6 +11,7 @@ interface NoteLabelProps {
   isVoicing?: boolean
   isMidiActive?: boolean
   isScaleOverlay?: boolean
+  displayLabel?: string  // custom label (for interval/degree modes)
   onClick?: () => void
 }
 
@@ -35,10 +36,12 @@ export const NoteLabel = memo(function NoteLabel({
   isVoicing = false,
   isMidiActive = false,
   isScaleOverlay = false,
+  displayLabel,
   onClick,
 }: NoteLabelProps) {
   const radius = 12
-  const isSharp = note.name.includes('#')
+  const label = displayLabel ?? note.name
+  const isSharp = label.includes('#') || label.length > 2
 
   // Determine visual state
   const isVisible = isHighlighted || isMidiActive || isVoicing || isInScale || isRoot || isScaleOverlay
@@ -138,7 +141,7 @@ export const NoteLabel = memo(function NoteLabel({
         fontWeight={textWeight}
         opacity={isVisible ? textOpacity : 0.6}
       >
-        {note.name}
+        {label}
       </text>
     </g>
   )
