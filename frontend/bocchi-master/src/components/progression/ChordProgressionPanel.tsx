@@ -151,11 +151,33 @@ export function ChordProgressionPanel({
           🎲 Random
         </button>
 
-        {/* Key label */}
+        {/* Key label + transpose buttons */}
         {progressionKey && (
-          <span className="text-xs text-slate-500">
-            Key: <span className="text-slate-300 font-semibold">{progressionKey}</span>
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500">
+              Key: <span className="text-slate-300 font-semibold">{progressionKey}</span>
+            </span>
+            <button
+              onClick={() => {
+                const idx = CHROMATIC_SCALE.indexOf(progressionKey)
+                onKeyChange(CHROMATIC_SCALE[(idx - 1 + 12) % 12])
+              }}
+              className="w-5 h-5 rounded bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white text-xs font-bold transition-colors"
+              title="Transpose down one semitone"
+            >
+              -
+            </button>
+            <button
+              onClick={() => {
+                const idx = CHROMATIC_SCALE.indexOf(progressionKey)
+                onKeyChange(CHROMATIC_SCALE[(idx + 1) % 12])
+              }}
+              className="w-5 h-5 rounded bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white text-xs font-bold transition-colors"
+              title="Transpose up one semitone"
+            >
+              +
+            </button>
+          </div>
         )}
       </div>
 
