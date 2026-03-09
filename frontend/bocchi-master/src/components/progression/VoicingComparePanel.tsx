@@ -1,6 +1,12 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { ChordDiagram } from './ChordDiagram'
-import type { ChordVoicing } from '../../utils/voicingLibrary'
+import { classifyDifficulty, type ChordVoicing, type VoicingDifficulty } from '../../utils/voicingLibrary'
+
+const DIFFICULTY_LABELS: Record<VoicingDifficulty, { label: string; color: string }> = {
+  open: { label: 'Open', color: 'text-emerald-400 bg-emerald-500/20 ring-emerald-500/40' },
+  barre: { label: 'Barre', color: 'text-amber-400 bg-amber-500/20 ring-amber-500/40' },
+  advanced: { label: 'Adv', color: 'text-rose-400 bg-rose-500/20 ring-rose-500/40' },
+}
 
 interface VoicingComparePanelProps {
   voicings: ChordVoicing[]
@@ -23,6 +29,25 @@ export function VoicingComparePanel({
   onPlayVoicing,
 }: VoicingComparePanelProps) {
   const [expanded, setExpanded] = useState(false)
+  const [difficultyFilter, setDifficultyFilter] = useState<VoicingDifficulty | 'all'>('all')
+
+  // Classify each voicing
+  const classified = useMemo(() =>
+    voicings.map((v, i) => ({ voicing: v, difficulty: classifyDifficulty(v), originalIndex: i })),
+    [voicings],
+  )
+
+  // Filter voicings
+  const filtered = difficultyFilter === 'all'
+    ? classified
+    : classified.filter((c) => c.difficulty === difficultyFilter)
+
+  // Count per difficulty
+  const counts = useMemo(() => {
+    const c = { open: 0, barre: 0, advanced: 0 }
+    for (const item of classified) c[item.difficulty]++
+    return c
+  }, [classified])
 
   if (voicings.length <= 1) return null
 
@@ -37,12 +62,12 @@ export function VoicingComparePanel({
     )
   }
 
-  // Show a paginated set of voicings (5 at a time)
+  // Show a paginated set of filtered voicings (5 at a time)
   const PAGE_SIZE = 5
-  const totalPages = Math.ceil(voicings.length / PAGE_SIZE)
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const [page, setPage] = useState(Math.floor(activeIndex / PAGE_SIZE))
   const startIdx = page * PAGE_SIZE
-  const pageVoicings = voicings.slice(startIdx, startIdx + PAGE_SIZE)
+  const pageItems = filtered.slice(startIdx, startIdx + PAGE_SIZE)
 
   return (
     <div className="bg-slate-800/50 rounded-lg px-3 py-2 flex flex-col gap-2">
@@ -53,7 +78,27 @@ export function VoicingComparePanel({
             <span className="text-slate-400 ml-1 normal-case">— {chordName}</span>
           )}
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Difficulty filter */}
+          <div className="flex items-center gap-1">
+            {(['all', 'open', 'barre', 'advanced'] as const).map((d) => {
+              const count = d === 'all' ? classified.length : counts[d]
+              const isActive = difficultyFilter === d
+              const style = d === 'all'
+                ? isActive ? 'text-sky-400 bg-sky-500/20 ring-1 ring-sky-500/40' : 'text-slate-500 bg-slate-700'
+                : isActive ? `${DIFFICULTY_LABELS[d].color} ring-1` : 'text-slate-500 bg-slate-700'
+              return (
+                <button
+                  key={d}
+                  onClick={() => { setDifficultyFilter(d); setPage(0) }}
+                  disabled={count === 0}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors disabled:opacity-30 ${style}`}
+                >
+                  {d === 'all' ? 'All' : DIFFICULTY_LABELS[d].label} ({count})
+                </button>
+              )
+            })}
+          </div>
           {totalPages > 1 && (
             <div className="flex items-center gap-1">
               <button
@@ -86,36 +131,43 @@ export function VoicingComparePanel({
 
       {/* Voicing cards grid */}
       <div className="flex gap-2 flex-wrap">
-        {pageVoicings.map((voicing, i) => {
-          const globalIdx = startIdx + i
-          const isActive = globalIdx === activeIndex
+        {filtered.length === 0 && (
+          <p className="text-xs text-slate-600 italic">No voicings match this filter.</p>
+        )}
+        {pageItems.map((item) => {
+          const { voicing, difficulty, originalIndex } = item
+          const isActive = originalIndex === activeIndex
+          const diffStyle = DIFFICULTY_LABELS[difficulty]
           return (
             <div
-              key={globalIdx}
+              key={originalIndex}
               className={`flex flex-col items-center px-2 py-1.5 rounded-lg border-2 cursor-pointer transition-all ${
                 isActive
                   ? 'border-emerald-400 bg-emerald-500/10'
                   : 'border-slate-700 bg-slate-800 hover:border-slate-600'
               }`}
-              onClick={() => onSelect(globalIdx)}
+              onClick={() => onSelect(originalIndex)}
             >
-              {/* Voicing label */}
+              {/* Voicing label + difficulty badge */}
               <div className="flex items-center gap-1 mb-1">
                 <span
                   className={`text-[10px] font-bold ${
                     isActive ? 'text-emerald-400' : 'text-slate-500'
                   }`}
                 >
-                  #{globalIdx + 1}
+                  #{originalIndex + 1}
                 </span>
-                <span
-                  className={`text-[10px] ${
-                    isActive ? 'text-slate-300' : 'text-slate-600'
-                  }`}
-                >
-                  {voicing.name}
+                <span className={`text-[8px] px-1 rounded ${diffStyle.color}`}>
+                  {diffStyle.label}
                 </span>
               </div>
+              <span
+                className={`text-[10px] mb-0.5 ${
+                  isActive ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              >
+                {voicing.name}
+              </span>
 
               {/* Mini chord diagram */}
               <ChordDiagram frets={voicing.frets} />
@@ -130,7 +182,7 @@ export function VoicingComparePanel({
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    onPlayVoicing(globalIdx)
+                    onPlayVoicing(originalIndex)
                   }}
                   className="mt-1 text-[10px] text-slate-500 hover:text-sky-400 transition-colors"
                   title="Play this voicing"

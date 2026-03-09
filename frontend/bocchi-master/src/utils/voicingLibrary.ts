@@ -3,10 +3,47 @@ import { CHROMATIC_SCALE } from '../constants/notes'
 
 // ----- Types -----
 
+export type VoicingDifficulty = 'open' | 'barre' | 'advanced'
+
 export interface ChordVoicing {
   name: string           // 'E Shape (fret 3)', 'Auto #1', etc.
   frets: number[]        // per-string fret numbers. -1=mute, 0=open, 1+=fret
   source: 'caged' | 'auto'
+}
+
+/**
+ * Classify voicing difficulty:
+ * - open: contains open strings, no barre, low fret position
+ * - barre: requires barre (same fret across 3+ strings) or high stretch
+ * - advanced: wide stretch (4+ frets) or complex muting patterns
+ */
+export function classifyDifficulty(voicing: ChordVoicing): VoicingDifficulty {
+  const playedFrets = voicing.frets.filter((f) => f >= 0)
+  const frettedFrets = playedFrets.filter((f) => f > 0)
+  const hasOpen = playedFrets.some((f) => f === 0)
+  const mutedCount = voicing.frets.filter((f) => f === -1).length
+
+  if (frettedFrets.length === 0) return 'open'
+
+  const minFret = Math.min(...frettedFrets)
+  const maxFret = Math.max(...frettedFrets)
+  const stretch = maxFret - minFret
+
+  // Check for barre: 3+ strings at the same fret
+  const fretCounts = new Map<number, number>()
+  for (const f of frettedFrets) fretCounts.set(f, (fretCounts.get(f) ?? 0) + 1)
+  const hasBarre = [...fretCounts.values()].some((c) => c >= 3)
+
+  // Advanced: wide stretch or complex muting
+  if (stretch >= 4 || (mutedCount >= 2 && !hasOpen && hasBarre)) return 'advanced'
+
+  // Barre: has barre pattern or no open strings above fret 3
+  if (hasBarre || (!hasOpen && minFret > 3)) return 'barre'
+
+  // Open: has open strings and low position
+  if (hasOpen && maxFret <= 4) return 'open'
+
+  return 'barre'
 }
 
 export interface CAGEDShape {
