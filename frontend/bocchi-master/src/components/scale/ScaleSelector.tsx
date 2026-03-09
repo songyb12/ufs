@@ -18,6 +18,72 @@ interface ScaleSelectorProps {
   onModeChange: (mode: Mode) => void
 }
 
+// ── Group definitions for optgroup rendering ──
+
+interface DefinitionGroup {
+  label: string
+  items: (ScaleDefinition | ChordDefinition)[]
+}
+
+const SCALE_GROUPS: DefinitionGroup[] = [
+  {
+    label: 'Major Modes',
+    items: SCALES.filter((s) =>
+      ['Major (Ionian)', 'Dorian', 'Phrygian', 'Lydian', 'Mixolydian', 'Natural Minor (Aeolian)', 'Locrian']
+        .includes(s.name),
+    ),
+  },
+  {
+    label: 'Minor Variants',
+    items: SCALES.filter((s) =>
+      ['Harmonic Minor', 'Melodic Minor'].includes(s.name),
+    ),
+  },
+  {
+    label: 'Pentatonic & Blues',
+    items: SCALES.filter((s) =>
+      ['Pentatonic Major', 'Pentatonic Minor', 'Blues', 'Blues Major'].includes(s.name),
+    ),
+  },
+  {
+    label: 'Exotic / Symmetric',
+    items: SCALES.filter((s) =>
+      ['Whole Tone', 'Diminished (HW)', 'Diminished (WH)', 'Chromatic'].includes(s.name),
+    ),
+  },
+  {
+    label: 'Jazz',
+    items: SCALES.filter((s) =>
+      ['Altered (Super Locrian)', 'Lydian Dominant', 'Half-Whole Diminished'].includes(s.name),
+    ),
+  },
+]
+
+const CHORD_GROUPS: DefinitionGroup[] = [
+  {
+    label: 'Triads',
+    items: CHORDS.filter((c) =>
+      ['Major', 'Minor', 'dim', 'aug', 'sus2', 'sus4'].includes(c.name),
+    ),
+  },
+  {
+    label: 'Seventh Chords',
+    items: CHORDS.filter((c) =>
+      ['7th', 'm7', 'Maj7', 'mMaj7', 'dim7', 'm7b5', '7sus4'].includes(c.name),
+    ),
+  },
+  {
+    label: 'Extended Chords',
+    items: CHORDS.filter((c) =>
+      ['add9', 'madd9', '9th', 'm9', 'Maj9'].includes(c.name),
+    ),
+  },
+  {
+    label: 'Other',
+    items: CHORDS.filter((c) => ['5 (Power)'].includes(c.name)),
+  },
+]
+
 export function ScaleSelector({
   selectedRoot,
   selectedDefinition,
@@ -26,7 +92,8 @@ export function ScaleSelector({
   onDefinitionChange,
   onModeChange,
 }: ScaleSelectorProps) {
-  const definitions = mode === 'scale' ? SCALES : CHORDS
+  const groups = mode === 'scale' ? SCALE_GROUPS : CHORD_GROUPS
+  const allDefs = mode === 'scale' ? SCALES : CHORDS
 
   const handleClear = () => {
     onRootChange(null)
@@ -61,11 +128,11 @@ export function ScaleSelector({
           </button>
         </div>
 
-        {/* Definition dropdown */}
+        {/* Definition dropdown with optgroups */}
         <select
           value={selectedDefinition?.name ?? ''}
           onChange={(e) => {
-            const found = definitions.find((d) => d.name === e.target.value)
+            const found = allDefs.find((d) => d.name === e.target.value)
             onDefinitionChange(found ?? null)
           }}
           className="bg-slate-700 text-slate-300 text-sm rounded px-2 py-1 outline-none border border-slate-600"
@@ -73,10 +140,14 @@ export function ScaleSelector({
           <option value="">
             {mode === 'scale' ? 'Select scale...' : 'Select chord...'}
           </option>
-          {definitions.map((def) => (
-            <option key={def.name} value={def.name}>
-              {def.name}
-            </option>
+          {groups.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.items.map((def) => (
+                <option key={def.name} value={def.name}>
+                  {def.name}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
 
