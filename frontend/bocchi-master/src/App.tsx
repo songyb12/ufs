@@ -51,6 +51,7 @@ import { suggestEnharmonicMode, getEnharmonicName, type EnharmonicMode } from '.
 import { StrumPatternPanel } from './components/rhythm/StrumPatternPanel'
 import { TempoTrainerPanel } from './components/metronome/TempoTrainerPanel'
 import { TuningQuickSwitch } from './components/fretboard/TuningQuickSwitch'
+import { ChordTransitionTimer } from './components/trainer/ChordTransitionTimer'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -877,6 +878,12 @@ export default function App() {
         isPlaying={metronome.isPlaying}
         currentMeasure={metronome.currentMeasure}
         onBpmChange={metronome.setBpm}
+      />
+
+      {/* Chord Transition Timer */}
+      <ChordTransitionTimer
+        activeChordName={activeChord?.chordName}
+        isPlaying={metronome.isPlaying}
       />
 
       {/* Fretboard Quiz */}
