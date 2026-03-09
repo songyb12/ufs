@@ -156,12 +156,6 @@ export default function App() {
   // Fretboard orientation
   const [leftHanded, setLeftHanded] = useState(false)
 
-  // Auto-suggest enharmonic mode when root key changes
-  useEffect(() => {
-    const key = selectedRoot ?? progressionKey
-    if (key) setEnharmonicMode(suggestEnharmonicMode(key))
-  }, [selectedRoot, progressionKey])
-
   // Fretboard zoom (fret range) — reset when instrument or capo changes
   const [fretRange, setFretRange] = useState<[number, number]>([0, effectiveInstrument.fretCount])
   const [autoZoom, setAutoZoom] = useState(false)
@@ -214,6 +208,12 @@ export default function App() {
       resolvePreset(initialSettings.progressionPresetName),
     )
   const [activeChordIndex, setActiveChordIndex] = useState(0)
+
+  // Auto-suggest enharmonic mode when root key changes
+  useEffect(() => {
+    const key = selectedRoot ?? progressionKey
+    if (key) setEnharmonicMode(suggestEnharmonicMode(key))
+  }, [selectedRoot, progressionKey])
 
   // Progression loop control (0 = infinite loop, N = stop after N loops)
   const [loopCount, setLoopCount] = useState(0)

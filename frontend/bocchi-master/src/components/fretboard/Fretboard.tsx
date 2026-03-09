@@ -245,7 +245,7 @@ export function Fretboard({
               fill="#64748b"
               {...(leftHanded ? { transform: `translate(${2 * x}, 0) scale(-1, 1)` } : {})}
             >
-              {enharmonicMode === 'flat' ? getEnharmonicName(openNote, 'flat') : openNote}
+              {enharmonicMode === 'flat' ? getEnharmonicName(openNote.name, 'flat') : openNote.name}
             </text>
           )
         })}
