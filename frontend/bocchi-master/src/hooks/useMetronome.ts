@@ -17,10 +17,16 @@ export function useMetronome(
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentBeat, setCurrentBeat] = useState(-1)
   const [currentMeasure, setCurrentMeasure] = useState(0)
+  const [countIn, setCountIn] = useState(false)     // count-in enabled
+  const [isCountingIn, setIsCountingIn] = useState(false) // currently in count-in phase
 
   // Keep a ref to the latest callback to avoid stale closures
   const onBeatScheduleRef = useRef(externalOnBeatSchedule)
   onBeatScheduleRef.current = externalOnBeatSchedule
+
+  // Keep countIn ref to avoid stale closure in start()
+  const countInRef = useRef(countIn)
+  countInRef.current = countIn
 
   const start = useCallback(async () => {
     const ctx = await getSharedAudioContext()
@@ -35,8 +41,11 @@ export function useMetronome(
       onBeatSchedule: (beat, measure, time) => {
         onBeatScheduleRef.current?.(beat, measure, time, ctx)
       },
+      onCountInChange: (counting) => setIsCountingIn(counting),
     })
-    schedulerRef.current.start()
+    const countInBars = countInRef.current ? 1 : 0
+    if (countInBars > 0) setIsCountingIn(true)
+    schedulerRef.current.start(countInBars)
     setIsPlaying(true)
   }, [bpm, beatsPerMeasure])
 
@@ -44,6 +53,7 @@ export function useMetronome(
     schedulerRef.current?.stop()
     schedulerRef.current = null
     setIsPlaying(false)
+    setIsCountingIn(false)
     setCurrentBeat(-1)
     setCurrentMeasure(0)
   }, [])
@@ -81,5 +91,8 @@ export function useMetronome(
     currentMeasure,
     beatsPerMeasure,
     setBeatsPerMeasure,
+    countIn,
+    setCountIn,
+    isCountingIn,
   }
 }

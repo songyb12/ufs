@@ -591,6 +591,8 @@ export default function App() {
         voicingName={currentVoicing?.name ?? ''}
         isOptimized={isOptimized}
         onOptimizedChange={setIsOptimized}
+        voicingFrets={currentVoicing?.frets}
+        activeChordName={activeChord?.chordName}
         isCustom={isCustomProgression}
         onCustomToggle={handleCustomToggle}
         customSteps={customSteps}
@@ -608,6 +610,9 @@ export default function App() {
           currentMeasure={metronome.currentMeasure}
           beatsPerMeasure={metronome.beatsPerMeasure}
           setBeatsPerMeasure={metronome.setBeatsPerMeasure}
+          countIn={metronome.countIn}
+          onCountInChange={metronome.setCountIn}
+          isCountingIn={metronome.isCountingIn}
         />
         <BackingTrackPanel
           enabled={backingTrack.enabled}

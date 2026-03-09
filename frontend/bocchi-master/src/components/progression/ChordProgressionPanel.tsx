@@ -8,6 +8,7 @@ import {
   type ResolvedChord,
 } from '../../utils/chordProgression'
 import { CustomProgressionEditor } from './CustomProgressionEditor'
+import { ChordDiagram } from './ChordDiagram'
 
 export type VoicingMode = 'all' | 'voicing'
 export type VoicingSource = 'caged' | 'auto'
@@ -32,6 +33,9 @@ interface ChordProgressionPanelProps {
   // Voice leading optimization
   isOptimized: boolean
   onOptimizedChange: (optimized: boolean) => void
+  // Current voicing frets for chord diagram
+  voicingFrets?: number[]
+  activeChordName?: string
   // Custom progression
   isCustom: boolean
   onCustomToggle: () => void
@@ -57,6 +61,8 @@ export function ChordProgressionPanel({
   voicingName,
   isOptimized,
   onOptimizedChange,
+  voicingFrets,
+  activeChordName,
   isCustom,
   onCustomToggle,
   customSteps,
@@ -299,6 +305,21 @@ export function ChordProgressionPanel({
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Chord diagram (shown in voicing mode with active voicing) */}
+      {voicingMode === 'voicing' && voicingFrets && voicingFrets.length > 0 && (
+        <div className="flex items-start gap-3 border-t border-slate-700 pt-2">
+          <ChordDiagram
+            frets={voicingFrets}
+            name={activeChordName}
+          />
+          <div className="text-xs text-slate-500 pt-1">
+            <div className="font-mono tracking-wider">
+              {voicingFrets.map((f) => f === -1 ? 'x' : f).join(' ')}
+            </div>
+          </div>
         </div>
       )}
 

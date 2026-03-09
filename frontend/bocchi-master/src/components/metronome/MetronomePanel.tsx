@@ -11,6 +11,9 @@ export interface MetronomePanelProps {
   currentMeasure: number
   beatsPerMeasure: number
   setBeatsPerMeasure: (beats: number) => void
+  countIn: boolean
+  onCountInChange: (enabled: boolean) => void
+  isCountingIn: boolean
 }
 
 /**
@@ -53,6 +56,9 @@ export function MetronomePanel({
   currentMeasure,
   beatsPerMeasure,
   setBeatsPerMeasure,
+  countIn,
+  onCountInChange,
+  isCountingIn,
 }: MetronomePanelProps) {
   return (
     <div className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3">
@@ -110,7 +116,12 @@ export function MetronomePanel({
       </div>
 
       {/* Beat indicator dots — animated pulse on hit */}
-      <div className="flex gap-2 justify-center">
+      <div className="flex gap-2 justify-center items-center">
+        {isCountingIn && (
+          <span className="text-xs text-amber-400 font-semibold mr-1 animate-beat-pulse">
+            Count-in
+          </span>
+        )}
         {Array.from({ length: beatsPerMeasure }, (_, i) => (
           <BeatDot
             key={i}
@@ -120,8 +131,23 @@ export function MetronomePanel({
         ))}
       </div>
 
-      {/* BPM slider */}
-      <BpmSlider bpm={bpm} onChange={setBpm} />
+      {/* BPM slider + count-in toggle */}
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <BpmSlider bpm={bpm} onChange={setBpm} />
+        </div>
+        <button
+          onClick={() => onCountInChange(!countIn)}
+          className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
+            countIn
+              ? 'border-amber-500/50 bg-amber-500/20 text-amber-400'
+              : 'border-slate-600 bg-slate-700 text-slate-500 hover:text-slate-300'
+          }`}
+          title="1-bar count-in before playback starts"
+        >
+          Count-in
+        </button>
+      </div>
     </div>
   )
 }
