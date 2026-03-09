@@ -22,6 +22,7 @@ interface FretboardProps {
   leftHanded?: boolean         // mirror fretboard horizontally
   fretRange?: [number, number] // [startFret, endFret] for zoom (inclusive)
   dimmedStrings?: Set<number>  // strings to visually dim (for focused practice)
+  hideLabels?: boolean         // ghost mode: show dots only, hide text labels
   onNoteClick?: (note: Note, stringIndex: number, fret: number) => void
 }
 
@@ -48,6 +49,7 @@ export function Fretboard({
   leftHanded = false,
   fretRange,
   dimmedStrings,
+  hideLabels = false,
   onNoteClick,
 }: FretboardProps) {
   const { stringCount, fretCount, tuning } = instrument
@@ -320,6 +322,7 @@ export function Fretboard({
                     isScaleOverlay={isOverlay}
                     isPattern={isPatternPos}
                     isChordTone={isChordTone}
+                    hideLabel={hideLabels}
                     displayLabel={displayLabel}
                     leftHanded={leftHanded}
                     onClick={() => onNoteClick?.(note, stringIndex, fret)}

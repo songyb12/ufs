@@ -91,6 +91,9 @@ export default function App() {
   // Chord tone highlighting toggle
   const [showChordTones, setShowChordTones] = useState(false)
 
+  // Ghost mode: hide note labels (dots only)
+  const [hideNoteLabels, setHideNoteLabels] = useState(false)
+
   // Fretboard quiz state
   const [fretboardQuizActive, setFretboardQuizActive] = useState(false)
   const fretboardQuizRef = useRef<FretboardQuizHandle>(null)
@@ -563,6 +566,17 @@ export default function App() {
           >
             {enharmonicMode === 'sharp' ? '#' : '♭'}
           </button>
+          <button
+            onClick={() => setHideNoteLabels((v) => !v)}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              hideNoteLabels
+                ? 'bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/40'
+                : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+            }`}
+            title="Ghost mode: hide note labels (dots only) for fretboard memorization"
+          >
+            👻
+          </button>
           {activeChord && (
             <button
               onClick={() => setShowChordTones((v) => !v)}
@@ -657,6 +671,7 @@ export default function App() {
           leftHanded={leftHanded}
           fretRange={fretRange}
           dimmedStrings={dimmedStrings.size > 0 ? dimmedStrings : undefined}
+          hideLabels={hideNoteLabels}
           onNoteClick={handleNoteClick}
         />
         {highlightedNotes.length > 0 && (
