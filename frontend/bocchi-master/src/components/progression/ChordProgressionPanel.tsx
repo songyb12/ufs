@@ -3,6 +3,7 @@ import { CHROMATIC_SCALE } from '../../constants/notes'
 import {
   PROGRESSION_PRESETS,
   resolveProgression,
+  generateRandomProgression,
   type ProgressionPreset,
   type ProgressionStep,
   type ResolvedChord,
@@ -129,6 +130,19 @@ export function ChordProgressionPanel({
           ))}
           <option value="__custom__">Custom...</option>
         </select>
+
+        {/* Random progression button */}
+        <button
+          onClick={() => {
+            if (isCustom) onCustomToggle()
+            const preset = generateRandomProgression({ length: 4, startOnTonic: true })
+            onPresetChange(preset)
+          }}
+          className="px-2.5 py-1 rounded text-xs font-semibold bg-violet-500/20 text-violet-400 hover:bg-violet-500/30 border border-violet-500/30 transition-colors"
+          title="Generate random chord progression"
+        >
+          🎲 Random
+        </button>
 
         {/* Key label */}
         {progressionKey && (

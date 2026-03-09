@@ -181,6 +181,95 @@ export const PROGRESSION_PRESETS: ProgressionPreset[] = [
   },
 ]
 
+// ----- Random Progression Generator (Markov chain) -----
+
+/**
+ * Transition probability weights from one diatonic degree to another.
+ * Row = current degree index (0=I … 6=vii°), Column = next degree index.
+ * Higher weight = more likely transition.  Based on common pop/rock/jazz harmonic movements.
+ *
+ *       I   ii  iii  IV   V   vi  vii°
+ */
+const TRANSITION_WEIGHTS: number[][] = [
+  /* I    */ [0,  3,  2,  8,  8,  6,  1],
+  /* ii   */ [2,  0,  1,  3,  9,  1,  1],
+  /* iii  */ [1,  1,  0,  6,  2,  7,  0],
+  /* IV   */ [6,  3,  1,  0,  7,  2,  1],
+  /* V    */ [9,  1,  1,  3,  0,  5,  0],
+  /* vi   */ [2,  4,  2,  7,  5,  0,  1],
+  /* vii° */ [8,  1,  0,  1,  2,  1,  0],
+]
+
+/**
+ * Pick a random index weighted by the given weights array.
+ */
+function weightedRandom(weights: number[]): number {
+  const total = weights.reduce((s, w) => s + w, 0)
+  let r = Math.random() * total
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i]
+    if (r <= 0) return i
+  }
+  return weights.length - 1
+}
+
+export interface RandomProgressionOptions {
+  /** Number of chords (default: 4) */
+  length?: number
+  /** Force first chord to be I? (default: true) */
+  startOnTonic?: boolean
+  /** Force last chord to resolve to V→I? (default: false) */
+  endWithCadence?: boolean
+}
+
+/**
+ * Generate a musically intelligent random chord progression
+ * using Markov-chain transition probabilities between diatonic degrees.
+ */
+export function generateRandomProgression(
+  opts: RandomProgressionOptions = {},
+): ProgressionPreset {
+  const { length = 4, startOnTonic = true, endWithCadence = false } = opts
+
+  if (length < 2) {
+    return { name: 'Random', steps: [{ degreeIndex: 0 }] }
+  }
+
+  const steps: ProgressionStep[] = []
+  let effectiveLength = length
+
+  // Reserve last 2 slots for cadence if requested
+  const cadenceLength = endWithCadence ? Math.min(2, length) : 0
+  const bodyLength = effectiveLength - cadenceLength
+
+  // First chord
+  let current = startOnTonic ? 0 : weightedRandom([4, 3, 2, 5, 4, 6, 1])
+  steps.push({ degreeIndex: current })
+
+  // Body — follow Markov chain transitions
+  for (let i = 1; i < bodyLength; i++) {
+    const weights = [...TRANSITION_WEIGHTS[current]]
+    // Avoid repeating same chord twice in a row (reduce weight)
+    weights[current] = Math.max(0, weights[current] - 5)
+    current = weightedRandom(weights)
+    steps.push({ degreeIndex: current })
+  }
+
+  // Optional cadence ending: V → I
+  if (endWithCadence && cadenceLength === 2) {
+    steps.push({ degreeIndex: 4 })  // V
+    steps.push({ degreeIndex: 0 })  // I
+  } else if (endWithCadence && cadenceLength === 1) {
+    steps.push({ degreeIndex: 0 })  // I
+  }
+
+  // Build a display name from degree labels
+  const degreeLabels = steps.map((s) => MAJOR_DEGREES[s.degreeIndex].label)
+  const name = `Random (${degreeLabels.join('-')})`
+
+  return { name, steps }
+}
+
 // ----- Functions -----
 
 /**
