@@ -36,6 +36,9 @@ interface ChordProgressionPanelProps {
   // Current voicing frets for chord diagram
   voicingFrets?: number[]
   activeChordName?: string
+  // Loop control
+  loopCount: number
+  onLoopCountChange: (count: number) => void
   // Custom progression
   isCustom: boolean
   onCustomToggle: () => void
@@ -63,6 +66,8 @@ export function ChordProgressionPanel({
   onOptimizedChange,
   voicingFrets,
   activeChordName,
+  loopCount,
+  onLoopCountChange,
   isCustom,
   onCustomToggle,
   customSteps,
@@ -199,6 +204,24 @@ export function ChordProgressionPanel({
               </button>
             )
           })}
+
+          {/* Loop count control */}
+          <div className="flex items-center gap-1 ml-auto">
+            <span className="text-xs text-slate-500">Loop:</span>
+            {[0, 1, 2, 4, 8].map((n) => (
+              <button
+                key={n}
+                onClick={() => onLoopCountChange(n)}
+                className={`w-6 h-6 rounded text-xs font-medium transition-colors ${
+                  loopCount === n
+                    ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40'
+                    : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {n === 0 ? '∞' : n}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

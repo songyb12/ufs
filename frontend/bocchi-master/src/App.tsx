@@ -44,6 +44,7 @@ import { IntervalTrainerPanel } from './components/trainer/IntervalTrainerPanel'
 import { PracticeHistoryPanel } from './components/practice/PracticeHistoryPanel'
 import { ShortcutHelpOverlay } from './components/help/ShortcutHelpOverlay'
 import { ScaleFinderPanel } from './components/scale/ScaleFinderPanel'
+import { FretboardQuizPanel, type FretboardQuizHandle } from './components/trainer/FretboardQuizPanel'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -78,6 +79,10 @@ export default function App() {
   const midi = useMidi()
   const practice = usePracticeMode()
   const intervalTrainer = useIntervalTrainer()
+
+  // Fretboard quiz state
+  const [fretboardQuizActive, setFretboardQuizActive] = useState(false)
+  const fretboardQuizRef = useRef<FretboardQuizHandle>(null)
 
   // Derive MIDI active note name for fretboard highlight
   const midiNoteName: NoteName | undefined = useMemo(() => {
@@ -158,6 +163,9 @@ export default function App() {
       resolvePreset(initialSettings.progressionPresetName),
     )
   const [activeChordIndex, setActiveChordIndex] = useState(0)
+
+  // Progression loop control (0 = infinite loop, N = stop after N loops)
+  const [loopCount, setLoopCount] = useState(0)
 
   // Custom progression state
   const [isCustomProgression, setIsCustomProgression] = useState(false)
@@ -298,13 +306,19 @@ export default function App() {
       ? availableVoicings[voicingIndex] ?? null
       : null
 
-  // Sync activeChordIndex with metronome measure
+  // Sync activeChordIndex with metronome measure + auto-stop
   useEffect(() => {
     if (resolvedChords.length > 0 && metronome.isPlaying) {
+      const loopNum = Math.floor(metronome.currentMeasure / resolvedChords.length)
+      // Auto-stop after N loops (loopCount=0 means infinite)
+      if (loopCount > 0 && loopNum >= loopCount) {
+        metronome.stop()
+        return
+      }
       isAutoChordChange.current = true
       setActiveChordIndex(metronome.currentMeasure % resolvedChords.length)
     }
-  }, [metronome.currentMeasure, metronome.isPlaying, resolvedChords.length])
+  }, [metronome.currentMeasure, metronome.isPlaying, resolvedChords.length, loopCount, metronome.stop])
 
   // Reset activeChordIndex when progression changes
   useEffect(() => {
@@ -437,6 +451,13 @@ export default function App() {
   const handleNoteClick = useCallback(
     (note: Note) => {
       soundEngine.playFretboardNote(note)
+
+      // When fretboard quiz is active, intercept clicks for quiz answer
+      if (fretboardQuizActive && fretboardQuizRef.current) {
+        fretboardQuizRef.current.checkAnswer(note.name)
+        return // don't toggle highlight during quiz
+      }
+
       setHighlightedNotes((prev) => {
         const exists = prev.some(
           (n) => n.name === note.name && n.octave === note.octave,
@@ -449,7 +470,7 @@ export default function App() {
         return [...prev, note]
       })
     },
-    [soundEngine],
+    [soundEngine, fretboardQuizActive],
   )
 
   const handleProgressionChordClick = useCallback(
@@ -632,6 +653,8 @@ export default function App() {
         onOptimizedChange={setIsOptimized}
         voicingFrets={currentVoicing?.frets}
         activeChordName={activeChord?.chordName}
+        loopCount={loopCount}
+        onLoopCountChange={setLoopCount}
         isCustom={isCustomProgression}
         onCustomToggle={handleCustomToggle}
         customSteps={customSteps}
@@ -711,6 +734,13 @@ export default function App() {
             setSelectedDefinition(foundDef)
           }
         }, [])}
+      />
+
+      {/* Fretboard Quiz */}
+      <FretboardQuizPanel
+        ref={fretboardQuizRef}
+        active={fretboardQuizActive}
+        onToggle={useCallback(() => setFretboardQuizActive((v) => !v), [])}
       />
 
       {/* Practice History (persistent stats) */}
