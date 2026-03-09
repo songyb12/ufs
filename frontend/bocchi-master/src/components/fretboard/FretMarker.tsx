@@ -2,8 +2,8 @@ import { memo } from 'react'
 
 /** Fret positions that have single dot markers */
 const SINGLE_DOT_FRETS = [3, 5, 7, 9, 15, 17, 19, 21]
-/** Fret 12 has double dots */
-const DOUBLE_DOT_FRET = 12
+/** Frets with double dot markers */
+const DOUBLE_DOT_FRETS = new Set([12, 24])
 
 interface FretMarkerProps {
   fret: number
@@ -21,7 +21,7 @@ export const FretMarker = memo(function FretMarker({
   const dotRadius = 5
   const fill = '#334155'
 
-  if (fret === DOUBLE_DOT_FRET) {
+  if (DOUBLE_DOT_FRETS.has(fret)) {
     return (
       <>
         <circle cx={x} cy={yCenter - ySpread} r={dotRadius} fill={fill} />

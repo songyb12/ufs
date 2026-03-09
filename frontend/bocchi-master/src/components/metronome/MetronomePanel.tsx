@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback, useState } from 'react'
 import { BpmSlider } from './BpmSlider'
 import { TapTempo } from './TapTempo'
 import { MetronomePendulum } from './MetronomePendulum'
+import { TempoTrainer } from './TempoTrainer'
 import type { ClickSound, Subdivision, AccentLevel } from '../../utils/audioScheduler'
 
 /** Standard tempo marking for a given BPM */
@@ -320,6 +321,14 @@ export function MetronomePanel({
           </>
         )}
       </div>
+
+      {/* Tempo Trainer */}
+      <TempoTrainer
+        currentBpm={bpm}
+        setBpm={setBpm}
+        isPlaying={isPlaying}
+        currentMeasure={currentMeasure}
+      />
     </div>
   )
 }
