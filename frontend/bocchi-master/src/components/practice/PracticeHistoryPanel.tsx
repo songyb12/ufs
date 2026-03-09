@@ -35,6 +35,47 @@ function StarRating({
   )
 }
 
+/** Calculate practice streak: consecutive days with at least one session */
+function calculateStreak(sessions: PracticeSession[]): { current: number; best: number } {
+  if (sessions.length === 0) return { current: 0, best: 0 }
+
+  // Get unique practice dates (YYYY-MM-DD)
+  const dates = [...new Set(sessions.map((s) => s.date.slice(0, 10)))].sort().reverse()
+  if (dates.length === 0) return { current: 0, best: 0 }
+
+  const toDay = (d: string) => Math.floor(new Date(d).getTime() / 86400000)
+  const today = Math.floor(Date.now() / 86400000)
+
+  // Current streak: count consecutive days starting from today/yesterday
+  let current = 0
+  const latestDay = toDay(dates[0])
+  if (today - latestDay > 1) {
+    // Last session was more than 1 day ago — streak is broken
+    current = 0
+  } else {
+    current = 1
+    for (let i = 1; i < dates.length; i++) {
+      if (toDay(dates[i - 1]) - toDay(dates[i]) === 1) {
+        current++
+      } else break
+    }
+  }
+
+  // Best streak: scan all dates for longest consecutive run
+  let best = 1
+  let run = 1
+  for (let i = 1; i < dates.length; i++) {
+    if (toDay(dates[i - 1]) - toDay(dates[i]) === 1) {
+      run++
+      if (run > best) best = run
+    } else {
+      run = 1
+    }
+  }
+
+  return { current, best }
+}
+
 /**
  * Practice History Panel
  *
@@ -73,6 +114,9 @@ export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
       </div>
     )
   }
+
+  // Streak calculation
+  const streak = useMemo(() => calculateStreak(sessions), [sessions])
 
   // Aggregate stats
   const totalSessions = sessions.length
@@ -157,7 +201,15 @@ export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-4 gap-2 text-center">
+      <div className="grid grid-cols-5 gap-2 text-center">
+        <div>
+          <div className={`text-lg font-bold ${streak.current > 0 ? 'text-orange-400' : 'text-slate-500'}`}>
+            {streak.current > 0 ? `${streak.current}🔥` : '0'}
+          </div>
+          <div className="text-[10px] text-slate-500 uppercase">
+            Streak{streak.best > streak.current ? ` (${streak.best})` : ''}
+          </div>
+        </div>
         <div>
           <div className="text-lg font-bold text-slate-300">{totalSessions}</div>
           <div className="text-[10px] text-slate-500 uppercase">Sessions</div>
