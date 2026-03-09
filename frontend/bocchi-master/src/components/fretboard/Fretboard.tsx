@@ -23,6 +23,7 @@ interface FretboardProps {
   fretRange?: [number, number] // [startFret, endFret] for zoom (inclusive)
   dimmedStrings?: Set<number>  // strings to visually dim (for focused practice)
   hideLabels?: boolean         // ghost mode: show dots only, hide text labels
+  fingeringNumbers?: number[]  // per-string fingering (0=none, 1-4=finger)
   onNoteClick?: (note: Note, stringIndex: number, fret: number) => void
 }
 
@@ -50,6 +51,7 @@ export function Fretboard({
   fretRange,
   dimmedStrings,
   hideLabels = false,
+  fingeringNumbers,
   onNoteClick,
 }: FretboardProps) {
   const { stringCount, fretCount, tuning } = instrument
@@ -271,6 +273,30 @@ export function Fretboard({
               </text>
             )
           })}
+
+        {/* Fingering numbers (shown below voicing dots) */}
+        {fingeringNumbers && voicingPositions && fingeringNumbers.map((finger, stringIndex) => {
+          if (finger === 0) return null
+          const fret = voicingPositions[stringIndex]
+          if (fret == null || fret <= 0) return null
+          const x = getFretCenterX(fret)
+          const y = getStringY(stringIndex) + 14
+          return (
+            <text
+              key={`finger-${stringIndex}`}
+              x={x}
+              y={y}
+              textAnchor="middle"
+              fontSize={8}
+              fontWeight={700}
+              fill="#a78bfa"
+              opacity={0.9}
+              {...(leftHanded ? { transform: `translate(${2 * x}, 0) scale(-1, 1)` } : {})}
+            >
+              {finger}
+            </text>
+          )
+        })}
 
         {/* Note labels (open string + each fret) */}
         {tuning.map((openNote, stringIndex) => {

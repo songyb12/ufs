@@ -25,7 +25,7 @@ import {
   type ProgressionPreset,
   type ProgressionStep,
 } from './utils/chordProgression'
-import { getCAGEDVoicings, type ChordVoicing } from './utils/voicingLibrary'
+import { getCAGEDVoicings, suggestFingering, type ChordVoicing } from './utils/voicingLibrary'
 import { generateVoicings } from './utils/voicingGenerator'
 import { optimizeProgressionVoicings } from './utils/voicingOptimizer'
 import { useSoundEngine } from './hooks/useSoundEngine'
@@ -97,6 +97,9 @@ export default function App() {
 
   // Ghost mode: hide note labels (dots only)
   const [hideNoteLabels, setHideNoteLabels] = useState(false)
+
+  // Fingering numbers overlay
+  const [showFingering, setShowFingering] = useState(false)
 
   // Capo position (0 = no capo, 1-12 = capo at that fret)
   const [capo, setCapo] = useState(0)
@@ -353,6 +356,12 @@ export default function App() {
     voicingMode === 'voicing' && availableVoicings.length > 0
       ? availableVoicings[voicingIndex] ?? null
       : null
+
+  // Suggested fingering for current voicing
+  const fingeringNumbers = useMemo(() => {
+    if (!showFingering || !currentVoicing) return undefined
+    return suggestFingering(currentVoicing)
+  }, [showFingering, currentVoicing])
 
   // Auto-zoom fretboard to fit current voicing (when enabled)
   useEffect(() => {
@@ -632,6 +641,19 @@ export default function App() {
           >
             👻
           </button>
+          {currentVoicing && (
+            <button
+              onClick={() => setShowFingering((v) => !v)}
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                showFingering
+                  ? 'bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/40'
+                  : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+              }`}
+              title="Show suggested fingering numbers (1-4)"
+            >
+              1234
+            </button>
+          )}
           {activeChord && (
             <button
               onClick={() => setShowChordTones((v) => !v)}
@@ -776,6 +798,7 @@ export default function App() {
           fretRange={fretRange}
           dimmedStrings={dimmedStrings.size > 0 ? dimmedStrings : undefined}
           hideLabels={hideNoteLabels}
+          fingeringNumbers={fingeringNumbers}
           onNoteClick={handleNoteClick}
         />
         {highlightedNotes.length > 0 && (

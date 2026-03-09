@@ -12,6 +12,51 @@ export interface ChordVoicing {
 }
 
 /**
+ * Suggest left-hand fingering numbers for a voicing.
+ * Returns per-string: 0=open/mute(no finger), 1=index, 2=middle, 3=ring, 4=pinky.
+ * Uses a simple heuristic: map relative fret positions to finger numbers,
+ * with barre (index finger across lowest fret) detection.
+ */
+export function suggestFingering(voicing: ChordVoicing): number[] {
+  const { frets } = voicing
+  const fretted = frets.filter((f) => f > 0)
+  if (fretted.length === 0) return frets.map(() => 0)
+
+  const minFret = Math.min(...fretted)
+  const maxFret = Math.max(...fretted)
+
+  // Check barre: multiple strings at the same (lowest) fret
+  const minFretCount = fretted.filter((f) => f === minFret).length
+  const hasBarre = minFretCount >= 2 && maxFret > minFret
+
+  return frets.map((fret) => {
+    if (fret <= 0) return 0 // open or mute
+
+    if (hasBarre) {
+      if (fret === minFret) return 1 // barre with index
+      const offset = fret - minFret
+      // Map offset to fingers: +1=middle(2), +2=ring(3), +3=pinky(4)
+      if (offset === 1) return 2
+      if (offset === 2) return 3
+      return 4
+    }
+
+    // No barre: assign by relative position in the span
+    const span = maxFret - minFret
+    if (span === 0) return 1 // all same fret → index
+    const offset = fret - minFret
+    if (span <= 1) return offset === 0 ? 1 : 2
+    if (span <= 2) return offset === 0 ? 1 : offset === 1 ? 2 : 3
+    // 3+ span
+    const ratio = offset / span
+    if (ratio <= 0.1) return 1
+    if (ratio <= 0.4) return 2
+    if (ratio <= 0.7) return 3
+    return 4
+  })
+}
+
+/**
  * Classify voicing difficulty:
  * - open: contains open strings, no barre, low fret position
  * - barre: requires barre (same fret across 3+ strings) or high stretch
