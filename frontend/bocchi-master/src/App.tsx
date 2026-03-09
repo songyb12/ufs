@@ -43,6 +43,7 @@ import { useIntervalTrainer } from './hooks/useIntervalTrainer'
 import { IntervalTrainerPanel } from './components/trainer/IntervalTrainerPanel'
 import { PracticeHistoryPanel } from './components/practice/PracticeHistoryPanel'
 import { ShortcutHelpOverlay } from './components/help/ShortcutHelpOverlay'
+import { ScaleFinderPanel } from './components/scale/ScaleFinderPanel'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -699,6 +700,18 @@ export default function App() {
           onReset={intervalTrainer.reset}
         />
       </div>
+
+      {/* Scale Finder */}
+      <ScaleFinderPanel
+        onScaleSelect={useCallback((root: NoteName, scaleName: string) => {
+          setSelectedRoot(root)
+          const foundDef = SCALES.find((s) => s.name === scaleName) ?? null
+          if (foundDef) {
+            setMode('scale')
+            setSelectedDefinition(foundDef)
+          }
+        }, [])}
+      />
 
       {/* Practice History (persistent stats) */}
       <PracticeHistoryPanel />
