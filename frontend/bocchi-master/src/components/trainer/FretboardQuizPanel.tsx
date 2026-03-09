@@ -2,6 +2,34 @@ import { useState, useCallback, useRef, forwardRef, useImperativeHandle } from '
 import type { NoteName } from '../../types/music'
 import { CHROMATIC_SCALE } from '../../constants/notes'
 
+type QuizDifficulty = 'beginner' | 'intermediate' | 'advanced'
+
+const DIFFICULTY_CONFIG: Record<QuizDifficulty, {
+  label: string
+  description: string
+  notes: NoteName[]
+  activeClass: string
+}> = {
+  beginner: {
+    label: 'Beginner',
+    description: 'Natural notes only (no sharps/flats)',
+    notes: ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
+    activeClass: 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40',
+  },
+  intermediate: {
+    label: 'Intermediate',
+    description: 'All 12 notes',
+    notes: [...CHROMATIC_SCALE],
+    activeClass: 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/40',
+  },
+  advanced: {
+    label: 'Advanced',
+    description: 'All 12 notes + timed (5s per answer)',
+    notes: [...CHROMATIC_SCALE],
+    activeClass: 'bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/40',
+  },
+}
+
 interface FretboardQuizPanelProps {
   /** Currently active — when true, fretboard clicks are intercepted */
   active: boolean
@@ -29,17 +57,62 @@ export const FretboardQuizPanel = forwardRef<FretboardQuizHandle, FretboardQuizP
   const [stats, setStats] = useState<QuizStats>({ total: 0, correct: 0, streak: 0, bestStreak: 0 })
   const [lastResult, setLastResult] = useState<'correct' | 'wrong' | null>(null)
   const [expanded, setExpanded] = useState(false)
+  const [difficulty, setDifficulty] = useState<QuizDifficulty>('beginner')
+  const [timeLeft, setTimeLeft] = useState<number | null>(null)
   const prevNoteRef = useRef<NoteName | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const difficultyRef = useRef(difficulty)
+  difficultyRef.current = difficulty
+
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    setTimeLeft(null)
+  }, [])
+
+  const startTimer = useCallback(() => {
+    stopTimer()
+    if (difficultyRef.current !== 'advanced') return
+    setTimeLeft(5)
+    timerRef.current = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev === null || prev <= 1) {
+          // Time's up — count as wrong
+          setStats((s) => ({ ...s, total: s.total + 1, streak: 0 }))
+          setLastResult('wrong')
+          // Generate next note after brief pause
+          setTimeout(() => generateNote(), 400)
+          return null
+        }
+        return prev - 1
+      })
+    }, 1000)
+  }, [stopTimer]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const generateNote = useCallback(() => {
+    const config = DIFFICULTY_CONFIG[difficultyRef.current]
     let note: NoteName
     do {
-      note = CHROMATIC_SCALE[Math.floor(Math.random() * 12)]
-    } while (note === prevNoteRef.current) // avoid repeats
+      note = config.notes[Math.floor(Math.random() * config.notes.length)]
+    } while (note === prevNoteRef.current && config.notes.length > 1)
     prevNoteRef.current = note
     setTargetNote(note)
     setLastResult(null)
-  }, [])
+    if (difficultyRef.current === 'advanced') {
+      stopTimer()
+      setTimeLeft(5)
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev === null || prev <= 1) {
+            setStats((s) => ({ ...s, total: s.total + 1, streak: 0 }))
+            setLastResult('wrong')
+            setTimeout(() => generateNote(), 400)
+            return null
+          }
+          return prev - 1
+        })
+      }, 1000)
+    }
+  }, [stopTimer])
 
   const handleStart = useCallback(() => {
     setStats({ total: 0, correct: 0, streak: 0, bestStreak: 0 })
@@ -50,8 +123,9 @@ export const FretboardQuizPanel = forwardRef<FretboardQuizHandle, FretboardQuizP
   const handleStop = useCallback(() => {
     setTargetNote(null)
     setLastResult(null)
+    stopTimer()
     onToggle()
-  }, [onToggle])
+  }, [onToggle, stopTimer])
 
   /** Called from parent when user clicks a note on the fretboard */
   const checkAnswer = useCallback(
@@ -72,6 +146,7 @@ export const FretboardQuizPanel = forwardRef<FretboardQuizHandle, FretboardQuizP
       setLastResult(isCorrect ? 'correct' : 'wrong')
 
       if (isCorrect) {
+        stopTimer()
         // Move to next note after brief delay
         setTimeout(generateNote, 400)
       }
@@ -104,6 +179,24 @@ export const FretboardQuizPanel = forwardRef<FretboardQuizHandle, FretboardQuizP
           Fretboard Quiz
         </h2>
         <div className="flex items-center gap-2">
+          {!active && (
+            <div className="flex items-center gap-1">
+              {(Object.entries(DIFFICULTY_CONFIG) as [QuizDifficulty, typeof DIFFICULTY_CONFIG[QuizDifficulty]][]).map(([key, cfg]) => (
+                <button
+                  key={key}
+                  onClick={() => setDifficulty(key)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    difficulty === key
+                      ? cfg.activeClass
+                      : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+                  }`}
+                  title={cfg.description}
+                >
+                  {cfg.label}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             onClick={active ? handleStop : handleStart}
             className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
@@ -143,10 +236,19 @@ export const FretboardQuizPanel = forwardRef<FretboardQuizHandle, FretboardQuizP
                 {targetNote}
               </div>
               {lastResult === 'wrong' && (
-                <div className="text-xs text-red-400 mt-1">Try again!</div>
+                <div className="text-xs text-red-400 mt-1">
+                  {timeLeft === null && difficulty === 'advanced' ? "Time's up!" : 'Try again!'}
+                </div>
               )}
               {lastResult === 'correct' && (
                 <div className="text-xs text-emerald-400 mt-1">Correct!</div>
+              )}
+              {timeLeft !== null && (
+                <div className={`text-sm font-bold mt-1 tabular-nums ${
+                  timeLeft <= 2 ? 'text-red-400' : 'text-slate-400'
+                }`}>
+                  {timeLeft}s
+                </div>
               )}
             </div>
           </div>
