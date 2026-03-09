@@ -1,12 +1,39 @@
 import { memo, useState, useEffect, useRef, useCallback } from 'react'
 import {
   loadSettings,
+  saveSettings,
   clearPracticeHistory,
   exportPracticeData,
   importPracticeData,
   downloadAsFile,
   type PracticeSession,
 } from '../../utils/storage'
+
+/** Compact inline star rating (1-5) */
+function StarRating({
+  value,
+  onChange,
+}: {
+  value: number | undefined
+  onChange: (rating: number) => void
+}) {
+  return (
+    <span className="inline-flex gap-px">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button
+          key={star}
+          onClick={(e) => { e.stopPropagation(); onChange(star) }}
+          className={`text-xs leading-none ${
+            (value ?? 0) >= star ? 'text-amber-400' : 'text-slate-600'
+          } hover:text-amber-300`}
+          title={`Rate ${star}/5`}
+        >
+          ★
+        </button>
+      ))}
+    </span>
+  )
+}
 
 /**
  * Practice History Panel
@@ -17,6 +44,8 @@ import {
 export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
   const [sessions, setSessions] = useState<PracticeSession[]>([])
   const [expanded, setExpanded] = useState(false)
+  const [editingNoteIdx, setEditingNoteIdx] = useState<number | null>(null)
+  const [noteText, setNoteText] = useState('')
 
   useEffect(() => {
     const settings = loadSettings()
@@ -68,6 +97,14 @@ export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
     const hours = Math.floor(mins / 60)
     return `${hours}h ${mins % 60}m`
   }
+
+  const updateSession = useCallback((idx: number, patch: Partial<PracticeSession>) => {
+    setSessions((prev) => {
+      const updated = prev.map((s, i) => (i === idx ? { ...s, ...patch } : s))
+      saveSettings({ practiceHistory: updated })
+      return updated
+    })
+  }, [])
 
   const handleClear = () => {
     clearPracticeHistory()
@@ -160,22 +197,60 @@ export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
             const accuracy = session.totalAttempts > 0
               ? Math.round((session.correctAttempts / session.totalAttempts) * 100)
               : 0
+            const isEditingNote = editingNoteIdx === idx
             return (
-              <div
-                key={idx}
-                className="flex items-center gap-2 text-xs text-slate-400 py-0.5 border-b border-slate-700/50"
-              >
-                <span className="text-slate-500 w-10">{dateStr}</span>
-                <span className="flex-1 truncate text-slate-300">{session.targetDescription}</span>
-                <span className={`w-8 text-right font-mono ${
-                  accuracy >= 80 ? 'text-emerald-400' :
-                  accuracy >= 50 ? 'text-amber-400' : 'text-red-400'
-                }`}>
-                  {accuracy}%
-                </span>
-                <span className="text-slate-600 w-10 text-right">
-                  {formatDuration(session.durationSeconds)}
-                </span>
+              <div key={idx} className="border-b border-slate-700/50">
+                <div className="flex items-center gap-2 text-xs text-slate-400 py-0.5">
+                  <span className="text-slate-500 w-10">{dateStr}</span>
+                  <span className="flex-1 truncate text-slate-300">{session.targetDescription}</span>
+                  <StarRating
+                    value={session.rating}
+                    onChange={(r) => updateSession(idx, { rating: r })}
+                  />
+                  <span className={`w-8 text-right font-mono ${
+                    accuracy >= 80 ? 'text-emerald-400' :
+                    accuracy >= 50 ? 'text-amber-400' : 'text-red-400'
+                  }`}>
+                    {accuracy}%
+                  </span>
+                  <span className="text-slate-600 w-10 text-right">
+                    {formatDuration(session.durationSeconds)}
+                  </span>
+                  <button
+                    onClick={() => {
+                      if (isEditingNote) {
+                        updateSession(idx, { notes: noteText || undefined })
+                        setEditingNoteIdx(null)
+                      } else {
+                        setNoteText(session.notes ?? '')
+                        setEditingNoteIdx(idx)
+                      }
+                    }}
+                    className={`text-[10px] ${session.notes || isEditingNote ? 'text-sky-400' : 'text-slate-600 hover:text-slate-400'}`}
+                    title={isEditingNote ? 'Save note' : (session.notes ? 'Edit note' : 'Add note')}
+                  >
+                    {isEditingNote ? '✓' : '📝'}
+                  </button>
+                </div>
+                {isEditingNote && (
+                  <input
+                    type="text"
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        updateSession(idx, { notes: noteText || undefined })
+                        setEditingNoteIdx(null)
+                      }
+                    }}
+                    placeholder="Practice notes..."
+                    autoFocus
+                    className="w-full bg-slate-700/50 text-xs text-slate-300 rounded px-2 py-1 mb-1 outline-none placeholder-slate-600"
+                  />
+                )}
+                {!isEditingNote && session.notes && (
+                  <div className="text-[10px] text-slate-500 italic pl-10 pb-0.5">{session.notes}</div>
+                )}
               </div>
             )
           })}

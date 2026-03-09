@@ -44,6 +44,8 @@ export interface PracticeSession {
   correctAttempts: number
   targetDescription: string  // e.g., "C Major Scale" or "Am7 Chord"
   durationSeconds: number
+  rating?: number   // 1-5 star self-assessment
+  notes?: string    // free-form practice notes
 }
 
 const DEFAULTS: PersistedSettings = {
