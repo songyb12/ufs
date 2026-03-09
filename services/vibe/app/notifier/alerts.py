@@ -105,7 +105,10 @@ async def _check_portfolio_stops(config: Settings, alert_cfg: dict | None = None
     )
     rows = await cursor.fetchall()
 
-    stop_pct = float((alert_cfg or {}).get("stop_loss_pct", str(config.BACKTEST_STOP_LOSS_PCT)))
+    try:
+        stop_pct = float((alert_cfg or {}).get("stop_loss_pct", str(config.BACKTEST_STOP_LOSS_PCT)))
+    except (ValueError, TypeError):
+        stop_pct = config.BACKTEST_STOP_LOSS_PCT
 
     for row in rows:
         r = dict(row)
@@ -140,7 +143,10 @@ async def _check_rsi_alerts(config: Settings, alert_cfg: dict | None = None) -> 
     alerts = []
     db = await get_db()
 
-    rsi_threshold = float((alert_cfg or {}).get("rsi_warning_threshold", "58"))
+    try:
+        rsi_threshold = float((alert_cfg or {}).get("rsi_warning_threshold", "58"))
+    except (ValueError, TypeError):
+        rsi_threshold = 58.0
 
     # Get latest signals with current RSI
     cursor = await db.execute(

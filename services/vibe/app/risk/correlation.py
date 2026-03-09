@@ -27,7 +27,7 @@ def compute_return_correlation(
         if df is not None and not df.empty and "close" in df.columns:
             closes = pd.to_numeric(df["close"], errors="coerce").dropna()
             if len(closes) > window:
-                daily_ret = closes.pct_change().dropna().tail(window)
+                daily_ret = closes.pct_change().replace([np.inf, -np.inf], np.nan).dropna().tail(window)
                 returns[symbol] = daily_ret.values
 
     if len(returns) < 2:

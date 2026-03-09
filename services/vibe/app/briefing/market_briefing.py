@@ -144,8 +144,8 @@ async def generate_market_briefing(target_date: str | None = None) -> dict:
             "name": r["name"] or r["symbol"],
             "market": r["market"],
             "signal": r["final_signal"],
-            "score": round(r["raw_score"], 1) if r["raw_score"] else 0,
-            "rsi": round(r["rsi_value"], 1) if r["rsi_value"] else None,
+            "score": round(r["raw_score"], 1) if r["raw_score"] is not None else 0,
+            "rsi": round(r["rsi_value"], 1) if r["rsi_value"] is not None else None,
             "rationale": r["rationale"],
         })
 
