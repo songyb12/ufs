@@ -727,6 +727,11 @@ export default function App() {
         onOptimizedChange={setIsOptimized}
         voicingFrets={currentVoicing?.frets}
         activeChordName={activeChord?.chordName}
+        allVoicings={availableVoicings}
+        onPlayVoicing={useCallback((idx: number) => {
+          const v = availableVoicings[idx]
+          if (v) soundEngine.playVoicing(v, instrument)
+        }, [availableVoicings, soundEngine, instrument])}
         loopCount={loopCount}
         onLoopCountChange={setLoopCount}
         isCustom={isCustomProgression}

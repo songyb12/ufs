@@ -10,6 +10,8 @@ import {
 } from '../../utils/chordProgression'
 import { CustomProgressionEditor } from './CustomProgressionEditor'
 import { ChordDiagram } from './ChordDiagram'
+import { VoicingComparePanel } from './VoicingComparePanel'
+import type { ChordVoicing } from '../../utils/voicingLibrary'
 
 export type VoicingMode = 'all' | 'voicing'
 export type VoicingSource = 'caged' | 'auto'
@@ -37,6 +39,9 @@ interface ChordProgressionPanelProps {
   // Current voicing frets for chord diagram
   voicingFrets?: number[]
   activeChordName?: string
+  // All voicings for comparison view
+  allVoicings?: ChordVoicing[]
+  onPlayVoicing?: (index: number) => void
   // Loop control
   loopCount: number
   onLoopCountChange: (count: number) => void
@@ -67,6 +72,8 @@ export function ChordProgressionPanel({
   onOptimizedChange,
   voicingFrets,
   activeChordName,
+  allVoicings = [],
+  onPlayVoicing,
   loopCount,
   onLoopCountChange,
   isCustom,
@@ -358,6 +365,17 @@ export function ChordProgressionPanel({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Voicing comparison panel */}
+      {voicingMode === 'voicing' && allVoicings.length > 1 && (
+        <VoicingComparePanel
+          voicings={allVoicings}
+          activeIndex={voicingIndex}
+          chordName={activeChordName}
+          onSelect={onVoicingIndexChange}
+          onPlayVoicing={onPlayVoicing}
+        />
       )}
 
       {/* Empty state */}
