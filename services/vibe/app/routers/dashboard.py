@@ -88,8 +88,8 @@ async def get_dashboard_summary(portfolio_id: int = Query(1)):
         total_current = 0.0
         portfolio_items = []
         for p in positions:
-            entry = p.get("entry_price") or 0
-            current = p.get("current_price") or entry
+            entry = p.get("entry_price") if p.get("entry_price") is not None else 0
+            current = p.get("current_price") if p.get("current_price") is not None else entry
             size = p.get("position_size", 0)
             pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
             total_invested += size  # size IS the invested KRW/USD amount

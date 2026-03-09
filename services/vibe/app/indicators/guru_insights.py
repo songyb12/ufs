@@ -651,7 +651,7 @@ def _buffett_picks(signals: list[dict], m: dict) -> list[dict]:
         elif rsi < 45:
             sc += 15
             reasons.append(f"저평가 구간(RSI {rsi:.0f})")
-        fund = s.get("fundamental_score") or 0
+        fund = s.get("fundamental_score") if s.get("fundamental_score") is not None else 0
         if fund > 0:
             sc += 20
             reasons.append("펀더멘털 양호")
@@ -688,7 +688,7 @@ def _dalio_picks(signals: list[dict], m: dict) -> list[dict]:
         if sector == "ETF":
             sc += 20
             reasons.append("분산 투자 수단")
-        fund = s.get("fundamental_score") or 0
+        fund = s.get("fundamental_score") if s.get("fundamental_score") is not None else 0
         if fund > 0:
             sc += 10
 
@@ -710,7 +710,7 @@ def _lynch_picks(signals: list[dict], m: dict) -> list[dict]:
         if s.get("final_signal") == "BUY":
             sc += 15
             reasons.append("매수 시그널")
-        tech = s.get("technical_score") or 0
+        tech = s.get("technical_score") if s.get("technical_score") is not None else 0
         if tech > 20:
             sc += 15
             reasons.append(f"기술적 강세({tech:.0f})")
@@ -729,7 +729,7 @@ def _soros_picks(signals: list[dict], m: dict) -> list[dict]:
     def score(s):
         sc = 0
         reasons = []
-        raw = s.get("raw_score") or 0
+        raw = s.get("raw_score") if s.get("raw_score") is not None else 0
 
         # Soros follows momentum and macro
         if raw > 15:
@@ -738,7 +738,7 @@ def _soros_picks(signals: list[dict], m: dict) -> list[dict]:
         elif raw > 5:
             sc += 15
             reasons.append("양호한 모멘텀")
-        macro = s.get("macro_score") or 0
+        macro = s.get("macro_score") if s.get("macro_score") is not None else 0
         if macro > 10:
             sc += 15
             reasons.append("매크로 순풍")
@@ -784,7 +784,7 @@ def _marks_picks(signals: list[dict], m: dict) -> list[dict]:
                 sc += 10
                 reasons.append("저평가 구간")
 
-        fund = s.get("fundamental_score") or 0
+        fund = s.get("fundamental_score") if s.get("fundamental_score") is not None else 0
         if fund > 0:
             sc += 15
             reasons.append("펀더멘털 양호")
@@ -806,7 +806,7 @@ def _wood_picks(signals: list[dict], m: dict) -> list[dict]:
         if s.get("final_signal") == "BUY":
             sc += 15
             reasons.append("매수 시그널")
-        tech = s.get("technical_score") or 0
+        tech = s.get("technical_score") if s.get("technical_score") is not None else 0
         if tech > 10:
             sc += 10
             reasons.append("기술적 양호")
@@ -837,7 +837,7 @@ def _nps_picks(signals: list[dict], m: dict) -> list[dict]:
         if 30 < rsi < 65:
             sc += 10
             reasons.append("적정 RSI")
-        fund = s.get("fundamental_score") or 0
+        fund = s.get("fundamental_score") if s.get("fundamental_score") is not None else 0
         if fund > 0:
             sc += 15
             reasons.append("펀더멘털 양호")
@@ -863,7 +863,7 @@ def _gpfg_picks(signals: list[dict], m: dict) -> list[dict]:
         if s.get("final_signal") in ("BUY", "HOLD"):
             sc += 10
             reasons.append("안정적 시그널")
-        fund = s.get("fundamental_score") or 0
+        fund = s.get("fundamental_score") if s.get("fundamental_score") is not None else 0
         if fund > 0:
             sc += 15
             reasons.append("펀더멘털 양호")

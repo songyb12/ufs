@@ -130,8 +130,8 @@ class BacktestEngine:
                 "Backtest completed: id=%s trades=%d hit_rate=%.2f%% sharpe=%.2f",
                 backtest_id[:8],
                 metrics.get("total_trades", 0),
-                (metrics.get("hit_rate") or 0) * 100,
-                metrics.get("sharpe_ratio") or 0,
+                (metrics.get("hit_rate") if metrics.get("hit_rate") is not None else 0) * 100,
+                metrics.get("sharpe_ratio") if metrics.get("sharpe_ratio") is not None else 0,
             )
 
             return {
@@ -329,7 +329,7 @@ class BacktestEngine:
 
         # Create a copy with overrides
         config_dict = {}
-        for field in self.config.model_fields:
+        for field in self.config.__class__.model_fields:
             config_dict[field] = getattr(self.config, field)
         config_dict.update(overrides)
 

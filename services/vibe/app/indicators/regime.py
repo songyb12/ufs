@@ -438,8 +438,8 @@ def compute_cross_market_recommendation(
     us_total += vol_us * 0.20
 
     # Factor 3: Yield environment
-    us_10y = macro.get("us_10y_yield") or 4.0
-    spread = macro.get("us_yield_spread") or 0.5
+    us_10y = macro.get("us_10y_yield") if macro.get("us_10y_yield") is not None else 4.0
+    spread = macro.get("us_yield_spread") if macro.get("us_yield_spread") is not None else 0.5
     if us_10y < 3.5 and spread > 0:
         yld_kr, yld_us = 0.2, 0.6
         yld_label = f"금리 하락 (10Y={us_10y:.1f}%) - 성장주/US 유리"
@@ -475,8 +475,8 @@ def compute_cross_market_recommendation(
     us_total += flow_us * 0.20
 
     # Factor 5: Signal momentum
-    kr_avg = kr_stats.get("avg_score", 0) or 0
-    us_avg = us_stats.get("avg_score", 0) or 0
+    kr_avg = kr_stats.get("avg_score") if kr_stats.get("avg_score") is not None else 0
+    us_avg = us_stats.get("avg_score") if us_stats.get("avg_score") is not None else 0
     mom_kr = min(0.7, max(-0.7, kr_avg / 30))  # normalize from -30..+30 range
     mom_us = min(0.7, max(-0.7, us_avg / 30))
     mom_label = f"KR 평균스코어 {kr_avg:.1f} / US 평균스코어 {us_avg:.1f}"

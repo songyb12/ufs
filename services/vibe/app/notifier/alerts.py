@@ -116,7 +116,7 @@ async def _check_portfolio_stops(config: Settings, alert_cfg: dict | None = None
         current = r.get("current_price")
         name = r.get("name", r["symbol"])
 
-        if not entry or not current or entry <= 0 or current <= 0:
+        if entry is None or current is None or entry <= 0 or current <= 0:
             logger.debug("Skipped alert for %s: entry_price=%s, current_price=%s", r["symbol"], entry, current)
             continue
 
@@ -163,7 +163,7 @@ async def _check_rsi_alerts(config: Settings, alert_cfg: dict | None = None) -> 
     for row in rows:
         r = dict(row)
         name = r.get("name", r["symbol"])
-        rsi = r.get("rsi_value") or 0
+        rsi = r.get("rsi_value") if r.get("rsi_value") is not None else 0
         alerts.append(
             f"\U0001f7e0 **{name}**: RSI {rsi:.0f} (Hard Limit 65 접근)"
         )

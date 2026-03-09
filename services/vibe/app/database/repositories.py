@@ -934,7 +934,7 @@ async def exit_position(
     if not row:
         return {"status": "not_found"}
     r = dict(row)
-    entry = r.get("entry_price") or 0
+    entry = r.get("entry_price") if r.get("entry_price") is not None else 0
     exit_p = r.get("exit_price") if r.get("exit_price") is not None else entry
     pnl = round((exit_p - entry) / entry * 100, 2) if entry > 0 else 0.0
     # Insert exit record
@@ -981,7 +981,7 @@ async def batch_exit_stop_loss(portfolio_id: int = 1, stop_pct: float = -7.0) ->
     rows = [dict(r) for r in await cursor.fetchall()]
     exited = 0
     for r in rows:
-        entry = r.get("entry_price") or 0
+        entry = r.get("entry_price") if r.get("entry_price") is not None else 0
         exit_p = r.get("exit_price") if r.get("exit_price") is not None else entry
         if entry <= 0:
             continue
