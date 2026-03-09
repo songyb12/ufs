@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useCallback } from 'react'
 import { ChordDiagram } from './ChordDiagram'
 import { classifyDifficulty, type ChordVoicing, type VoicingDifficulty } from '../../utils/voicingLibrary'
 
@@ -48,6 +48,17 @@ export function VoicingComparePanel({
     for (const item of classified) c[item.difficulty]++
     return c
   }, [classified])
+
+  // Debounced hover preview — plays voicing after short hover (300ms)
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleHoverStart = useCallback((idx: number) => {
+    if (!onPlayVoicing) return
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    hoverTimerRef.current = setTimeout(() => onPlayVoicing(idx), 300)
+  }, [onPlayVoicing])
+  const handleHoverEnd = useCallback(() => {
+    if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null }
+  }, [])
 
   if (voicings.length <= 1) return null
 
@@ -147,6 +158,8 @@ export function VoicingComparePanel({
                   : 'border-slate-700 bg-slate-800 hover:border-slate-600'
               }`}
               onClick={() => onSelect(originalIndex)}
+              onMouseEnter={() => handleHoverStart(originalIndex)}
+              onMouseLeave={handleHoverEnd}
             >
               {/* Voicing label + difficulty badge */}
               <div className="flex items-center gap-1 mb-1">
