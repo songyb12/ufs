@@ -185,7 +185,7 @@ async def confirm_import(req: ConfirmImportRequest):
         if not symbol:
             continue
         data = {
-            "position_size": p.get("position_size") or 0,
+            "position_size": p.get("position_size") if p.get("position_size") is not None else 0,
             "entry_price": p.get("entry_price"),
             "entry_date": p.get("entry_date"),
             "sector": p.get("sector"),

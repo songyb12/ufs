@@ -85,12 +85,12 @@ class MacroCollector:
 
         logger.info(
             "Macro collected: VIX=%.1f, DXY=%.1f, USD/KRW=%.1f, WTI=%.1f, Gold=%.0f, Copper=%.2f",
-            result.get("vix") or 0,
-            result.get("dxy_index") or 0,
-            result.get("usd_krw") or 0,
-            result.get("wti_crude") or 0,
-            result.get("gold_price") or 0,
-            result.get("copper_price") or 0,
+            result.get("vix", 0),
+            result.get("dxy_index", 0),
+            result.get("usd_krw", 0),
+            result.get("wti_crude", 0),
+            result.get("gold_price", 0),
+            result.get("copper_price", 0),
         )
 
         return result

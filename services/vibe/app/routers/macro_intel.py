@@ -219,7 +219,7 @@ async def get_sector_fund_flow(days: int = Query(5, ge=1, le=30)):
                     "buy_count": 0, "sell_count": 0,
                 }
             sector_agg[sector]["symbol_count"] += 1
-            sector_agg[sector]["scores"].append(r.get("raw_score") or 0)
+            sector_agg[sector]["scores"].append(r.get("raw_score") if r.get("raw_score") is not None else 0)
             if r.get("final_signal") == "BUY":
                 sector_agg[sector]["buy_count"] += 1
             elif r.get("final_signal") == "SELL":
@@ -313,7 +313,7 @@ async def get_sector_rotation():
                 continue
             if sector not in sector_scores:
                 sector_scores[sector] = {"scores": [], "buy": 0, "sell": 0}
-            sector_scores[sector]["scores"].append(row.get("raw_score") or 0)
+            sector_scores[sector]["scores"].append(row.get("raw_score") if row.get("raw_score") is not None else 0)
             if row.get("final_signal") == "BUY":
                 sector_scores[sector]["buy"] += 1
             elif row.get("final_signal") == "SELL":
@@ -378,7 +378,7 @@ async def get_theme_ranking():
                 continue  # Skip ETFs from theme ranking
             if sector not in sector_signals:
                 sector_signals[sector] = {"scores": [], "buy": 0, "sell": 0, "symbols": 0, "market": sr.get("market", "")}
-            sector_signals[sector]["scores"].append(sr.get("raw_score") or 0)
+            sector_signals[sector]["scores"].append(sr.get("raw_score") if sr.get("raw_score") is not None else 0)
             sector_signals[sector]["symbols"] += 1
             if sr.get("final_signal") == "BUY":
                 sector_signals[sector]["buy"] += 1

@@ -45,7 +45,7 @@ class WeeklyAnalysisStage(BaseStage):
                 logger.debug(
                     "[S2c] %s: weekly_trend=%s, weekly_rsi=%.1f",
                     symbol, weekly["trend_direction"],
-                    weekly.get("rsi_14_weekly") or 0,
+                    weekly.get("rsi_14_weekly") if weekly.get("rsi_14_weekly") is not None else 0,
                 )
 
             except Exception as e:

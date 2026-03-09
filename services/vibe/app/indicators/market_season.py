@@ -153,7 +153,7 @@ def detect_market_season(
 
     # Component 2: ETF momentum (30%)
     etf = etf_momentum or {}
-    spy_ret = etf.get("spy_return_60d", 0) or 0
+    spy_ret = etf.get("spy_return_60d") if etf.get("spy_return_60d") is not None else 0
     # Normalize: ±15% range → ±1
     etf_mom = max(-1.0, min(1.0, spy_ret / 0.15))
 
@@ -161,10 +161,10 @@ def detect_market_season(
     kr_flow = kr_foreign_trend or []
     if len(kr_flow) >= 10:
         recent_flow = sum(
-            (r.get("total_foreign_net") or 0) for r in kr_flow[-10:]
+            (r.get("total_foreign_net") if r.get("total_foreign_net") is not None else 0) for r in kr_flow[-10:]
         )
         older_flow = sum(
-            (r.get("total_foreign_net") or 0) for r in kr_flow[:-10]
+            (r.get("total_foreign_net") if r.get("total_foreign_net") is not None else 0) for r in kr_flow[:-10]
         )
         # Normalize by rough scale (500B KRW)
         flow_diff = recent_flow - older_flow
