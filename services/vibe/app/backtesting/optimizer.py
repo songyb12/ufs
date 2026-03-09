@@ -66,7 +66,7 @@ class ParameterOptimizer:
 
         # Sort by sharpe_ratio descending
         results.sort(
-            key=lambda r: r["metrics"].get("sharpe_ratio") or -999,
+            key=lambda r: r["metrics"].get("sharpe_ratio") if r["metrics"].get("sharpe_ratio") is not None else -999,
             reverse=True,
         )
 

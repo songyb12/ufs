@@ -138,7 +138,7 @@ def register_jobs(
 
             payloads = await build_weekly_report_payloads()
             if payloads and config.DISCORD_WEBHOOK_URL:
-                client = _get_discord_client()
+                client = await _get_discord_client()
                 for payload in payloads:
                     resp = await client.post(
                         config.DISCORD_WEBHOOK_URL,

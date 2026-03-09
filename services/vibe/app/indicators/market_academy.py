@@ -460,7 +460,7 @@ def _get_current_value_for_concept(concept_id: str, macro: dict) -> dict | None:
             "극도의 안정" if v < 12 else "정상" if v < 20 else "경계" if v < 30 else "공포" if v < 40 else "극단적 공포"
         )),
         "yield_curve": ("us_yield_spread", lambda v: (
-            "가파른 정상" if v and v > 2 else "완만한 정상" if v and v > 0.5 else "평탄화" if v and v > 0 else "역전"
+            "가파른 정상" if v > 2 else "완만한 정상" if v > 0.5 else "평탄화" if v >= 0 else "역전"
         )),
     }
 
