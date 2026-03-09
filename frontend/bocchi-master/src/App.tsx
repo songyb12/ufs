@@ -108,6 +108,9 @@ export default function App() {
   // Note click toast
   const noteToastRef = useRef<NoteToastHandle>(null)
 
+  // Scale comparison: overlay a second scale on the fretboard
+  const [compareScaleIdx, setCompareScaleIdx] = useState<number | null>(null)
+
   // Capo position (0 = no capo, 1-12 = capo at that fret)
   const [capo, setCapo] = useState(0)
 
@@ -467,11 +470,23 @@ export default function App() {
     setActiveScaleSuggestionIdx(null)
   }, [activeChord?.root, activeChord?.quality])
 
+  // Compare scale overlay notes
+  const compareScaleNotes: NoteName[] = useMemo(() => {
+    if (compareScaleIdx == null || !selectedRoot) return []
+    const def = SCALES[compareScaleIdx]
+    if (!def) return []
+    return getScaleNoteNames(selectedRoot, def)
+  }, [compareScaleIdx, selectedRoot])
+
   // Scale overlay note names (for fretboard amber overlay)
   const scaleOverlayNoteNames: NoteName[] = useMemo(() => {
-    if (activeScaleSuggestionIdx === null) return []
-    return scaleSuggestions[activeScaleSuggestionIdx]?.noteNames ?? []
-  }, [activeScaleSuggestionIdx, scaleSuggestions])
+    // Improv suggestions take priority
+    if (activeScaleSuggestionIdx !== null) {
+      return scaleSuggestions[activeScaleSuggestionIdx]?.noteNames ?? []
+    }
+    // Fallback: compare scale overlay
+    return compareScaleNotes
+  }, [activeScaleSuggestionIdx, scaleSuggestions, compareScaleNotes])
 
   // Chord tone note names (for highlighting chord tones on fretboard)
   const chordToneNoteNames: NoteName[] = useMemo(() => {
@@ -817,6 +832,29 @@ export default function App() {
             </button>
           )}
         </div>
+        {/* Compare scale overlay selector */}
+        {selectedRoot && selectedDefinition && (
+          <div className="flex items-center gap-1.5 px-1 py-0.5">
+            <span className="text-[10px] text-slate-600">Compare:</span>
+            <select
+              value={compareScaleIdx ?? ''}
+              onChange={(e) => setCompareScaleIdx(e.target.value === '' ? null : Number(e.target.value))}
+              className="bg-slate-700/50 text-slate-400 text-[10px] rounded px-1.5 py-0.5 outline-none border border-slate-700"
+            >
+              <option value="">None</option>
+              {SCALES.map((s, i) => (
+                <option key={s.name} value={i} disabled={s.name === selectedDefinition.name}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            {compareScaleIdx != null && (
+              <span className="text-[10px] text-amber-500/60">
+                ({compareScaleNotes.length} notes, amber overlay)
+              </span>
+            )}
+          </div>
+        )}
         {/* Current chord/scale name overlay + key signature */}
         {(activeChord || (selectedRoot && selectedDefinition)) && (() => {
           const keyRoot = progressionKey ?? selectedRoot
