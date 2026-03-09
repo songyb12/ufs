@@ -14,6 +14,7 @@ interface FretboardProps {
   voicingPositions?: number[]  // per-string fret array. -1=mute, 0=open, 1+=fret
   midiNoteName?: NoteName      // currently active MIDI note (highlight all instances)
   scaleOverlayNoteNames?: NoteName[]  // improv scale overlay (amber)
+  patternPositions?: { stringIndex: number; fret: number }[]  // scale pattern overlay (teal)
   labelMode?: NoteLabelMode    // 'name' | 'interval' | 'degree'
   leftHanded?: boolean         // mirror fretboard horizontally
   fretRange?: [number, number] // [startFret, endFret] for zoom (inclusive)
@@ -37,6 +38,7 @@ export function Fretboard({
   voicingPositions,
   midiNoteName,
   scaleOverlayNoteNames = [],
+  patternPositions,
   labelMode = 'name',
   leftHanded = false,
   fretRange,
@@ -80,6 +82,12 @@ export function Fretboard({
 
   const scaleSet = useMemo(() => new Set(scaleNoteNames), [scaleNoteNames])
   const scaleOverlaySet = useMemo(() => new Set(scaleOverlayNoteNames), [scaleOverlayNoteNames])
+  const patternPosSet = useMemo(() => {
+    if (!patternPositions) return null
+    const s = new Set<string>()
+    for (const p of patternPositions) s.add(`${p.stringIndex}-${p.fret}`)
+    return s
+  }, [patternPositions])
 
   // Voicing mode: check if a specific (stringIndex, fret) is in the voicing
   const hasVoicing = voicingPositions != null && voicingPositions.length > 0
@@ -280,9 +288,10 @@ export function Fretboard({
                 const isVoicing = hasVoicing && isVoicingPosition(stringIndex, fret)
                 const isMidi = midiNoteName === note.name
                 const isOverlay = scaleOverlaySet.has(note.name) && !inScale && !isVoicing
+                const isPatternPos = patternPosSet?.has(`${stringIndex}-${fret}`) ?? false
 
                 // Compute display label based on mode (only for visible notes)
-                const showLabel = highlighted || isMidi || isVoicing || inScale || isRoot || isOverlay
+                const showLabel = highlighted || isMidi || isVoicing || inScale || isRoot || isOverlay || isPatternPos
                 const displayLabel = showLabel && labelMode !== 'name'
                   ? getNoteLabel(note.name, rootNote, labelMode)
                   : undefined
@@ -299,6 +308,7 @@ export function Fretboard({
                     isVoicing={isVoicing}
                     isMidiActive={isMidi}
                     isScaleOverlay={isOverlay}
+                    isPattern={isPatternPos}
                     displayLabel={displayLabel}
                     leftHanded={leftHanded}
                     onClick={() => onNoteClick?.(note, stringIndex, fret)}

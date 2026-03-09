@@ -11,6 +11,7 @@ interface NoteLabelProps {
   isVoicing?: boolean
   isMidiActive?: boolean
   isScaleOverlay?: boolean
+  isPattern?: boolean    // scale pattern box shape highlight (teal)
   displayLabel?: string  // custom label (for interval/degree modes)
   leftHanded?: boolean   // counter-transform text when fretboard is mirrored
   onClick?: () => void
@@ -25,7 +26,8 @@ interface NoteLabelProps {
  * 5. Root note           — sky-blue solid + thick stroke
  * 6. Scale/chord         — sky-blue translucent
  * 7. Scale overlay       — amber translucent (improv suggestions)
- * 8. Default             — transparent
+ * 8. Pattern position    — teal translucent (box shapes)
+ * 9. Default             — transparent
  */
 export const NoteLabel = memo(function NoteLabel({
   note,
@@ -37,6 +39,7 @@ export const NoteLabel = memo(function NoteLabel({
   isVoicing = false,
   isMidiActive = false,
   isScaleOverlay = false,
+  isPattern = false,
   displayLabel,
   leftHanded = false,
   onClick,
@@ -46,7 +49,7 @@ export const NoteLabel = memo(function NoteLabel({
   const isSharp = label.includes('#') || label.length > 2
 
   // Determine visual state
-  const isVisible = isHighlighted || isMidiActive || isVoicing || isInScale || isRoot || isScaleOverlay
+  const isVisible = isHighlighted || isMidiActive || isVoicing || isInScale || isRoot || isScaleOverlay || isPattern
 
   let fillColor = 'transparent'
   let strokeColor = '#475569'
@@ -115,6 +118,14 @@ export const NoteLabel = memo(function NoteLabel({
     textColor = '#fcd34d'
     textWeight = 400
     textOpacity = 0.85
+  } else if (isPattern) {
+    // Scale pattern — translucent teal (box shapes)
+    fillColor = '#2dd4bf'
+    strokeColor = '#14b8a6'
+    fillOpacity = 0.35
+    textColor = '#5eead4'
+    textWeight = 500
+    textOpacity = 0.9
   }
 
   return (

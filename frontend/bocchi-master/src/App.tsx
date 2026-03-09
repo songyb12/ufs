@@ -45,6 +45,7 @@ import { PracticeHistoryPanel } from './components/practice/PracticeHistoryPanel
 import { ShortcutHelpOverlay } from './components/help/ShortcutHelpOverlay'
 import { ScaleFinderPanel } from './components/scale/ScaleFinderPanel'
 import { FretboardQuizPanel, type FretboardQuizHandle } from './components/trainer/FretboardQuizPanel'
+import { ScalePatternPanel } from './components/scale/ScalePatternPanel'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -79,6 +80,9 @@ export default function App() {
   const midi = useMidi()
   const practice = usePracticeMode()
   const intervalTrainer = useIntervalTrainer()
+
+  // Scale pattern positions (for box shapes on fretboard)
+  const [patternPositions, setPatternPositions] = useState<{ stringIndex: number; fret: number }[] | null>(null)
 
   // Fretboard quiz state
   const [fretboardQuizActive, setFretboardQuizActive] = useState(false)
@@ -594,6 +598,7 @@ export default function App() {
           voicingPositions={fretboardVoicingPositions}
           midiNoteName={midiNoteName}
           scaleOverlayNoteNames={scaleOverlayNoteNames}
+          patternPositions={patternPositions ?? undefined}
           labelMode={labelMode}
           leftHanded={leftHanded}
           fretRange={fretRange}
@@ -738,6 +743,13 @@ export default function App() {
             setSelectedDefinition(foundDef)
           }
         }, [])}
+      />
+
+      {/* Scale Patterns (box shapes) */}
+      <ScalePatternPanel
+        instrument={instrument}
+        selectedRoot={selectedRoot}
+        onPatternPositionsChange={setPatternPositions}
       />
 
       {/* Fretboard Quiz */}
