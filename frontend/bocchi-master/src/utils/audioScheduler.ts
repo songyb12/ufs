@@ -25,6 +25,9 @@ export interface SchedulerCallbacks {
 
 export type ClickSound = 'sine' | 'wood' | 'hihat' | 'rimshot'
 
+/** Subdivision level: how many clicks per beat */
+export type Subdivision = 1 | 2 | 3 | 4
+
 export class AudioScheduler {
   private audioContext: AudioContext
   private bpm: number
@@ -38,6 +41,9 @@ export class AudioScheduler {
   private callbacks: SchedulerCallbacks
   private countInBeatsRemaining: number = 0
   private clickSound: ClickSound = 'sine'
+  private subdivision: Subdivision = 1
+  private swing: number = 0 // 0–100, 0=straight, 50+=swing feel
+  private currentSubBeat: number = 0 // tracks subdivision within a beat
 
   constructor(
     audioContext: AudioContext,
@@ -51,6 +57,11 @@ export class AudioScheduler {
     this.callbacks = callbacks
   }
 
+  /**
+   * Schedule the main beat click + any subdivision clicks.
+   * Subdivisions are scheduled at evenly-spaced intervals within the beat,
+   * with optional swing applied to even-numbered sub-beats.
+   */
   private scheduleNote(time: number): void {
     const isCountIn = this.countInBeatsRemaining > 0
 
@@ -63,6 +74,35 @@ export class AudioScheduler {
       )
     }
 
+    // Schedule the main beat click
+    this.scheduleClick(time, isCountIn, /* isSubdivision */ false)
+    this.callbacks.onBeat(this.currentBeat, time)
+
+    // Schedule subdivision clicks (only during normal play, not count-in)
+    if (!isCountIn && this.subdivision > 1) {
+      const secondsPerBeat = 60.0 / this.bpm
+      const subInterval = secondsPerBeat / this.subdivision
+
+      for (let sub = 1; sub < this.subdivision; sub++) {
+        // Swing: delay even-numbered sub-beats (2nd, 4th in groups of 2)
+        let subTime = time + sub * subInterval
+        if (this.swing > 0 && this.subdivision === 2 && sub === 1) {
+          // For 8th notes: delay the "and" (offbeat)
+          const swingRatio = 0.5 + (this.swing / 100) * 0.25 // 0.50–0.75
+          subTime = time + secondsPerBeat * swingRatio
+        } else if (this.swing > 0 && this.subdivision === 3 && sub === 2) {
+          // For triplets: delay the last triplet slightly
+          const swingOffset = (this.swing / 100) * subInterval * 0.3
+          subTime += swingOffset
+        }
+
+        this.scheduleClick(subTime, false, /* isSubdivision */ true)
+      }
+    }
+  }
+
+  /** Schedule a single click (main beat or subdivision) */
+  private scheduleClick(time: number, isCountIn: boolean, isSubdivision: boolean): void {
     const osc = this.audioContext.createOscillator()
     const gain = this.audioContext.createGain()
     osc.connect(gain)
@@ -75,12 +115,13 @@ export class AudioScheduler {
       gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05)
       osc.start(time)
       osc.stop(time + 0.05)
+    } else if (isSubdivision) {
+      // Subdivision: quieter, shorter version of current click sound
+      this.applySubdivisionSound(osc, gain, time)
     } else {
       const isAccent = this.currentBeat === 0
       this.applyClickSound(osc, gain, time, isAccent)
     }
-
-    this.callbacks.onBeat(this.currentBeat, time)
   }
 
   private scheduler = (): void => {
@@ -162,8 +203,64 @@ export class AudioScheduler {
     this.clickSound = sound
   }
 
+  setSubdivision(sub: Subdivision): void {
+    this.subdivision = sub
+  }
+
+  setSwing(amount: number): void {
+    this.swing = Math.max(0, Math.min(100, amount))
+  }
+
   getIsPlaying(): boolean {
     return this.isPlaying
+  }
+
+  /**
+   * Subdivision sound: a quieter, shorter ghost note that fits between main beats.
+   * Uses the same waveform family as the main click but softer + higher-pitched.
+   */
+  private applySubdivisionSound(
+    osc: OscillatorNode,
+    gain: GainNode,
+    time: number,
+  ): void {
+    const vol = 0.3
+
+    switch (this.clickSound) {
+      case 'wood':
+        osc.type = 'triangle'
+        osc.frequency.value = 1100
+        gain.gain.setValueAtTime(vol, time)
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.025)
+        osc.start(time)
+        osc.stop(time + 0.025)
+        break
+      case 'hihat':
+        osc.type = 'square'
+        osc.frequency.value = 8000
+        gain.gain.setValueAtTime(vol * 0.5, time)
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.03)
+        osc.start(time)
+        osc.stop(time + 0.04)
+        break
+      case 'rimshot':
+        osc.type = 'sawtooth'
+        osc.frequency.setValueAtTime(2500, time)
+        osc.frequency.exponentialRampToValueAtTime(400, time + 0.015)
+        gain.gain.setValueAtTime(vol * 0.6, time)
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.03)
+        osc.start(time)
+        osc.stop(time + 0.04)
+        break
+      default:
+        // Sine: quiet ghost click
+        osc.frequency.value = 600
+        gain.gain.setValueAtTime(vol, time)
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.04)
+        osc.start(time)
+        osc.stop(time + 0.04)
+        break
+    }
   }
 
   /**

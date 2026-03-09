@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { BpmSlider } from './BpmSlider'
 import { TapTempo } from './TapTempo'
-import type { ClickSound } from '../../utils/audioScheduler'
+import type { ClickSound, Subdivision } from '../../utils/audioScheduler'
 
 /** Standard tempo marking for a given BPM */
 function getTempoMarking(bpm: number): string {
@@ -25,6 +25,13 @@ const CLICK_SOUNDS: { value: ClickSound; label: string }[] = [
   { value: 'rimshot', label: 'Rim' },
 ]
 
+const SUBDIVISIONS: { value: Subdivision; label: string; icon: string }[] = [
+  { value: 1, label: 'Quarter', icon: '♩' },
+  { value: 2, label: '8th', icon: '♪♪' },
+  { value: 3, label: 'Triplet', icon: '♪³' },
+  { value: 4, label: '16th', icon: '♬' },
+]
+
 export interface MetronomePanelProps {
   bpm: number
   setBpm: (bpm: number) => void
@@ -39,6 +46,10 @@ export interface MetronomePanelProps {
   isCountingIn: boolean
   clickSound: ClickSound
   onClickSoundChange: (sound: ClickSound) => void
+  subdivision: Subdivision
+  onSubdivisionChange: (sub: Subdivision) => void
+  swing: number
+  onSwingChange: (amount: number) => void
 }
 
 /**
@@ -83,6 +94,10 @@ export function MetronomePanel({
   isCountingIn,
   clickSound,
   onClickSoundChange,
+  subdivision,
+  onSubdivisionChange,
+  swing,
+  onSwingChange,
 }: MetronomePanelProps) {
   return (
     <div className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3">
@@ -192,6 +207,44 @@ export function MetronomePanel({
             {s.label}
           </button>
         ))}
+      </div>
+
+      {/* Subdivision selector */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-slate-500">Subdivision:</span>
+        {SUBDIVISIONS.map((s) => (
+          <button
+            key={s.value}
+            onClick={() => onSubdivisionChange(s.value)}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              subdivision === s.value
+                ? 'bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/40'
+                : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+            }`}
+            title={s.label}
+          >
+            {s.icon}
+          </button>
+        ))}
+        {/* Swing control (only shown for subdivisions >= 2) */}
+        {subdivision >= 2 && (
+          <>
+            <span className="text-slate-700 mx-0.5">|</span>
+            <span className="text-xs text-slate-500">Swing:</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={swing}
+              onChange={(e) => onSwingChange(Number(e.target.value))}
+              className="w-16 h-1 accent-violet-500"
+              title={`Swing: ${swing}%`}
+            />
+            <span className="text-[10px] text-slate-500 tabular-nums w-7 text-right">
+              {swing}%
+            </span>
+          </>
+        )}
       </div>
     </div>
   )

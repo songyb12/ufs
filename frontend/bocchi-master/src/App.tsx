@@ -677,6 +677,10 @@ export default function App() {
           isCountingIn={metronome.isCountingIn}
           clickSound={metronome.clickSound}
           onClickSoundChange={metronome.setClickSound}
+          subdivision={metronome.subdivision}
+          onSubdivisionChange={metronome.setSubdivision}
+          swing={metronome.swing}
+          onSwingChange={metronome.setSwing}
         />
         <BackingTrackPanel
           enabled={backingTrack.enabled}

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { AudioScheduler, type ClickSound } from '../utils/audioScheduler'
+import { AudioScheduler, type ClickSound, type Subdivision } from '../utils/audioScheduler'
 import { getSharedAudioContext } from '../utils/audioContextSingleton'
 
 export function useMetronome(
@@ -20,6 +20,8 @@ export function useMetronome(
   const [countIn, setCountIn] = useState(false)
   const [isCountingIn, setIsCountingIn] = useState(false)
   const [clickSound, setClickSoundState] = useState<ClickSound>('sine')
+  const [subdivision, setSubdivisionState] = useState<Subdivision>(1)
+  const [swing, setSwingState] = useState(0)
 
   // Keep refs to avoid stale closures
   const onBeatScheduleRef = useRef(externalOnBeatSchedule)
@@ -43,11 +45,13 @@ export function useMetronome(
       onCountInChange: (counting) => setIsCountingIn(counting),
     })
     schedulerRef.current.setClickSound(clickSound)
+    schedulerRef.current.setSubdivision(subdivision)
+    schedulerRef.current.setSwing(swing)
     const countInBars = countInRef.current ? 1 : 0
     if (countInBars > 0) setIsCountingIn(true)
     schedulerRef.current.start(countInBars)
     setIsPlaying(true)
-  }, [bpm, beatsPerMeasure, clickSound])
+  }, [bpm, beatsPerMeasure, clickSound, subdivision, swing])
 
   const stop = useCallback(() => {
     schedulerRef.current?.stop()
@@ -88,6 +92,22 @@ export function useMetronome(
     [],
   )
 
+  const setSubdivision = useCallback(
+    (sub: Subdivision) => {
+      setSubdivisionState(sub)
+      schedulerRef.current?.setSubdivision(sub)
+    },
+    [],
+  )
+
+  const setSwing = useCallback(
+    (amount: number) => {
+      setSwingState(amount)
+      schedulerRef.current?.setSwing(amount)
+    },
+    [],
+  )
+
   return {
     bpm,
     setBpm,
@@ -104,5 +124,9 @@ export function useMetronome(
     isCountingIn,
     clickSound,
     setClickSound,
+    subdivision,
+    setSubdivision,
+    swing,
+    setSwing,
   }
 }
