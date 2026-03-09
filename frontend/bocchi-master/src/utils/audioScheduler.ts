@@ -28,6 +28,12 @@ export type ClickSound = 'sine' | 'wood' | 'hihat' | 'rimshot'
 /** Subdivision level: how many clicks per beat */
 export type Subdivision = 1 | 2 | 3 | 4
 
+/**
+ * Accent level per beat: 0=ghost (quieter), 1=normal, 2=accent (louder).
+ * Pattern length should match beatsPerMeasure.
+ */
+export type AccentLevel = 0 | 1 | 2
+
 export class AudioScheduler {
   private audioContext: AudioContext
   private bpm: number
@@ -44,6 +50,7 @@ export class AudioScheduler {
   private subdivision: Subdivision = 1
   private swing: number = 0 // 0–100, 0=straight, 50+=swing feel
   private currentSubBeat: number = 0 // tracks subdivision within a beat
+  private accentPattern: AccentLevel[] | null = null // null=default (beat 0 accented)
 
   constructor(
     audioContext: AudioContext,
@@ -119,8 +126,16 @@ export class AudioScheduler {
       // Subdivision: quieter, shorter version of current click sound
       this.applySubdivisionSound(osc, gain, time)
     } else {
-      const isAccent = this.currentBeat === 0
-      this.applyClickSound(osc, gain, time, isAccent)
+      // Determine accent level from pattern or default (beat 0 = accent)
+      const accentLevel: AccentLevel = this.accentPattern
+        ? (this.accentPattern[this.currentBeat % this.accentPattern.length] ?? 1)
+        : (this.currentBeat === 0 ? 2 : 1)
+      if (accentLevel === 0) {
+        // Ghost beat — use subdivision sound (quieter)
+        this.applySubdivisionSound(osc, gain, time)
+      } else {
+        this.applyClickSound(osc, gain, time, accentLevel === 2)
+      }
     }
   }
 
@@ -209,6 +224,10 @@ export class AudioScheduler {
 
   setSwing(amount: number): void {
     this.swing = Math.max(0, Math.min(100, amount))
+  }
+
+  setAccentPattern(pattern: AccentLevel[] | null): void {
+    this.accentPattern = pattern
   }
 
   getIsPlaying(): boolean {

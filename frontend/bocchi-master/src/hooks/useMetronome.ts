@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { AudioScheduler, type ClickSound, type Subdivision } from '../utils/audioScheduler'
+import { AudioScheduler, type ClickSound, type Subdivision, type AccentLevel } from '../utils/audioScheduler'
 import { getSharedAudioContext } from '../utils/audioContextSingleton'
 
 export function useMetronome(
@@ -22,6 +22,7 @@ export function useMetronome(
   const [clickSound, setClickSoundState] = useState<ClickSound>('sine')
   const [subdivision, setSubdivisionState] = useState<Subdivision>(1)
   const [swing, setSwingState] = useState(0)
+  const [accentPattern, setAccentPatternState] = useState<AccentLevel[] | null>(null)
 
   // Keep refs to avoid stale closures
   const onBeatScheduleRef = useRef(externalOnBeatSchedule)
@@ -47,11 +48,12 @@ export function useMetronome(
     schedulerRef.current.setClickSound(clickSound)
     schedulerRef.current.setSubdivision(subdivision)
     schedulerRef.current.setSwing(swing)
+    schedulerRef.current.setAccentPattern(accentPattern)
     const countInBars = countInRef.current ? 1 : 0
     if (countInBars > 0) setIsCountingIn(true)
     schedulerRef.current.start(countInBars)
     setIsPlaying(true)
-  }, [bpm, beatsPerMeasure, clickSound, subdivision, swing])
+  }, [bpm, beatsPerMeasure, clickSound, subdivision, swing, accentPattern])
 
   const stop = useCallback(() => {
     schedulerRef.current?.stop()
@@ -108,6 +110,14 @@ export function useMetronome(
     [],
   )
 
+  const setAccentPattern = useCallback(
+    (pattern: AccentLevel[] | null) => {
+      setAccentPatternState(pattern)
+      schedulerRef.current?.setAccentPattern(pattern)
+    },
+    [],
+  )
+
   return {
     bpm,
     setBpm,
@@ -128,5 +138,7 @@ export function useMetronome(
     setSubdivision,
     swing,
     setSwing,
+    accentPattern,
+    setAccentPattern,
   }
 }

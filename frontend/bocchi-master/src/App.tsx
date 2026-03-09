@@ -755,6 +755,8 @@ export default function App() {
           onSubdivisionChange={metronome.setSubdivision}
           swing={metronome.swing}
           onSwingChange={metronome.setSwing}
+          accentPattern={metronome.accentPattern}
+          onAccentPatternChange={metronome.setAccentPattern}
         />
         <BackingTrackPanel
           enabled={backingTrack.enabled}

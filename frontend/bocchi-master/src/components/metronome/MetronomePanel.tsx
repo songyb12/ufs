@@ -1,7 +1,7 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
 import { BpmSlider } from './BpmSlider'
 import { TapTempo } from './TapTempo'
-import type { ClickSound, Subdivision } from '../../utils/audioScheduler'
+import type { ClickSound, Subdivision, AccentLevel } from '../../utils/audioScheduler'
 
 /** Standard tempo marking for a given BPM */
 function getTempoMarking(bpm: number): string {
@@ -50,12 +50,25 @@ export interface MetronomePanelProps {
   onSubdivisionChange: (sub: Subdivision) => void
   swing: number
   onSwingChange: (amount: number) => void
+  accentPattern: AccentLevel[] | null
+  onAccentPatternChange: (pattern: AccentLevel[] | null) => void
 }
 
 /**
  * Beat dot with CSS scale pulse animation.
+ * Click to cycle accent level: normal(1) → accent(2) → ghost(0) → normal(1).
  */
-function BeatDot({ active, isDownbeat }: { active: boolean; isDownbeat: boolean }) {
+function BeatDot({
+  active,
+  isDownbeat,
+  accentLevel,
+  onClick,
+}: {
+  active: boolean
+  isDownbeat: boolean
+  accentLevel: AccentLevel
+  onClick?: () => void
+}) {
   const dotRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -66,16 +79,31 @@ function BeatDot({ active, isDownbeat }: { active: boolean; isDownbeat: boolean 
     }
   }, [active])
 
+  // Size based on accent level: ghost=small, normal=medium, accent=large
+  const sizeClass = accentLevel === 0
+    ? 'w-2.5 h-2.5'
+    : accentLevel === 2
+      ? 'w-5 h-5'
+      : 'w-4 h-4'
+
   const baseColor = active
-    ? isDownbeat
+    ? accentLevel === 2
       ? 'bg-orange-500 shadow-orange-500/50 shadow-lg'
-      : 'bg-sky-400 shadow-sky-400/40 shadow-md'
-    : 'bg-slate-700'
+      : accentLevel === 0
+        ? 'bg-slate-500 shadow-slate-500/30 shadow-sm'
+        : 'bg-sky-400 shadow-sky-400/40 shadow-md'
+    : accentLevel === 2
+      ? 'bg-slate-600'
+      : accentLevel === 0
+        ? 'bg-slate-800 border border-slate-700'
+        : 'bg-slate-700'
 
   return (
     <div
       ref={dotRef}
-      className={`w-4 h-4 rounded-full transition-colors duration-75 ${baseColor}`}
+      onClick={onClick}
+      className={`${sizeClass} rounded-full transition-colors duration-75 cursor-pointer ${baseColor}`}
+      title={`Accent: ${accentLevel === 2 ? 'strong' : accentLevel === 1 ? 'normal' : 'ghost'} — click to cycle`}
     />
   )
 }
@@ -98,7 +126,24 @@ export function MetronomePanel({
   onSubdivisionChange,
   swing,
   onSwingChange,
+  accentPattern,
+  onAccentPatternChange,
 }: MetronomePanelProps) {
+  // Build effective accent array (default: beat 0 = accent, rest = normal)
+  const effectiveAccents: AccentLevel[] = accentPattern
+    ?? Array.from({ length: beatsPerMeasure }, (_, i) => (i === 0 ? 2 : 1) as AccentLevel)
+
+  // Cycle accent level on beat dot click: 1 → 2 → 0 → 1
+  const cycleAccent = useCallback((beatIndex: number) => {
+    const current = effectiveAccents[beatIndex] ?? 1
+    const next: AccentLevel = current === 1 ? 2 : current === 2 ? 0 : 1
+    const newPattern = effectiveAccents.map((a, i) => (i === beatIndex ? next : a))
+    onAccentPatternChange(newPattern)
+  }, [effectiveAccents, onAccentPatternChange])
+
+  // Reset accent pattern (back to default)
+  const hasCustomAccent = accentPattern !== null
+
   return (
     <div className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -157,7 +202,7 @@ export function MetronomePanel({
         <TapTempo onTempoDetected={setBpm} />
       </div>
 
-      {/* Beat indicator dots */}
+      {/* Beat indicator dots (click to cycle accent: normal → strong → ghost) */}
       <div className="flex gap-2 justify-center items-center">
         {isCountingIn && (
           <span className="text-xs text-amber-400 font-semibold mr-1 animate-beat-pulse">
@@ -169,8 +214,19 @@ export function MetronomePanel({
             key={i}
             active={currentBeat === i}
             isDownbeat={i === 0}
+            accentLevel={effectiveAccents[i] ?? 1}
+            onClick={() => cycleAccent(i)}
           />
         ))}
+        {hasCustomAccent && (
+          <button
+            onClick={() => onAccentPatternChange(null)}
+            className="text-[10px] text-slate-500 hover:text-slate-300 ml-1"
+            title="Reset accent pattern to default"
+          >
+            Reset
+          </button>
+        )}
       </div>
 
       {/* BPM slider + options row */}
