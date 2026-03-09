@@ -1,6 +1,29 @@
 import { useRef, useEffect } from 'react'
 import { BpmSlider } from './BpmSlider'
 import { TapTempo } from './TapTempo'
+import type { ClickSound } from '../../utils/audioScheduler'
+
+/** Standard tempo marking for a given BPM */
+function getTempoMarking(bpm: number): string {
+  if (bpm < 45) return 'Grave'
+  if (bpm < 60) return 'Largo'
+  if (bpm < 66) return 'Larghetto'
+  if (bpm < 76) return 'Adagio'
+  if (bpm < 92) return 'Andante'
+  if (bpm < 108) return 'Moderato'
+  if (bpm < 120) return 'Allegretto'
+  if (bpm < 156) return 'Allegro'
+  if (bpm < 176) return 'Vivace'
+  if (bpm < 200) return 'Presto'
+  return 'Prestissimo'
+}
+
+const CLICK_SOUNDS: { value: ClickSound; label: string }[] = [
+  { value: 'sine', label: 'Sine' },
+  { value: 'wood', label: 'Wood' },
+  { value: 'hihat', label: 'Hi-hat' },
+  { value: 'rimshot', label: 'Rim' },
+]
 
 export interface MetronomePanelProps {
   bpm: number
@@ -14,20 +37,19 @@ export interface MetronomePanelProps {
   countIn: boolean
   onCountInChange: (enabled: boolean) => void
   isCountingIn: boolean
+  clickSound: ClickSound
+  onClickSoundChange: (sound: ClickSound) => void
 }
 
 /**
  * Beat dot with CSS scale pulse animation.
- * Each dot gets a unique key per beat-change to re-trigger the animation.
  */
 function BeatDot({ active, isDownbeat }: { active: boolean; isDownbeat: boolean }) {
   const dotRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (active && dotRef.current) {
-      // Remove then re-add animation class to re-trigger
       dotRef.current.classList.remove('animate-beat-pulse')
-      // Force reflow
       void dotRef.current.offsetWidth
       dotRef.current.classList.add('animate-beat-pulse')
     }
@@ -59,6 +81,8 @@ export function MetronomePanel({
   countIn,
   onCountInChange,
   isCountingIn,
+  clickSound,
+  onClickSoundChange,
 }: MetronomePanelProps) {
   return (
     <div className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3">
@@ -110,12 +134,15 @@ export function MetronomePanel({
             {bpm}
           </span>
           <span className="text-sm text-slate-500 ml-1">BPM</span>
+          <div className="text-[10px] text-slate-500 italic -mt-0.5">
+            {getTempoMarking(bpm)}
+          </div>
         </div>
 
         <TapTempo onTempoDetected={setBpm} />
       </div>
 
-      {/* Beat indicator dots — animated pulse on hit */}
+      {/* Beat indicator dots */}
       <div className="flex gap-2 justify-center items-center">
         {isCountingIn && (
           <span className="text-xs text-amber-400 font-semibold mr-1 animate-beat-pulse">
@@ -131,7 +158,7 @@ export function MetronomePanel({
         ))}
       </div>
 
-      {/* BPM slider + count-in toggle */}
+      {/* BPM slider + options row */}
       <div className="flex items-center gap-2">
         <div className="flex-1">
           <BpmSlider bpm={bpm} onChange={setBpm} />
@@ -147,6 +174,24 @@ export function MetronomePanel({
         >
           Count-in
         </button>
+      </div>
+
+      {/* Click sound selector */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-slate-500">Sound:</span>
+        {CLICK_SOUNDS.map((s) => (
+          <button
+            key={s.value}
+            onClick={() => onClickSoundChange(s.value)}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              clickSound === s.value
+                ? 'bg-sky-500/20 text-sky-400 ring-1 ring-sky-500/40'
+                : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
     </div>
   )

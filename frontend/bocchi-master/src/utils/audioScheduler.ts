@@ -23,6 +23,8 @@ export interface SchedulerCallbacks {
   onCountInChange?: (isCountingIn: boolean) => void
 }
 
+export type ClickSound = 'sine' | 'wood' | 'hihat' | 'rimshot'
+
 export class AudioScheduler {
   private audioContext: AudioContext
   private bpm: number
@@ -35,6 +37,7 @@ export class AudioScheduler {
   private isPlaying: boolean = false
   private callbacks: SchedulerCallbacks
   private countInBeatsRemaining: number = 0
+  private clickSound: ClickSound = 'sine'
 
   constructor(
     audioContext: AudioContext,
@@ -66,20 +69,15 @@ export class AudioScheduler {
     gain.connect(this.audioContext.destination)
 
     if (isCountIn) {
-      // Count-in: higher-pitched staccato woodblock-like sound
+      // Count-in: higher-pitched staccato sound
       osc.frequency.value = 1200
       gain.gain.setValueAtTime(0.8, time)
       gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05)
       osc.start(time)
       osc.stop(time + 0.05)
     } else {
-      // Normal: accent on beat 1
       const isAccent = this.currentBeat === 0
-      osc.frequency.value = isAccent ? 1000 : 800
-      gain.gain.setValueAtTime(isAccent ? 1.0 : 0.7, time)
-      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08)
-      osc.start(time)
-      osc.stop(time + 0.08)
+      this.applyClickSound(osc, gain, time, isAccent)
     }
 
     this.callbacks.onBeat(this.currentBeat, time)
@@ -160,7 +158,67 @@ export class AudioScheduler {
     this.beatsPerMeasure = beats
   }
 
+  setClickSound(sound: ClickSound): void {
+    this.clickSound = sound
+  }
+
   getIsPlaying(): boolean {
     return this.isPlaying
+  }
+
+  /**
+   * Apply click sound based on current clickSound type.
+   * Each type creates a different timbre using Web Audio API synthesis.
+   */
+  private applyClickSound(
+    osc: OscillatorNode,
+    gain: GainNode,
+    time: number,
+    isAccent: boolean,
+  ): void {
+    const vol = isAccent ? 1.0 : 0.7
+
+    switch (this.clickSound) {
+      case 'wood': {
+        // Woodblock: triangle wave, fast decay, resonant
+        osc.type = 'triangle'
+        osc.frequency.value = isAccent ? 900 : 700
+        gain.gain.setValueAtTime(vol * 0.9, time)
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.04)
+        osc.start(time)
+        osc.stop(time + 0.04)
+        break
+      }
+      case 'hihat': {
+        // Hi-hat simulation: high frequency noise-like (square wave)
+        osc.type = 'square'
+        osc.frequency.value = isAccent ? 6000 : 5000
+        gain.gain.setValueAtTime(vol * 0.4, time)
+        gain.gain.exponentialRampToValueAtTime(0.001, time + (isAccent ? 0.1 : 0.06))
+        osc.start(time)
+        osc.stop(time + 0.12)
+        break
+      }
+      case 'rimshot': {
+        // Rim shot: short noise burst
+        osc.type = 'sawtooth'
+        osc.frequency.setValueAtTime(isAccent ? 2000 : 1500, time)
+        osc.frequency.exponentialRampToValueAtTime(200, time + 0.02)
+        gain.gain.setValueAtTime(vol * 0.8, time)
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05)
+        osc.start(time)
+        osc.stop(time + 0.06)
+        break
+      }
+      default: {
+        // Sine (classic metronome): clean sine beep
+        osc.frequency.value = isAccent ? 1000 : 800
+        gain.gain.setValueAtTime(vol, time)
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08)
+        osc.start(time)
+        osc.stop(time + 0.08)
+        break
+      }
+    }
   }
 }

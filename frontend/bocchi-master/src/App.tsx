@@ -651,6 +651,8 @@ export default function App() {
           countIn={metronome.countIn}
           onCountInChange={metronome.setCountIn}
           isCountingIn={metronome.isCountingIn}
+          clickSound={metronome.clickSound}
+          onClickSoundChange={metronome.setClickSound}
         />
         <BackingTrackPanel
           enabled={backingTrack.enabled}

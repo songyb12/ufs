@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { AudioScheduler } from '../utils/audioScheduler'
+import { AudioScheduler, type ClickSound } from '../utils/audioScheduler'
 import { getSharedAudioContext } from '../utils/audioContextSingleton'
 
 export function useMetronome(
@@ -17,14 +17,13 @@ export function useMetronome(
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentBeat, setCurrentBeat] = useState(-1)
   const [currentMeasure, setCurrentMeasure] = useState(0)
-  const [countIn, setCountIn] = useState(false)     // count-in enabled
-  const [isCountingIn, setIsCountingIn] = useState(false) // currently in count-in phase
+  const [countIn, setCountIn] = useState(false)
+  const [isCountingIn, setIsCountingIn] = useState(false)
+  const [clickSound, setClickSoundState] = useState<ClickSound>('sine')
 
-  // Keep a ref to the latest callback to avoid stale closures
+  // Keep refs to avoid stale closures
   const onBeatScheduleRef = useRef(externalOnBeatSchedule)
   onBeatScheduleRef.current = externalOnBeatSchedule
-
-  // Keep countIn ref to avoid stale closure in start()
   const countInRef = useRef(countIn)
   countInRef.current = countIn
 
@@ -43,11 +42,12 @@ export function useMetronome(
       },
       onCountInChange: (counting) => setIsCountingIn(counting),
     })
+    schedulerRef.current.setClickSound(clickSound)
     const countInBars = countInRef.current ? 1 : 0
     if (countInBars > 0) setIsCountingIn(true)
     schedulerRef.current.start(countInBars)
     setIsPlaying(true)
-  }, [bpm, beatsPerMeasure])
+  }, [bpm, beatsPerMeasure, clickSound])
 
   const stop = useCallback(() => {
     schedulerRef.current?.stop()
@@ -80,6 +80,14 @@ export function useMetronome(
     [],
   )
 
+  const setClickSound = useCallback(
+    (sound: ClickSound) => {
+      setClickSoundState(sound)
+      schedulerRef.current?.setClickSound(sound)
+    },
+    [],
+  )
+
   return {
     bpm,
     setBpm,
@@ -94,5 +102,7 @@ export function useMetronome(
     countIn,
     setCountIn,
     isCountingIn,
+    clickSound,
+    setClickSound,
   }
 }
