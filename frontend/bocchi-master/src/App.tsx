@@ -115,6 +115,18 @@ export default function App() {
     setFretRange([0, instrument.fretCount])
   }, [instrument.fretCount])
 
+  // String focus (dim unselected strings)
+  const [dimmedStrings, setDimmedStrings] = useState<Set<number>>(new Set())
+  const toggleStringDim = useCallback((stringIndex: number) => {
+    setDimmedStrings((prev) => {
+      const next = new Set(prev)
+      if (next.has(stringIndex)) next.delete(stringIndex)
+      else next.add(stringIndex)
+      return next
+    })
+  }, [])
+  const clearDimmedStrings = useCallback(() => setDimmedStrings(new Set()), [])
+
   // Shortcut help overlay
   const [showShortcutHelp, setShowShortcutHelp] = useState(false)
 
@@ -526,6 +538,31 @@ export default function App() {
               Reset
             </button>
           )}
+          {/* String focus toggles */}
+          <span className="text-slate-700 mx-1">|</span>
+          <span className="text-xs text-slate-500">Strings:</span>
+          {instrument.tuning.map((openNote, si) => (
+            <button
+              key={si}
+              onClick={() => toggleStringDim(si)}
+              className={`w-6 h-5 rounded text-[10px] font-medium transition-colors ${
+                dimmedStrings.has(si)
+                  ? 'bg-slate-800 text-slate-600 line-through'
+                  : 'bg-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+              title={`${dimmedStrings.has(si) ? 'Show' : 'Dim'} string ${si + 1} (${openNote})`}
+            >
+              {openNote}
+            </button>
+          ))}
+          {dimmedStrings.size > 0 && (
+            <button
+              onClick={clearDimmedStrings}
+              className="text-xs text-slate-500 hover:text-slate-300"
+            >
+              All
+            </button>
+          )}
         </div>
         <Fretboard
           instrument={instrument}
@@ -538,6 +575,7 @@ export default function App() {
           labelMode={labelMode}
           leftHanded={leftHanded}
           fretRange={fretRange}
+          dimmedStrings={dimmedStrings.size > 0 ? dimmedStrings : undefined}
           onNoteClick={handleNoteClick}
         />
         {highlightedNotes.length > 0 && (

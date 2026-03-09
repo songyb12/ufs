@@ -17,6 +17,7 @@ interface FretboardProps {
   labelMode?: NoteLabelMode    // 'name' | 'interval' | 'degree'
   leftHanded?: boolean         // mirror fretboard horizontally
   fretRange?: [number, number] // [startFret, endFret] for zoom (inclusive)
+  dimmedStrings?: Set<number>  // strings to visually dim (for focused practice)
   onNoteClick?: (note: Note, stringIndex: number, fret: number) => void
 }
 
@@ -39,6 +40,7 @@ export function Fretboard({
   labelMode = 'name',
   leftHanded = false,
   fretRange,
+  dimmedStrings,
   onNoteClick,
 }: FretboardProps) {
   const { stringCount, fretCount, tuning } = instrument
@@ -175,33 +177,60 @@ export function Fretboard({
 
         {/* Strings */}
         {tuning.map((_, stringIndex) => (
-          <FretboardString
+          <g
             key={`string-${stringIndex}`}
-            y={getStringY(stringIndex)}
-            xStart={PADDING_LEFT}
-            xEnd={PADDING_LEFT + SCALE_LENGTH}
-            stringIndex={stringIndex}
-            totalStrings={stringCount}
-          />
+            opacity={dimmedStrings?.has(stringIndex) ? 0.2 : 1}
+          >
+            <FretboardString
+              y={getStringY(stringIndex)}
+              xStart={PADDING_LEFT}
+              xEnd={PADDING_LEFT + SCALE_LENGTH}
+              stringIndex={stringIndex}
+              totalStrings={stringCount}
+            />
+          </g>
         ))}
 
-        {/* Fret numbers (shown when zoomed for orientation) */}
-        {isZoomed &&
-          Array.from({ length: endFret - startFret + 1 }, (_, i) => startFret + i)
-            .filter((f) => f > 0)
-            .map((fret) => (
-              <text
-                key={`fretnum-${fret}`}
-                x={getFretCenterX(fret)}
-                y={PADDING_TOP + fretboardHeight + 18}
-                textAnchor="middle"
-                fontSize={9}
-                fill="#64748b"
-                {...(leftHanded ? { transform: `translate(${2 * getFretCenterX(fret)}, 0) scale(-1, 1)` } : {})}
-              >
-                {fret}
-              </text>
-            ))}
+        {/* Fret numbers (always shown for orientation) */}
+        {Array.from({ length: (isZoomed ? endFret - startFret + 1 : fretCount) }, (_, i) => (isZoomed ? startFret : 1) + i)
+          .filter((f) => f > 0 && f % (isZoomed ? 1 : 3) === 0) // every fret when zoomed, every 3rd when full
+          .map((fret) => (
+            <text
+              key={`fretnum-${fret}`}
+              x={getFretCenterX(fret)}
+              y={PADDING_TOP + fretboardHeight + 18}
+              textAnchor="middle"
+              fontSize={9}
+              fill="#475569"
+              {...(leftHanded ? { transform: `translate(${2 * getFretCenterX(fret)}, 0) scale(-1, 1)` } : {})}
+            >
+              {fret}
+            </text>
+          ))}
+
+        {/* String tuning labels (left edge, always visible) */}
+        {tuning.map((openNote, stringIndex) => {
+          const y = getStringY(stringIndex)
+          // Position at the left edge of the visible area
+          const x = isZoomed && startFret > 0
+            ? PADDING_LEFT + calculateFretX(startFret - 1, SCALE_LENGTH) - 2
+            : PADDING_LEFT - 34
+          return (
+            <text
+              key={`tuning-${stringIndex}`}
+              x={x}
+              y={y}
+              textAnchor="end"
+              dominantBaseline="central"
+              fontSize={9}
+              fontWeight={500}
+              fill="#64748b"
+              {...(leftHanded ? { transform: `translate(${2 * x}, 0) scale(-1, 1)` } : {})}
+            >
+              {openNote}
+            </text>
+          )
+        })}
 
         {/* Mute markers (X) for muted strings in voicing mode */}
         {hasVoicing &&
@@ -230,49 +259,54 @@ export function Fretboard({
         {/* Note labels (open string + each fret) */}
         {tuning.map((openNote, stringIndex) => {
           const y = getStringY(stringIndex)
+          const isDimmed = dimmedStrings?.has(stringIndex) ?? false
 
-          return Array.from({ length: fretCount + 1 }, (_, fret) => {
-            // In voicing mode, skip rendering label on muted strings
-            // (X marker is shown instead at open position)
-            if (hasVoicing && mutedStrings.has(stringIndex) && fret === 0) {
-              return null
-            }
+          return (
+            <g key={`notes-${stringIndex}`} opacity={isDimmed ? 0.15 : 1}>
+              {Array.from({ length: fretCount + 1 }, (_, fret) => {
+                // In voicing mode, skip rendering label on muted strings
+                // (X marker is shown instead at open position)
+                if (hasVoicing && mutedStrings.has(stringIndex) && fret === 0) {
+                  return null
+                }
 
-            const note = getNoteAtFret(openNote, fret)
-            const x = getFretCenterX(fret)
-            const highlighted = isNoteHighlighted(note)
-            const inScale = hasVoicing ? false : scaleSet.has(note.name)
-            const isRoot = hasVoicing
-              ? isVoicingPosition(stringIndex, fret) && rootNote === note.name
-              : rootNote === note.name
-            const isVoicing = hasVoicing && isVoicingPosition(stringIndex, fret)
-            const isMidi = midiNoteName === note.name
-            const isOverlay = scaleOverlaySet.has(note.name) && !inScale && !isVoicing
+                const note = getNoteAtFret(openNote, fret)
+                const x = getFretCenterX(fret)
+                const highlighted = isNoteHighlighted(note)
+                const inScale = hasVoicing ? false : scaleSet.has(note.name)
+                const isRoot = hasVoicing
+                  ? isVoicingPosition(stringIndex, fret) && rootNote === note.name
+                  : rootNote === note.name
+                const isVoicing = hasVoicing && isVoicingPosition(stringIndex, fret)
+                const isMidi = midiNoteName === note.name
+                const isOverlay = scaleOverlaySet.has(note.name) && !inScale && !isVoicing
 
-            // Compute display label based on mode (only for visible notes)
-            const showLabel = highlighted || isMidi || isVoicing || inScale || isRoot || isOverlay
-            const displayLabel = showLabel && labelMode !== 'name'
-              ? getNoteLabel(note.name, rootNote, labelMode)
-              : undefined
+                // Compute display label based on mode (only for visible notes)
+                const showLabel = highlighted || isMidi || isVoicing || inScale || isRoot || isOverlay
+                const displayLabel = showLabel && labelMode !== 'name'
+                  ? getNoteLabel(note.name, rootNote, labelMode)
+                  : undefined
 
-            return (
-              <NoteLabel
-                key={`note-${stringIndex}-${fret}`}
-                note={note}
-                x={x}
-                y={y}
-                isHighlighted={highlighted}
-                isInScale={inScale}
-                isRoot={isRoot}
-                isVoicing={isVoicing}
-                isMidiActive={isMidi}
-                isScaleOverlay={isOverlay}
-                displayLabel={displayLabel}
-                leftHanded={leftHanded}
-                onClick={() => onNoteClick?.(note, stringIndex, fret)}
-              />
-            )
-          })
+                return (
+                  <NoteLabel
+                    key={`note-${stringIndex}-${fret}`}
+                    note={note}
+                    x={x}
+                    y={y}
+                    isHighlighted={highlighted}
+                    isInScale={inScale}
+                    isRoot={isRoot}
+                    isVoicing={isVoicing}
+                    isMidiActive={isMidi}
+                    isScaleOverlay={isOverlay}
+                    displayLabel={displayLabel}
+                    leftHanded={leftHanded}
+                    onClick={() => onNoteClick?.(note, stringIndex, fret)}
+                  />
+                )
+              })}
+            </g>
+          )
         })}
       </svg>
     </div>
