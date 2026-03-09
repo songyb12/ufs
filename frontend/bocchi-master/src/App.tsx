@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { InstrumentConfig, Note, NoteName } from './types/music'
-import { STANDARD_GUITAR } from './constants/tunings'
+import { STANDARD_GUITAR, STANDARD_BASS, INSTRUMENTS } from './constants/tunings'
 import { AppShell } from './components/layout/AppShell'
 import { Fretboard } from './components/fretboard/Fretboard'
 import { MetronomePanel } from './components/metronome/MetronomePanel'
@@ -14,12 +14,14 @@ import {
 import { useMetronome } from './hooks/useMetronome'
 import {
   SCALES,
+  CHORDS,
   getScaleNoteNames,
   type ScaleDefinition,
   type ChordDefinition,
 } from './utils/scaleCalculator'
 import {
   resolveProgression,
+  PROGRESSION_PRESETS,
   type ProgressionPreset,
   type ProgressionStep,
 } from './utils/chordProgression'
@@ -35,10 +37,37 @@ import { useBackingTrack } from './hooks/useBackingTrack'
 import { BackingTrackPanel } from './components/backing/BackingTrackPanel'
 import { usePracticeMode } from './hooks/usePracticeMode'
 import { PracticePanel } from './components/practice/PracticePanel'
+import { loadSettings, saveSettings } from './utils/storage'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+
+// Restore persisted settings on initial load
+const initialSettings = loadSettings()
+
+function resolveInstrument(name: string, type: string): InstrumentConfig {
+  // Try exact name match first (for alternate tunings), fallback to type
+  return INSTRUMENTS.find((i) => i.name === name)
+    ?? INSTRUMENTS.find((i) => i.type === type)
+    ?? STANDARD_GUITAR
+}
+
+function resolveDefinition(
+  name: string | null,
+  mode: 'scale' | 'chord',
+): ScaleDefinition | ChordDefinition | null {
+  if (!name) return null
+  const pool = mode === 'scale' ? SCALES : CHORDS
+  return pool.find((d) => d.name === name) ?? pool[0]
+}
+
+function resolvePreset(name: string | null): ProgressionPreset | null {
+  if (!name) return null
+  return PROGRESSION_PRESETS.find((p) => p.name === name) ?? null
+}
 
 export default function App() {
-  const [instrument, setInstrument] =
-    useState<InstrumentConfig>(STANDARD_GUITAR)
+  const [instrument, setInstrument] = useState<InstrumentConfig>(
+    resolveInstrument(initialSettings.instrumentName, initialSettings.instrumentType),
+  )
   const [highlightedNotes, setHighlightedNotes] = useState<Note[]>([])
   const soundEngine = useSoundEngine()
   const midi = useMidi()
@@ -61,11 +90,13 @@ export default function App() {
   }, [midi.lastNote]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scale/Chord overlay state
-  const [selectedRoot, setSelectedRoot] = useState<NoteName | null>(null)
+  const [selectedRoot, setSelectedRoot] = useState<NoteName | null>(
+    (initialSettings.selectedRoot as NoteName) ?? null,
+  )
   const [selectedDefinition, setSelectedDefinition] = useState<
     ScaleDefinition | ChordDefinition | null
-  >(SCALES[0]) // Default: Major
-  const [mode, setMode] = useState<'scale' | 'chord'>('scale')
+  >(resolveDefinition(initialSettings.selectedDefinitionName, initialSettings.mode))
+  const [mode, setMode] = useState<'scale' | 'chord'>(initialSettings.mode)
 
   // Refs for backing track getters (avoids circular dependency with useMetronome)
   const chordRootRef = useRef<NoteName | null>(null)
@@ -79,10 +110,20 @@ export default function App() {
   // Metronome state (lifted from MetronomePanel)
   const metronome = useMetronome(backingTrack.onBeatSchedule)
 
+  // Restore persisted BPM + beats on mount
+  useEffect(() => {
+    if (initialSettings.bpm !== 120) metronome.setBpm(initialSettings.bpm)
+    if (initialSettings.beatsPerMeasure !== 4) metronome.setBeatsPerMeasure(initialSettings.beatsPerMeasure)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Chord progression state
-  const [progressionKey, setProgressionKey] = useState<NoteName | null>(null)
+  const [progressionKey, setProgressionKey] = useState<NoteName | null>(
+    (initialSettings.progressionKey as NoteName) ?? null,
+  )
   const [progressionPreset, setProgressionPreset] =
-    useState<ProgressionPreset | null>(null)
+    useState<ProgressionPreset | null>(
+      resolvePreset(initialSettings.progressionPresetName),
+    )
   const [activeChordIndex, setActiveChordIndex] = useState(0)
 
   // Custom progression state
@@ -119,10 +160,39 @@ export default function App() {
   }, [onCustomPresetUpdate])
 
   // Voicing state
-  const [voicingMode, setVoicingMode] = useState<VoicingMode>('all')
-  const [voicingSource, setVoicingSource] = useState<VoicingSource>('caged')
+  const [voicingMode, setVoicingMode] = useState<VoicingMode>(initialSettings.voicingMode)
+  const [voicingSource, setVoicingSource] = useState<VoicingSource>(initialSettings.voicingSource)
   const [voicingIndex, setVoicingIndex] = useState(0)
-  const [isOptimized, setIsOptimized] = useState(true)
+  const [isOptimized, setIsOptimized] = useState(initialSettings.isOptimized)
+
+  // Persist settings on change (debounced)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveSettings({
+        bpm: metronome.bpm,
+        beatsPerMeasure: metronome.beatsPerMeasure,
+        instrumentType: instrument.type as 'guitar' | 'bass',
+        instrumentName: instrument.name,
+        selectedRoot: selectedRoot,
+        selectedDefinitionName: selectedDefinition?.name ?? null,
+        mode,
+        progressionKey,
+        progressionPresetName: progressionPreset?.name ?? null,
+        voicingMode,
+        voicingSource,
+        isOptimized,
+      })
+    }, 500)
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [
+    metronome.bpm, metronome.beatsPerMeasure,
+    instrument, selectedRoot, selectedDefinition, mode,
+    progressionKey, progressionPreset, voicingMode, voicingSource, isOptimized,
+  ])
 
   // Resolve progression chords
   const resolvedChords = useMemo(() => {
@@ -295,6 +365,40 @@ export default function App() {
     }
   }, [practice, practiceTargetNotes])
 
+  // Keyboard shortcuts (Space=play, ↑↓=BPM, ←→=chord, B=backing, P=practice)
+  // Use a ref for bpm to avoid stale closure in the shortcut callbacks
+  const bpmForShortcuts = useRef(metronome.bpm)
+  bpmForShortcuts.current = metronome.bpm
+  const chordsLenRef = useRef(resolvedChords.length)
+  chordsLenRef.current = resolvedChords.length
+
+  useKeyboardShortcuts(
+    useMemo(
+      () => ({
+        toggleMetronome: metronome.toggle,
+        increaseBpm: (amt = 5) => metronome.setBpm(bpmForShortcuts.current + amt),
+        decreaseBpm: (amt = 5) => metronome.setBpm(bpmForShortcuts.current - amt),
+        toggleBackingTrack: backingTrack.toggle,
+        nextChord: () => {
+          if (chordsLenRef.current > 0) {
+            isAutoChordChange.current = true
+            setActiveChordIndex((i) => (i + 1) % chordsLenRef.current)
+          }
+        },
+        prevChord: () => {
+          if (chordsLenRef.current > 0) {
+            isAutoChordChange.current = true
+            setActiveChordIndex(
+              (i) => (i - 1 + chordsLenRef.current) % chordsLenRef.current,
+            )
+          }
+        },
+        togglePracticeMode: handlePracticeToggle,
+      }),
+      [metronome.toggle, metronome.setBpm, backingTrack.toggle, handlePracticeToggle],
+    ),
+  )
+
   const handleNoteClick = useCallback(
     (note: Note) => {
       soundEngine.playFretboardNote(note)
@@ -426,9 +530,12 @@ export default function App() {
           enabled={backingTrack.enabled}
           drumVolume={backingTrack.drumVolume}
           bassVolume={backingTrack.bassVolume}
+          styleIndex={backingTrack.styleIndex}
+          styleName={backingTrack.style.name}
           onToggle={backingTrack.toggle}
           onDrumVolumeChange={backingTrack.setDrumVolume}
           onBassVolumeChange={backingTrack.setBassVolume}
+          onStyleChange={backingTrack.setStyleIndex}
         />
         <PracticePanel
           active={practice.active}

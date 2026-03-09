@@ -1,21 +1,28 @@
 import { memo } from 'react'
+import { BACKING_STYLES } from '../../utils/backingPatterns'
 
 interface BackingTrackPanelProps {
   enabled: boolean
   drumVolume: number
   bassVolume: number
+  styleIndex: number
+  styleName: string
   onToggle: () => void
   onDrumVolumeChange: (v: number) => void
   onBassVolumeChange: (v: number) => void
+  onStyleChange: (idx: number) => void
 }
 
 export const BackingTrackPanel = memo(function BackingTrackPanel({
   enabled,
   drumVolume,
   bassVolume,
+  styleIndex,
+  styleName,
   onToggle,
   onDrumVolumeChange,
   onBassVolumeChange,
+  onStyleChange,
 }: BackingTrackPanelProps) {
   return (
     <div className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3">
@@ -33,6 +40,24 @@ export const BackingTrackPanel = memo(function BackingTrackPanel({
         >
           {enabled ? 'ON' : 'OFF'}
         </button>
+      </div>
+
+      {/* Style selector — always visible */}
+      <div className="flex gap-1.5 flex-wrap">
+        {BACKING_STYLES.map((style, idx) => (
+          <button
+            key={style.name}
+            onClick={() => onStyleChange(idx)}
+            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+              idx === styleIndex
+                ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40'
+                : 'bg-slate-700 text-slate-500 hover:text-slate-300 hover:bg-slate-600'
+            }`}
+            title={style.description}
+          >
+            {style.name}
+          </button>
+        ))}
       </div>
 
       {enabled && (

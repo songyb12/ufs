@@ -1,20 +1,21 @@
 import { useState, useCallback, useRef } from 'react'
 import type { NoteName } from '../types/music'
-import { CHROMATIC_SCALE } from '../constants/notes'
 import {
-  scheduleKick,
-  scheduleSnare,
-  scheduleHihat,
-  scheduleBassNote,
-} from '../utils/drumSynth'
+  BACKING_STYLES,
+  schedulePatternBeat,
+  type StylePattern,
+} from '../utils/backingPatterns'
 
-interface BackingTrackState {
+export interface BackingTrackState {
   enabled: boolean
   drumVolume: number
   bassVolume: number
+  style: StylePattern
+  styleIndex: number
   toggle: () => void
   setDrumVolume: (v: number) => void
   setBassVolume: (v: number) => void
+  setStyleIndex: (idx: number) => void
   onBeatSchedule: (beat: number, measure: number, time: number, ctx: AudioContext) => void
 }
 
@@ -32,6 +33,7 @@ export function useBackingTrack(
   const [enabled, setEnabled] = useState(false)
   const [drumVolume, setDrumVolume] = useState(0.6)
   const [bassVolume, setBassVolume] = useState(0.5)
+  const [styleIndex, setStyleIndex] = useState(0)
 
   // Use refs to avoid stale closures in the schedule callback
   const enabledRef = useRef(enabled)
@@ -40,38 +42,30 @@ export function useBackingTrack(
   drumVolRef.current = drumVolume
   const bassVolRef = useRef(bassVolume)
   bassVolRef.current = bassVolume
+  const styleRef = useRef(styleIndex)
+  styleRef.current = styleIndex
 
   const toggle = useCallback(() => setEnabled((v) => !v), [])
+
+  const style = BACKING_STYLES[styleIndex] ?? BACKING_STYLES[0]
 
   const onBeatSchedule = useCallback(
     (beat: number, _measure: number, time: number, ctx: AudioContext) => {
       if (!enabledRef.current) return
 
-      const dv = drumVolRef.current
-      const bv = bassVolRef.current
+      const currentStyle = BACKING_STYLES[styleRef.current] ?? BACKING_STYLES[0]
       const secondsPerBeat = 60.0 / getBpm()
 
-      // Drum pattern (4/4): kick+hihat on 1&3, snare+hihat on 2&4
-      if (beat === 0 || beat === 2) {
-        scheduleKick(ctx, time, dv)
-        scheduleHihat(ctx, time, false, dv * 0.5)
-      } else {
-        scheduleSnare(ctx, time, dv * 0.8)
-        scheduleHihat(ctx, time, false, dv * 0.5)
-      }
-
-      // Bass: root on beat 1 (2 beats), root on beat 3 (1 beat)
-      const root = getChordRoot()
-      if (root && bv > 0) {
-        const rootIdx = CHROMATIC_SCALE.indexOf(root)
-        // Bass octave: C2 region (MIDI 36 = C2)
-        const bassMidi = 36 + rootIdx
-        if (beat === 0) {
-          scheduleBassNote(ctx, bassMidi, time, secondsPerBeat * 2, bv)
-        } else if (beat === 2) {
-          scheduleBassNote(ctx, bassMidi, time, secondsPerBeat, bv)
-        }
-      }
+      schedulePatternBeat(
+        ctx,
+        currentStyle,
+        beat,
+        time,
+        secondsPerBeat,
+        getChordRoot(),
+        drumVolRef.current,
+        bassVolRef.current,
+      )
     },
     [getChordRoot, getBpm],
   )
@@ -80,9 +74,12 @@ export function useBackingTrack(
     enabled,
     drumVolume,
     bassVolume,
+    style,
+    styleIndex,
     toggle,
     setDrumVolume,
     setBassVolume,
+    setStyleIndex,
     onBeatSchedule,
   }
 }

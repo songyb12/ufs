@@ -1,10 +1,12 @@
 import type { InstrumentConfig } from '../../types/music'
-import { INSTRUMENTS } from '../../constants/tunings'
+import { GUITAR_TUNINGS, BASS_TUNINGS } from '../../constants/tunings'
 
 interface HeaderProps {
   instrument: InstrumentConfig
   onInstrumentChange: (config: InstrumentConfig) => void
 }
+
+const ALL_INSTRUMENTS = [...GUITAR_TUNINGS, ...BASS_TUNINGS]
 
 export function Header({ instrument, onInstrumentChange }: HeaderProps) {
   return (
@@ -16,16 +18,25 @@ export function Header({ instrument, onInstrumentChange }: HeaderProps) {
       <select
         value={instrument.name}
         onChange={(e) => {
-          const found = INSTRUMENTS.find((i) => i.name === e.target.value)
+          const found = ALL_INSTRUMENTS.find((i) => i.name === e.target.value)
           if (found) onInstrumentChange(found)
         }}
         className="bg-slate-700 text-slate-300 text-sm rounded px-3 py-1.5 outline-none border border-slate-600 hover:border-slate-500"
       >
-        {INSTRUMENTS.map((inst) => (
-          <option key={inst.name} value={inst.name}>
-            {inst.name}
-          </option>
-        ))}
+        <optgroup label="Guitar">
+          {GUITAR_TUNINGS.map((inst) => (
+            <option key={inst.name} value={inst.name}>
+              🎸 {inst.name}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label="Bass">
+          {BASS_TUNINGS.map((inst) => (
+            <option key={inst.name} value={inst.name}>
+              🎸 {inst.name}
+            </option>
+          ))}
+        </optgroup>
       </select>
     </header>
   )
