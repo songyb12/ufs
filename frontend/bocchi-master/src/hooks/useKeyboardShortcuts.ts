@@ -10,6 +10,8 @@ export interface KeyboardShortcutActions {
   prevChord: () => void
   togglePracticeMode: () => void
   toggleShortcutHelp: () => void
+  cycleSubdivision: () => void
+  toggleCountIn: () => void
 }
 
 /**
@@ -22,6 +24,8 @@ export interface KeyboardShortcutActions {
  *   B           — Toggle backing track
  *   → / ←      — Next / Previous chord in progression
  *   P           — Toggle practice mode
+ *   S           — Cycle subdivision (1→2→3→4→1)
+ *   C           — Toggle count-in
  *   ?           — Show/hide keyboard shortcut help
  *   Escape      — Stop metronome
  */
@@ -71,6 +75,18 @@ export function useKeyboardShortcuts(actions: KeyboardShortcutActions): void {
         case 'KeyP':
           if (!e.ctrlKey && !e.metaKey) {
             actions.togglePracticeMode()
+          }
+          break
+
+        case 'KeyS':
+          if (!e.ctrlKey && !e.metaKey) {
+            actions.cycleSubdivision()
+          }
+          break
+
+        case 'KeyC':
+          if (!e.ctrlKey && !e.metaKey) {
+            actions.toggleCountIn()
           }
           break
 

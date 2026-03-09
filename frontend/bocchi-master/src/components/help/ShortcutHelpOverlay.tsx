@@ -36,6 +36,13 @@ const SHORTCUT_GROUPS: { title: string; entries: ShortcutEntry[] }[] = [
     ],
   },
   {
+    title: 'Metronome',
+    entries: [
+      { keys: ['S'], description: 'Cycle subdivision (♩→♪♪→♪³→♬)' },
+      { keys: ['C'], description: 'Toggle count-in' },
+    ],
+  },
+  {
     title: 'Tools',
     entries: [
       { keys: ['P'], description: 'Toggle practice mode' },

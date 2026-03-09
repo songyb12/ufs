@@ -469,8 +469,14 @@ export default function App() {
         },
         togglePracticeMode: handlePracticeToggle,
         toggleShortcutHelp: () => setShowShortcutHelp((v) => !v),
+        cycleSubdivision: () => {
+          const cycle = [1, 2, 3, 4] as const
+          const idx = cycle.indexOf(metronome.subdivision)
+          metronome.setSubdivision(cycle[(idx + 1) % 4])
+        },
+        toggleCountIn: () => metronome.setCountIn(!metronome.countIn),
       }),
-      [metronome.toggle, metronome.stop, metronome.setBpm, backingTrack.toggle, handlePracticeToggle],
+      [metronome.toggle, metronome.stop, metronome.setBpm, metronome.subdivision, metronome.setSubdivision, metronome.countIn, metronome.setCountIn, backingTrack.toggle, handlePracticeToggle],
     ),
   )
 
