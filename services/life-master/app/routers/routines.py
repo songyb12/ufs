@@ -1,0 +1,120 @@
+"""Routine management endpoints."""
+
+import logging
+
+from fastapi import APIRouter, HTTPException, Query
+
+from app.database import repositories as repo
+from app.models.schemas import (
+    BulkCheckRequest,
+    BulkCheckResponse,
+    RoutineCheckRequest,
+    RoutineCreate,
+    RoutineLogResponse,
+    RoutineResponse,
+    RoutineStatsResponse,
+    RoutineUpdate,
+    TodayRoutineResponse,
+)
+from app.utils.time_helpers import days_ago, today_day_name, today_str
+
+logger = logging.getLogger("life-master.routers.routines")
+
+router = APIRouter(prefix="/routines", tags=["routines"])
+
+
+@router.get("", response_model=list[RoutineResponse])
+async def list_routines(
+    category: str | None = None,
+    time_slot: str | None = None,
+    active_only: bool = True,
+):
+    return await repo.get_routines(category=category, time_slot=time_slot, active_only=active_only)
+
+
+@router.post("", response_model=RoutineResponse)
+async def create_routine(body: RoutineCreate):
+    result = await repo.create_routine(body.model_dump())
+    logger.info("Routine created: %s", body.name)
+    return result
+
+
+@router.get("/today", response_model=list[TodayRoutineResponse])
+async def today_routines():
+    return await repo.get_today_routines(today_str(), today_day_name())
+
+
+@router.get("/stats", response_model=RoutineStatsResponse)
+async def routine_stats(
+    routine_id: int | None = None,
+    date_from: str = Query(default=None),
+    date_to: str = Query(default=None),
+):
+    if not date_from:
+        date_from = days_ago(30)
+    if not date_to:
+        date_to = today_str()
+    return await repo.get_routine_stats(routine_id, date_from, date_to)
+
+
+@router.get("/{routine_id}", response_model=RoutineResponse)
+async def get_routine(routine_id: int):
+    result = await repo.get_routine(routine_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    return result
+
+
+@router.put("/{routine_id}", response_model=RoutineResponse)
+async def update_routine(routine_id: int, body: RoutineUpdate):
+    existing = await repo.get_routine(routine_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    result = await repo.update_routine(routine_id, body.model_dump(exclude_unset=True))
+    return result
+
+
+@router.delete("/{routine_id}")
+async def delete_routine(routine_id: int):
+    ok = await repo.delete_routine(routine_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    logger.info("Routine soft-deleted: %d", routine_id)
+    return {"deleted": routine_id}
+
+
+@router.post("/{routine_id}/check", response_model=RoutineLogResponse)
+async def check_routine(routine_id: int, body: RoutineCheckRequest):
+    existing = await repo.get_routine(routine_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    log_date = body.date or today_str()
+    result = await repo.check_routine(routine_id, log_date, body.status, body.note)
+    logger.info("Routine %d checked: %s on %s", routine_id, body.status, log_date)
+    return result
+
+
+@router.get("/{routine_id}/logs", response_model=list[RoutineLogResponse])
+async def routine_logs(
+    routine_id: int,
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    return await repo.get_routine_logs(routine_id=routine_id, date_from=date_from, date_to=date_to)
+
+
+@router.post("/{routine_id}/duplicate", response_model=RoutineResponse)
+async def duplicate_routine(routine_id: int):
+    result = await repo.duplicate_routine(routine_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    logger.info("Routine %d duplicated as %d", routine_id, result["id"])
+    return result
+
+
+@router.post("/bulk-check", response_model=BulkCheckResponse)
+async def bulk_check(body: BulkCheckRequest):
+    log_date = body.date or today_str()
+    items = [item.model_dump() for item in body.items]
+    results = await repo.bulk_check_routines(items, log_date)
+    return {"date": log_date, "checked": len(results), "results": results}
