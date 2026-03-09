@@ -41,12 +41,29 @@ async def generate_monthly_report(
 
     db = await get_db()
 
+    # Build market filter clause (ALL = no filter)
+    market_filter = ""
+    market_params_signals: tuple = ()
+    market_params_perf: tuple = ()
+    market_params_pipe: tuple = ()
+    if market != "ALL":
+        market_filter_signals = " AND market = ?"
+        market_filter_perf = " AND sp.market = ?"
+        market_filter_pipe = " AND market = ?"
+        market_params_signals = (market,)
+        market_params_perf = (market,)
+        market_params_pipe = (market,)
+    else:
+        market_filter_signals = ""
+        market_filter_perf = ""
+        market_filter_pipe = ""
+
     # 1. Signal counts
     cursor = await db.execute(
-        """SELECT final_signal, COUNT(*) as cnt FROM signals
-           WHERE signal_date >= ? AND signal_date < ?
+        f"""SELECT final_signal, COUNT(*) as cnt FROM signals
+           WHERE signal_date >= ? AND signal_date < ?{market_filter_signals}
            GROUP BY final_signal""",
-        (month_start, month_end),
+        (month_start, month_end) + market_params_signals,
     )
     signal_counts = {"BUY": 0, "SELL": 0, "HOLD": 0}
     for row in await cursor.fetchall():
@@ -55,25 +72,25 @@ async def generate_monthly_report(
 
     # 2. Performance hit rates
     cursor = await db.execute(
-        """SELECT
+        f"""SELECT
              AVG(CASE WHEN is_correct_t5 IS NOT NULL THEN CAST(is_correct_t5 AS REAL) END) as hit_t5,
              AVG(CASE WHEN is_correct_t20 IS NOT NULL THEN CAST(is_correct_t20 AS REAL) END) as hit_t20,
              AVG(return_t5) as avg_ret_t5,
              AVG(return_t20) as avg_ret_t20
-           FROM signal_performance
+           FROM signal_performance sp
            WHERE signal_date >= ? AND signal_date < ?
-           AND signal_type IN ('BUY', 'SELL')""",
-        (month_start, month_end),
+           AND signal_type IN ('BUY', 'SELL'){market_filter_perf}""",
+        (month_start, month_end) + market_params_perf,
     )
     perf_row = await cursor.fetchone()
     perf = dict(perf_row) if perf_row else {}
 
     # 3. Pipeline run stats
     cursor = await db.execute(
-        """SELECT status, COUNT(*) as cnt FROM pipeline_runs
-           WHERE started_at >= ? AND started_at < ?
+        f"""SELECT status, COUNT(*) as cnt FROM pipeline_runs
+           WHERE started_at >= ? AND started_at < ?{market_filter_pipe}
            GROUP BY status""",
-        (month_start, month_end),
+        (month_start, month_end) + market_params_pipe,
     )
     pipeline_stats = {}
     for row in await cursor.fetchall():
@@ -81,25 +98,25 @@ async def generate_monthly_report(
 
     # 4. Top performers (best BUY signals)
     cursor = await db.execute(
-        """SELECT sp.symbol, sp.market, sp.return_t20, w.name
+        f"""SELECT sp.symbol, sp.market, sp.return_t20, w.name
            FROM signal_performance sp
            LEFT JOIN watchlist w ON sp.symbol = w.symbol AND sp.market = w.market
            WHERE sp.signal_date >= ? AND sp.signal_date < ?
-           AND sp.signal_type = 'BUY' AND sp.return_t20 IS NOT NULL
+           AND sp.signal_type = 'BUY' AND sp.return_t20 IS NOT NULL{market_filter_perf}
            ORDER BY sp.return_t20 DESC LIMIT 5""",
-        (month_start, month_end),
+        (month_start, month_end) + market_params_perf,
     )
     top_performers = [dict(r) for r in await cursor.fetchall()]
 
     # 5. Worst performers
     cursor = await db.execute(
-        """SELECT sp.symbol, sp.market, sp.return_t20, w.name
+        f"""SELECT sp.symbol, sp.market, sp.return_t20, w.name
            FROM signal_performance sp
            LEFT JOIN watchlist w ON sp.symbol = w.symbol AND sp.market = w.market
            WHERE sp.signal_date >= ? AND sp.signal_date < ?
-           AND sp.signal_type = 'BUY' AND sp.return_t20 IS NOT NULL
+           AND sp.signal_type = 'BUY' AND sp.return_t20 IS NOT NULL{market_filter_perf}
            ORDER BY sp.return_t20 ASC LIMIT 5""",
-        (month_start, month_end),
+        (month_start, month_end) + market_params_perf,
     )
     worst_performers = [dict(r) for r in await cursor.fetchall()]
 

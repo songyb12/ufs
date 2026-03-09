@@ -124,7 +124,7 @@ class SignalPerformanceTracker:
 
     @staticmethod
     def _add_trading_days(date_str: str, days: int) -> str:
-        """Approximate trading days by adding calendar days * 1.5."""
+        """Approximate trading days by adding calendar days * 1.4 + 1."""
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         # Rough approximation: 1 trading day ≈ 1.4 calendar days
         calendar_days = int(days * 1.4) + 1

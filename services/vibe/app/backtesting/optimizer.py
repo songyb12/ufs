@@ -64,11 +64,14 @@ class ParameterOptimizer:
                     "backtest_id": result["backtest_id"],
                 })
 
-        # Sort by sharpe_ratio descending
-        results.sort(
-            key=lambda r: r["metrics"].get("sharpe_ratio") if r["metrics"].get("sharpe_ratio") is not None else -999,
-            reverse=True,
-        )
+        # Sort by sharpe_ratio descending (guard against NaN)
+        import math
+        def _safe_sharpe(r):
+            v = r["metrics"].get("sharpe_ratio")
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                return -999
+            return v
+        results.sort(key=_safe_sharpe, reverse=True)
 
         logger.info(
             "Optimizer completed: %d results. Best sharpe=%.2f",

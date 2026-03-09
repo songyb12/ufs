@@ -233,7 +233,7 @@ class PipelineOrchestrator:
                             ohlcv_df = s1.data["ohlcv_data"].get(row["symbol"])
                             if ohlcv_df is not None and not ohlcv_df.empty:
                                 entry_price = float(ohlcv_df.iloc[-1]["close"])
-                        if entry_price:
+                        if entry_price is not None and entry_price > 0:
                             await tracker.create_performance_record(
                                 run_id=row["run_id"],
                                 symbol=row["symbol"],
