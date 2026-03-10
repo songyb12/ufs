@@ -1,5 +1,6 @@
 """Dynamic scheduler endpoints."""
 
+import json
 import logging
 from datetime import date
 
@@ -31,12 +32,24 @@ async def today_schedule():
 
 @router.get("/day", response_model=list[ScheduleBlockResponse])
 async def day_schedule(date: str | None = None):
+    if date:
+        from app.utils.time_helpers import validate_date_str
+        try:
+            validate_date_str(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
     target = date or today_str()
     return await repo.get_schedule_blocks(target)
 
 
 @router.get("/week", response_model=list[ScheduleBlockResponse])
 async def week_schedule(date: str | None = None):
+    if date:
+        from app.utils.time_helpers import validate_date_str
+        try:
+            validate_date_str(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
     start, end = week_range(date)
     return await repo.get_schedule_blocks(start, end)
 
@@ -91,7 +104,14 @@ async def generate_day_schedule(body: ScheduleGenerateRequest):
     routines = await repo.get_routines(active_only=True)
     day_routines = []
     for r in routines:
-        repeat = r["repeat_days"] if isinstance(r["repeat_days"], list) else json.loads(r["repeat_days"])
+        rd = r["repeat_days"]
+        if isinstance(rd, list):
+            repeat = rd
+        else:
+            try:
+                repeat = json.loads(rd)
+            except (json.JSONDecodeError, TypeError):
+                repeat = []
         if day_name in repeat:
             day_routines.append(r)
 
@@ -163,7 +183,7 @@ async def list_templates(day_of_week: str | None = None):
 
 @router.post("/templates", response_model=ScheduleTemplateResponse)
 async def create_template(body: ScheduleTemplateCreate):
-    data = {"name": body.name, "day_of_week": body.day_of_week, "blocks": body.blocks}
+    data = {"name": body.name, "day_of_week": body.day_of_week, "blocks": [b.model_dump() for b in body.blocks]}
     result = await repo.create_template(data)
     logger.info("Template created: %s for %s", body.name, body.day_of_week)
     return result

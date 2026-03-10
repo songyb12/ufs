@@ -1027,12 +1027,14 @@ async def cleanup_old_logs(retention_days: int) -> dict:
     c1 = await db.execute("DELETE FROM routine_logs WHERE date < ?", (cutoff,))
     c2 = await db.execute("DELETE FROM habit_logs WHERE date < ?", (cutoff,))
     c3 = await db.execute("DELETE FROM schedule_blocks WHERE date < ? AND is_locked = 0", (cutoff,))
+    c4 = await db.execute("DELETE FROM notification_logs WHERE created_at < ?", (cutoff,))
     await db.commit()
     return {
         "cutoff_date": cutoff,
         "routine_logs_deleted": c1.rowcount,
         "habit_logs_deleted": c2.rowcount,
         "schedule_blocks_deleted": c3.rowcount,
+        "notification_logs_deleted": c4.rowcount,
     }
 
 
@@ -1145,6 +1147,7 @@ async def export_all() -> dict:
     milestones = [dict(r) for r in await (await db.execute("SELECT * FROM milestones")).fetchall()]
     routine_logs = [dict(r) for r in await (await db.execute("SELECT * FROM routine_logs")).fetchall()]
     habit_logs = [dict(r) for r in await (await db.execute("SELECT * FROM habit_logs")).fetchall()]
+    notification_rules = [_parse_notification_rule(r) for r in await (await db.execute("SELECT * FROM notification_rules")).fetchall()]
 
     cursor = await db.execute("SELECT value FROM schema_meta WHERE key = 'version'")
     row = await cursor.fetchone()
@@ -1159,6 +1162,7 @@ async def export_all() -> dict:
         "milestones": milestones,
         "routine_logs": routine_logs,
         "habit_logs": habit_logs,
+        "notification_rules": notification_rules,
     }
 
 

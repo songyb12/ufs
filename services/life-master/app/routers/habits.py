@@ -10,6 +10,7 @@ from app.models.schemas import (
     HabitIncrementRequest,
     HabitLogRequest,
     HabitLogResponse,
+    HabitOverviewItem,
     HabitResponse,
     HabitUpdate,
     StreakResponse,
@@ -34,7 +35,7 @@ async def create_habit(body: HabitCreate):
     return result
 
 
-@router.get("/overview")
+@router.get("/overview", response_model=list[HabitOverviewItem])
 async def habits_overview():
     """Full dashboard: all active habits with streaks, recent logs, and today's value."""
     habits = await repo.get_habits(active_only=True)

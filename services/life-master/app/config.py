@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     SERVICE_NAME: str = "life-master"
     SERVICE_PORT: int = 8004
-    VERSION: str = "0.1.0"
+    VERSION: str = "0.2.0"
     DEBUG: bool = False
 
     # Database

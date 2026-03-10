@@ -224,8 +224,6 @@ async def trigger_streak_warnings():
 @router.post("/trigger/daily-summary")
 async def trigger_daily_summary():
     """Send daily summary notification."""
-    from app.utils.time_helpers import today_day_name
-
     today = today_str()
     day_name = today_day_name()
     dashboard = await repo.get_dashboard_data(today, day_name)

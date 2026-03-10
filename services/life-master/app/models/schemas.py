@@ -30,7 +30,7 @@ class RoutineCreate(BaseModel):
         min_length=1,
     )
     sort_order: int = 0
-    color: str = Field(default="#6366f1", max_length=7)
+    color: str = Field(default="#6366f1", pattern=r"^#[0-9a-fA-F]{6}$")
     icon: str | None = None
 
     @field_validator("repeat_days")
@@ -52,7 +52,7 @@ class RoutineUpdate(BaseModel):
     repeat_days: list[str] | None = None
     is_active: int | None = Field(default=None, ge=0, le=1)
     sort_order: int | None = None
-    color: str | None = Field(default=None, max_length=7)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     icon: str | None = None
 
     @field_validator("repeat_days")
@@ -145,7 +145,7 @@ class HabitCreate(BaseModel):
     target_type: HabitTargetType = HabitTargetType.DAILY
     target_value: float = Field(default=1, gt=0)
     unit: str = Field(default="회", max_length=20)
-    color: str = Field(default="#6366f1", max_length=7)
+    color: str = Field(default="#6366f1", pattern=r"^#[0-9a-fA-F]{6}$")
     icon: str | None = None
 
 
@@ -155,7 +155,7 @@ class HabitUpdate(BaseModel):
     target_type: HabitTargetType | None = None
     target_value: float | None = Field(default=None, gt=0)
     unit: str | None = Field(default=None, max_length=20)
-    color: str | None = Field(default=None, max_length=7)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     icon: str | None = None
     is_active: int | None = Field(default=None, ge=0, le=1)
 
@@ -220,7 +220,7 @@ class GoalCreate(BaseModel):
     deadline: str | None = None
     progress: float = Field(default=0.0, ge=0, le=1)
     priority: int = Field(default=3, ge=1, le=5)
-    color: str = Field(default="#6366f1", max_length=7)
+    color: str = Field(default="#6366f1", pattern=r"^#[0-9a-fA-F]{6}$")
 
     @field_validator("deadline")
     @classmethod
@@ -237,7 +237,7 @@ class GoalUpdate(BaseModel):
     category: GoalCategory | None = None
     deadline: str | None = None
     priority: int | None = Field(default=None, ge=1, le=5)
-    color: str | None = Field(default=None, max_length=7)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
 
     @field_validator("deadline")
     @classmethod
@@ -279,7 +279,7 @@ class MilestoneCreate(BaseModel):
 
 
 class MilestoneUpdate(BaseModel):
-    title: str | None = Field(default=None, max_length=300)
+    title: str | None = Field(default=None, min_length=1, max_length=300)
     target_date: str | None = None
     sort_order: int | None = None
     is_completed: int | None = Field(default=None, ge=0, le=1)
@@ -428,10 +428,26 @@ class ScheduleCopyRequest(BaseModel):
         return v
 
 
+class ScheduleTemplateBlock(BaseModel):
+    start_time: str = Field(pattern=r"^\d{2}:\d{2}$")
+    end_time: str = Field(pattern=r"^\d{2}:\d{2}$")
+    title: str = Field(min_length=1, max_length=200)
+    priority: int = Field(default=3, ge=1, le=5)
+    is_locked: int = Field(default=0, ge=0, le=1)
+
+    @field_validator("end_time")
+    @classmethod
+    def validate_time_range(cls, v: str, info) -> str:
+        start = info.data.get("start_time")
+        if start and v <= start:
+            raise ValueError("end_time must be after start_time")
+        return v
+
+
 class ScheduleTemplateCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     day_of_week: str
-    blocks: list[dict] = Field(min_length=1)
+    blocks: list[ScheduleTemplateBlock] = Field(min_length=1)
 
     @field_validator("day_of_week")
     @classmethod
@@ -490,7 +506,7 @@ class BulkMilestoneCreate(BaseModel):
 
 
 class HabitIncrementRequest(BaseModel):
-    delta: float = Field(default=1, description="Amount to add (negative to subtract)")
+    delta: float = Field(default=1, ge=-10000, le=10000, description="Amount to add (negative to subtract)")
     date: str | None = None
 
     @field_validator("date")
@@ -532,6 +548,7 @@ class ExportResponse(BaseModel):
     milestones: list[dict] = []
     routine_logs: list[dict]
     habit_logs: list[dict]
+    notification_rules: list[dict] = []
 
 
 # ── Search ───────────────────────────────────────────────
@@ -577,6 +594,22 @@ class NotificationRuleCreate(BaseModel):
             raise ValueError(f"Invalid trigger_type: {v}. Use: {valid}")
         return v
 
+    @field_validator("cron_time")
+    @classmethod
+    def validate_cron_time(cls, v: str | None) -> str | None:
+        if v is not None:
+            h, m = int(v[:2]), int(v[3:])
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError(f"Invalid time: {v}. Hours must be 00-23, minutes 00-59")
+        return v
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, v: str) -> str:
+        if v not in {"-1", "0", "1", "2"}:
+            raise ValueError(f"Invalid priority: {v}. Use: -1, 0, 1, 2")
+        return v
+
     @field_validator("days")
     @classmethod
     def validate_days(cls, v: list[str]) -> list[str]:
@@ -602,6 +635,22 @@ class NotificationRuleUpdate(BaseModel):
             valid = {"ROUTINE_REMINDER", "HABIT_REMINDER", "GOAL_DEADLINE", "STREAK_WARNING", "DAILY_SUMMARY", "CUSTOM"}
             if v not in valid:
                 raise ValueError(f"Invalid trigger_type: {v}. Use: {valid}")
+        return v
+
+    @field_validator("cron_time")
+    @classmethod
+    def validate_cron_time(cls, v: str | None) -> str | None:
+        if v is not None:
+            h, m = int(v[:2]), int(v[3:])
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError(f"Invalid time: {v}. Hours must be 00-23, minutes 00-59")
+        return v
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, v: str | None) -> str | None:
+        if v is not None and v not in {"-1", "0", "1", "2"}:
+            raise ValueError(f"Invalid priority: {v}. Use: -1, 0, 1, 2")
         return v
 
     @field_validator("days")

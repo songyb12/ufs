@@ -663,6 +663,79 @@ async def run_tests():
     ok("notif: disabled returns false", result["ok"] is False)
     ok("notif: disabled detail", "disabled" in result["detail"].lower())
 
+    # ── R131-R150 maintenance tests ──
+
+    # R131: json import in scheduler (covered by import check)
+    import app.routers.scheduler as sched_mod
+    ok("R131: scheduler has json", hasattr(sched_mod, 'json'))
+
+    # R133: cron_time validation rejects invalid hours
+    try:
+        NotificationRuleCreate(name="T", cron_time="25:00")
+        ok("R133: invalid cron_time rejected", False)
+    except ValidationError:
+        ok("R133: invalid cron_time rejected", True)
+
+    try:
+        NotificationRuleCreate(name="T", cron_time="12:75")
+        ok("R133: invalid cron_minutes rejected", False)
+    except ValidationError:
+        ok("R133: invalid cron_minutes rejected", True)
+
+    # R134: priority validation
+    try:
+        NotificationRuleCreate(name="T", priority="5")
+        ok("R134: invalid priority rejected", False)
+    except ValidationError:
+        ok("R134: invalid priority rejected", True)
+
+    nr_p = NotificationRuleCreate(name="T", priority="-1")
+    ok("R134: valid priority -1", nr_p.priority == "-1")
+
+    # R144: MilestoneUpdate title min_length
+    from app.models.schemas import MilestoneUpdate
+    try:
+        MilestoneUpdate(title="")
+        ok("R144: empty milestone title rejected", False)
+    except ValidationError:
+        ok("R144: empty milestone title rejected", True)
+
+    # R145: ScheduleTemplateCreate validates block structure
+    from app.models.schemas import ScheduleTemplateCreate
+    try:
+        ScheduleTemplateCreate(name="T", day_of_week="mon", blocks=[{"invalid": True}])
+        ok("R145: invalid template block rejected", False)
+    except ValidationError:
+        ok("R145: invalid template block rejected", True)
+
+    st = ScheduleTemplateCreate(name="T", day_of_week="mon", blocks=[{"start_time": "09:00", "end_time": "10:00", "title": "Work"}])
+    ok("R145: valid template block accepted", len(st.blocks) == 1)
+
+    # R148: color validation
+    try:
+        RoutineCreate(name="T", color="invalid")
+        ok("R148: invalid color rejected", False)
+    except ValidationError:
+        ok("R148: invalid color rejected", True)
+
+    rc_color = RoutineCreate(name="T", color="#ff0000")
+    ok("R148: valid color accepted", rc_color.color == "#ff0000")
+
+    # R146: cleanup includes notification_logs
+    cleanup2 = await repo.cleanup_old_logs(0)
+    ok("R146: cleanup has notif_logs", "notification_logs_deleted" in cleanup2)
+
+    # R132: HabitIncrementRequest delta bounds
+    from app.models.schemas import HabitIncrementRequest
+    try:
+        HabitIncrementRequest(delta=99999)
+        ok("R132: extreme delta rejected", False)
+    except ValidationError:
+        ok("R132: extreme delta rejected", True)
+
+    hi = HabitIncrementRequest(delta=-5)
+    ok("R132: negative delta allowed", hi.delta == -5)
+
     await close_db()
 
     print(f"\n{'='*50}")
