@@ -18,7 +18,7 @@ export const BackingTrackPanel = memo(function BackingTrackPanel({
   drumVolume,
   bassVolume,
   styleIndex,
-  styleName,
+  styleName: _styleName,
   onToggle,
   onDrumVolumeChange,
   onBassVolumeChange,

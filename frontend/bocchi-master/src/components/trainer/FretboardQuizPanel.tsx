@@ -69,25 +69,6 @@ export const FretboardQuizPanel = forwardRef<FretboardQuizHandle, FretboardQuizP
     setTimeLeft(null)
   }, [])
 
-  const startTimer = useCallback(() => {
-    stopTimer()
-    if (difficultyRef.current !== 'advanced') return
-    setTimeLeft(5)
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev === null || prev <= 1) {
-          // Time's up — count as wrong
-          setStats((s) => ({ ...s, total: s.total + 1, streak: 0 }))
-          setLastResult('wrong')
-          // Generate next note after brief pause
-          setTimeout(() => generateNote(), 400)
-          return null
-        }
-        return prev - 1
-      })
-    }, 1000)
-  }, [stopTimer]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const generateNote = useCallback(() => {
     const config = DIFFICULTY_CONFIG[difficultyRef.current]
     let note: NoteName

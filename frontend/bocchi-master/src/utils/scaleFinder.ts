@@ -29,7 +29,6 @@ export function findScalesContaining(
 ): ScaleMatch[] {
   if (inputNotes.length === 0) return []
 
-  const inputSet = new Set(inputNotes)
   const matches: ScaleMatch[] = []
 
   for (const root of CHROMATIC_SCALE) {

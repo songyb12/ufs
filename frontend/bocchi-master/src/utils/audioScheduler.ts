@@ -49,7 +49,6 @@ export class AudioScheduler {
   private clickSound: ClickSound = 'sine'
   private subdivision: Subdivision = 1
   private swing: number = 0 // 0–100, 0=straight, 50+=swing feel
-  private currentSubBeat: number = 0 // tracks subdivision within a beat
   private accentPattern: AccentLevel[] | null = null // null=default (beat 0 accented)
   private volume: number = 1.0 // 0.0 to 1.0 master volume
 

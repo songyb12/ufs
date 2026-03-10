@@ -41,7 +41,7 @@ export function ScalePatternPanel({
   const autoRootFret = useMemo(() => {
     if (!selectedRoot) return 0
     const lowestString = instrument.tuning[0]
-    return findRootFret(lowestString, selectedRoot, instrument.fretCount)
+    return findRootFret(lowestString.name, selectedRoot, instrument.fretCount)
   }, [selectedRoot, instrument.tuning, instrument.fretCount])
 
   const rootFret = rootFretOverride ?? autoRootFret

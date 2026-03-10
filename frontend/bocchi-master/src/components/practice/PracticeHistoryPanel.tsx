@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef, useCallback } from 'react'
+import { memo, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   loadSettings,
   saveSettings,

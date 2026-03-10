@@ -66,7 +66,7 @@ export interface MetronomePanelProps {
  */
 function BeatDot({
   active,
-  isDownbeat,
+  isDownbeat: _isDownbeat,
   accentLevel,
   onClick,
 }: {
