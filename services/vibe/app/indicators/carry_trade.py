@@ -143,11 +143,12 @@ def compute_carry_trade_risk(
     }
 
 
-def _compute_carry_score(rate_diff: float | None, fx_change_1m: float) -> int:
+def _compute_carry_score(rate_diff: float | None, fx_change_1m: float | None) -> int:
     """0-100 score for carry attractiveness. Higher = more attractive."""
     if rate_diff is None:
         return 50
 
+    fx_change_1m = fx_change_1m or 0
     score = 50.0
 
     # Rate differential contribution (±30)

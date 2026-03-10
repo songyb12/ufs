@@ -864,7 +864,7 @@ async def _get_forex_data() -> dict[str, dict]:
     if "JPY/KRW" not in fx_data:
         usd_jpy = fx_data.get("USD/JPY", {})
         usd_krw = fx_data.get("USD/KRW", {})
-        if usd_jpy.get("current") and usd_krw.get("current"):
+        if usd_jpy.get("current") and usd_krw.get("current") and usd_jpy["current"] != 0:
             cross = usd_krw["current"] / usd_jpy["current"]
             fx_data["JPY/KRW"] = {
                 "current": round(cross, 4),

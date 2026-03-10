@@ -186,7 +186,7 @@ function ForexWorldMap({ countries, flows }) {
   )
 }
 
-export default function ForexMap({ refreshKey }) {
+export default function ForexMap({ refreshKey, onNavigate }) {
   const toast = useToast()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -235,9 +235,20 @@ export default function ForexMap({ refreshKey }) {
           {backfilling ? 'Collecting...' : 'Backfill Forex Data'}
         </button>
       </div>
-      <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '1.25rem' }}>
-        세계 환율 현황, 통화 강도, 금리 기반 자본 흐름 시각화
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: 0 }}>
+          세계 환율 현황, 통화 강도, 금리 기반 자본 흐름 시각화
+        </p>
+        {onNavigate && (
+          <button
+            className="btn btn-outline"
+            onClick={() => onNavigate('carry-trade')}
+            style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem' }}
+          >
+            {'\uD83D\uDCB1'} 캐리트레이드
+          </button>
+        )}
+      </div>
 
       {/* DXY + VIX Panel */}
       <div style={{ display: 'grid', gridTemplateColumns: data?.dxy_analysis ? '2fr 1fr' : '1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>

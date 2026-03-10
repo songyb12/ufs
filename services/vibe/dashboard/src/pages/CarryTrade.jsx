@@ -54,7 +54,7 @@ function PairCard({ pair }) {
           </div>
           {ur.trend_kr && (
             <div style={{ fontSize: '0.65rem', color: ur.trend === 'WORSENING' ? '#ef4444' : ur.trend === 'IMPROVING' ? '#22c55e' : 'var(--text-muted)', marginTop: '0.15rem' }}>
-              {ur.trend === 'WORSENING' ? '\u2191' : ur.trend === 'IMPROVING' ? '\u2193' : '\u2194'} {ur.trend_kr}
+              {ur.trend === 'WORSENING' ? '\u25B2' : ur.trend === 'IMPROVING' ? '\u25BC' : '\u25CF'} {ur.trend_kr}
             </div>
           )}
         </div>
@@ -167,7 +167,7 @@ function RiskFactorCard({ factor }) {
   )
 }
 
-export default function CarryTrade({ refreshKey }) {
+export default function CarryTrade({ refreshKey, onNavigate }) {
   const toast = useToast()
   const [carry, setCarry] = useState(null)
   const [riskFactors, setRiskFactors] = useState([])
@@ -202,9 +202,20 @@ export default function CarryTrade({ refreshKey }) {
         <h2>Carry Trade & Global Risk</h2>
         {carry?.date && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Data: {carry.date}</span>}
       </div>
-      <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '1.25rem' }}>
-        캐리 트레이드 위험 분석 및 글로벌 금융시장 리스크 요인
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: 0 }}>
+          캐리 트레이드 위험 분석 및 글로벌 금융시장 리스크 요인
+        </p>
+        {onNavigate && (
+          <button
+            className="btn btn-outline"
+            onClick={() => onNavigate('forex-map')}
+            style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem' }}
+          >
+            {'\uD83D\uDDFA'} 환율 세계지도
+          </button>
+        )}
+      </div>
 
       {/* Overall Risk Summary */}
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
@@ -292,6 +303,7 @@ export default function CarryTrade({ refreshKey }) {
           <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>주요국 기준금리</h3>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
             {Object.entries(carry.interest_rates)
+              .filter(([, v]) => v != null && typeof v === 'number')
               .sort(([,a], [,b]) => b - a)
               .slice(0, 15)
               .map(([cur, rate]) => (
