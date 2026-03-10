@@ -16,7 +16,7 @@ from app.config import settings
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.models.schemas import DashboardResponse, DbInfoResponse, ExportResponse, SearchResult
-from app.routers import goals, habits, notifications, routines, scheduler
+from app.routers import goals, habits, japanese, notifications, routines, scheduler
 
 
 def _setup_logging() -> None:
@@ -75,6 +75,7 @@ app.include_router(habits.router)
 app.include_router(goals.router)
 app.include_router(scheduler.router)
 app.include_router(notifications.router)
+app.include_router(japanese.router)
 
 
 @app.get("/health")
@@ -110,6 +111,7 @@ async def root():
             "templates",
             "export-import",
             "notifications",
+            "japanese-learning",
         ],
         "endpoints": {
             "routines": "/routines",
@@ -124,6 +126,12 @@ async def root():
             "admin_retention": "/admin/retention",
             "notifications": "/notifications",
             "admin_db_info": "/admin/db-info",
+            "japanese_vocab": "/japanese/vocab",
+            "japanese_review": "/japanese/review/due",
+            "japanese_quiz": "/japanese/quiz/start",
+            "japanese_sources": "/japanese/sources",
+            "japanese_player": "/japanese/player",
+            "japanese_stats": "/japanese/stats",
             "docs": "/docs",
         },
     }

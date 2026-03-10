@@ -6,7 +6,7 @@ from app.database.connection import get_db
 
 logger = logging.getLogger("life-master.schema")
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 TABLES = [
     """CREATE TABLE IF NOT EXISTS routines (
@@ -130,6 +130,88 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (rule_id) REFERENCES notification_rules(id) ON DELETE SET NULL
     )""",
+    # ── Japanese Learning ─────────────────────────────────
+    """CREATE TABLE IF NOT EXISTS jp_vocabulary (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        word TEXT NOT NULL,
+        reading TEXT NOT NULL,
+        meaning TEXT NOT NULL,
+        jlpt_level TEXT NOT NULL DEFAULT 'N5',
+        part_of_speech TEXT NOT NULL DEFAULT 'noun',
+        example_ja TEXT,
+        example_ko TEXT,
+        tags TEXT NOT NULL DEFAULT '[]',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_srs_cards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vocab_id INTEGER NOT NULL,
+        ease_factor REAL NOT NULL DEFAULT 2.5,
+        interval_days INTEGER NOT NULL DEFAULT 0,
+        repetitions INTEGER NOT NULL DEFAULT 0,
+        next_review TEXT NOT NULL DEFAULT (date('now')),
+        last_reviewed TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (vocab_id) REFERENCES jp_vocabulary(id) ON DELETE CASCADE,
+        UNIQUE(vocab_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_review_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vocab_id INTEGER NOT NULL,
+        quality INTEGER NOT NULL,
+        time_ms INTEGER NOT NULL DEFAULT 0,
+        xp_earned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (vocab_id) REFERENCES jp_vocabulary(id) ON DELETE CASCADE
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        artist TEXT,
+        source_type TEXT NOT NULL DEFAULT 'song',
+        content_ja TEXT NOT NULL,
+        content_ko TEXT,
+        difficulty TEXT NOT NULL DEFAULT 'N4',
+        tags TEXT NOT NULL DEFAULT '[]',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_source_vocab (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL,
+        vocab_id INTEGER NOT NULL,
+        line_number INTEGER NOT NULL DEFAULT 0,
+        context_ja TEXT,
+        FOREIGN KEY (source_id) REFERENCES jp_sources(id) ON DELETE CASCADE,
+        FOREIGN KEY (vocab_id) REFERENCES jp_vocabulary(id) ON DELETE CASCADE,
+        UNIQUE(source_id, vocab_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_player_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        total_xp INTEGER NOT NULL DEFAULT 0,
+        level INTEGER NOT NULL DEFAULT 1,
+        current_streak INTEGER NOT NULL DEFAULT 0,
+        longest_streak INTEGER NOT NULL DEFAULT 0,
+        last_study_date TEXT,
+        total_reviews INTEGER NOT NULL DEFAULT 0,
+        total_correct INTEGER NOT NULL DEFAULT 0,
+        combo_best INTEGER NOT NULL DEFAULT 0,
+        achievements TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_quiz_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quiz_type TEXT NOT NULL DEFAULT 'flashcard',
+        total_questions INTEGER NOT NULL,
+        correct INTEGER NOT NULL,
+        max_combo INTEGER NOT NULL DEFAULT 0,
+        xp_earned INTEGER NOT NULL DEFAULT 0,
+        time_seconds INTEGER NOT NULL DEFAULT 0,
+        jlpt_level TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_notification_logs_date ON notification_logs(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_notification_rules_active ON notification_rules(is_active, trigger_type)",
@@ -141,6 +223,12 @@ TABLES = [
     "CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)",
     "CREATE INDEX IF NOT EXISTS idx_milestones_goal ON milestones(goal_id)",
     "CREATE INDEX IF NOT EXISTS idx_schedule_templates_day ON schedule_templates(day_of_week)",
+    # Japanese learning indexes
+    "CREATE INDEX IF NOT EXISTS idx_jp_vocab_level ON jp_vocabulary(jlpt_level)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_srs_next ON jp_srs_cards(next_review)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_review_logs_date ON jp_review_logs(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_source_vocab_source ON jp_source_vocab(source_id)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_quiz_date ON jp_quiz_results(created_at)",
 ]
 
 _MIGRATIONS = [
