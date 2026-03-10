@@ -20,6 +20,8 @@ import Strategy from './pages/Strategy'
 import Guide from './pages/Guide'
 import Soxl from './pages/Soxl'
 import Geopolitical from './pages/Geopolitical'
+import CarryTrade from './pages/CarryTrade'
+import ForexMap from './pages/ForexMap'
 
 // M14: Error Boundary to catch render crashes
 class ErrorBoundary extends Component {
@@ -150,6 +152,8 @@ function App() {
       case 'system': return <System {...props} />
       case 'soxl': return <Soxl {...props} />
       case 'geopolitical': return <Geopolitical {...props} />
+      case 'carry-trade': return <CarryTrade {...props} />
+      case 'forex-map': return <ForexMap {...props} />
       case 'guide': return <Guide onNavigate={navigateTo} initialSection={guideSection} />
       default: return <Overview {...props} />
     }

@@ -1897,3 +1897,75 @@ async def get_fx_history(days: int = 200) -> list[dict]:
     rows = [dict(r) for r in await cursor.fetchall()]
     rows.reverse()
     return rows
+
+
+# ── Forex / Interest Rates ──
+
+
+async def get_interest_rates() -> dict[str, float]:
+    """Get interest rates from DB or return empty dict."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT currency, rate FROM interest_rates ORDER BY currency"
+        )
+        rows = await cursor.fetchall()
+        return {r["currency"]: r["rate"] for r in rows}
+    except Exception as e:
+        logger.warning("Failed to get interest rates: %s", e)
+        return {}
+
+
+async def get_forex_rates() -> dict[str, dict]:
+    """Get latest forex rates from forex_history table."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT pair, close_price, trade_date,
+                      LAG(close_price, 1) OVER (PARTITION BY pair ORDER BY trade_date) as prev_1d,
+                      LAG(close_price, 5) OVER (PARTITION BY pair ORDER BY trade_date) as prev_5d,
+                      LAG(close_price, 20) OVER (PARTITION BY pair ORDER BY trade_date) as prev_20d
+               FROM forex_history
+               WHERE trade_date >= date('now', '-30 days')
+               ORDER BY pair, trade_date DESC"""
+        )
+        rows = [dict(r) for r in await cursor.fetchall()]
+
+        # Group by pair, take latest
+        result: dict[str, dict] = {}
+        for row in rows:
+            pair = row["pair"]
+            if pair in result:
+                continue  # Already have latest
+            current = row["close_price"]
+            prev_1d = row.get("prev_1d")
+            prev_5d = row.get("prev_5d")
+            prev_20d = row.get("prev_20d")
+
+            def _pct(old):
+                if old and old > 0:
+                    return round((current - old) / old * 100, 2)
+                return 0
+
+            result[pair] = {
+                "current": current,
+                "change_1d": _pct(prev_1d),
+                "change_1w": _pct(prev_5d),
+                "change_1m": _pct(prev_20d),
+            }
+        return result
+    except Exception as e:
+        logger.warning("Failed to get forex rates: %s", e)
+        return {}
+
+
+async def upsert_forex_rate(pair: str, trade_date: str, close_price: float) -> None:
+    """Insert or update a forex rate."""
+    db = await get_db()
+    await db.execute(
+        """INSERT INTO forex_history (pair, trade_date, close_price)
+           VALUES (?, ?, ?)
+           ON CONFLICT(pair, trade_date) DO UPDATE SET close_price = excluded.close_price""",
+        (pair, trade_date, close_price),
+    )
+    await db.commit()

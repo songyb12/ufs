@@ -502,6 +502,24 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    # ── Forex History (Carry Trade / FX Map) ──
+    """
+    CREATE TABLE IF NOT EXISTS forex_history (
+        pair TEXT NOT NULL,
+        trade_date TEXT NOT NULL,
+        close_price REAL NOT NULL,
+        PRIMARY KEY (pair, trade_date)
+    )
+    """,
+    # ── Interest Rates (Central Bank Rates) ──
+    """
+    CREATE TABLE IF NOT EXISTS interest_rates (
+        currency TEXT NOT NULL PRIMARY KEY,
+        rate REAL NOT NULL,
+        central_bank TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES = [
@@ -537,6 +555,7 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_short_interest_lookup ON short_interest(symbol, market, report_date)",
     "CREATE INDEX IF NOT EXISTS idx_news_data_run ON news_data(run_id)",
     "CREATE INDEX IF NOT EXISTS idx_portfolio_scenarios_run ON portfolio_scenarios(market, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_forex_history_lookup ON forex_history(pair, trade_date)",
 ]
 
 

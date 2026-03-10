@@ -131,6 +131,24 @@ export default function Macro({ onNavigate, refreshKey }) {
         color="#f59e0b"
       />
 
+      {/* Quick navigation to related pages */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <button
+          className="btn btn-outline"
+          onClick={() => onNavigate('carry-trade')}
+          style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem' }}
+        >
+          {'\uD83D\uDCB1'} 캐리트레이드 분석
+        </button>
+        <button
+          className="btn btn-outline"
+          onClick={() => onNavigate('forex-map')}
+          style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem' }}
+        >
+          {'\uD83D\uDDFA'} 환율 세계지도
+        </button>
+      </div>
+
       {/* ── Phase J: Market Season + Investment Clock + Yield Phase + Risk Score ── */}
       <div className="card-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '1rem' }}>
         {/* Market Season */}
