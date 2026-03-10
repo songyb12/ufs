@@ -84,7 +84,7 @@ async def category_stats(
 
 
 @router.get("/search")
-async def search_routines(q: str):
+async def search_routines(q: str = Query(min_length=1)):
     return await repo.search_routines(q)
 
 
@@ -171,12 +171,15 @@ async def routine_logs(
     date_from: str | None = None,
     date_to: str | None = None,
 ):
+    existing = await repo.get_routine(routine_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Routine not found")
     return await repo.get_routine_logs(routine_id=routine_id, date_from=date_from, date_to=date_to)
 
 
 @router.delete("/{routine_id}/logs/{log_id}")
 async def delete_routine_log(routine_id: int, log_id: int):
-    ok = await repo.delete_routine_log(log_id)
+    ok = await repo.delete_routine_log(log_id, routine_id=routine_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Log not found")
     return {"deleted": log_id}

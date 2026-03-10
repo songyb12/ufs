@@ -6,8 +6,14 @@ from datetime import date, datetime, timedelta, timezone
 from app.database.connection import get_db
 
 
+def _escape_like(s: str) -> str:
+    """Escape LIKE wildcards for literal matching."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    """Return current UTC time in SQLite-compatible format (no timezone suffix)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _parse_routine(row) -> dict:
@@ -119,6 +125,8 @@ async def restore_routine(routine_id: int) -> dict | None:
 
 
 async def bulk_set_active(routine_ids: list[int], is_active: int) -> int:
+    if not routine_ids:
+        return 0
     db = await get_db()
     placeholders = ",".join("?" for _ in routine_ids)
     cursor = await db.execute(
@@ -131,9 +139,10 @@ async def bulk_set_active(routine_ids: list[int], is_active: int) -> int:
 
 async def search_routines(keyword: str) -> list[dict]:
     db = await get_db()
+    escaped = _escape_like(keyword)
     cursor = await db.execute(
-        "SELECT * FROM routines WHERE name LIKE ? OR description LIKE ? ORDER BY is_active DESC, name",
-        (f"%{keyword}%", f"%{keyword}%"),
+        "SELECT * FROM routines WHERE (name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\') ORDER BY is_active DESC, name",
+        (f"%{escaped}%", f"%{escaped}%"),
     )
     rows = await cursor.fetchall()
     return [_parse_routine(r) for r in rows]
@@ -150,7 +159,7 @@ async def get_routine_logs(
     db = await get_db()
     q = "SELECT * FROM routine_logs WHERE 1=1"
     params: list = []
-    if routine_id:
+    if routine_id is not None:
         q += " AND routine_id = ?"
         params.append(routine_id)
     if date_from:
@@ -175,7 +184,7 @@ async def check_routine(routine_id: int, log_date: str, status: str, note: str |
              status = excluded.status,
              completed_at = excluded.completed_at,
              note = excluded.note""",
-        (routine_id, log_date, status, now if status == "DONE" else None, note),
+        (routine_id, log_date, str(status), now if str(status) == "DONE" else None, note),
     )
     await db.commit()
     cursor = await db.execute(
@@ -196,9 +205,14 @@ async def uncheck_routine(routine_id: int, log_date: str) -> bool:
     return cursor.rowcount > 0
 
 
-async def delete_routine_log(log_id: int) -> bool:
+async def delete_routine_log(log_id: int, routine_id: int | None = None) -> bool:
     db = await get_db()
-    cursor = await db.execute("DELETE FROM routine_logs WHERE id = ?", (log_id,))
+    if routine_id is not None:
+        cursor = await db.execute(
+            "DELETE FROM routine_logs WHERE id = ? AND routine_id = ?", (log_id, routine_id)
+        )
+    else:
+        cursor = await db.execute("DELETE FROM routine_logs WHERE id = ?", (log_id,))
     await db.commit()
     return cursor.rowcount > 0
 
@@ -229,7 +243,7 @@ async def get_routine_stats(routine_id: int | None, date_from: str, date_to: str
     db = await get_db()
     q_base = "SELECT COUNT(*) as cnt FROM routine_logs WHERE date >= ? AND date <= ?"
     params: list = [date_from, date_to]
-    if routine_id:
+    if routine_id is not None:
         q_base += " AND routine_id = ?"
         params.append(routine_id)
 
@@ -253,7 +267,9 @@ async def get_routine_stats(routine_id: int | None, date_from: str, date_to: str
         d = row["date"]
         if d not in daily_map:
             daily_map[d] = {"date": d, "done": 0, "skipped": 0, "partial": 0}
-        daily_map[d][row["status"].lower()] = row["cnt"]
+        status_key = (row["status"] or "").lower()
+        if status_key in ("done", "skipped", "partial"):
+            daily_map[d][status_key] = row["cnt"]
     daily_breakdown = sorted(daily_map.values(), key=lambda x: x["date"])
 
     return {
@@ -272,7 +288,7 @@ async def get_routine_heatmap(routine_id: int | None, date_from: str, date_to: s
     db = await get_db()
     q = "SELECT date, COUNT(*) as total, SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) as done FROM routine_logs WHERE date >= ? AND date <= ?"
     params: list = [date_from, date_to]
-    if routine_id:
+    if routine_id is not None:
         q += " AND routine_id = ?"
         params.append(routine_id)
     q += " GROUP BY date ORDER BY date"
@@ -416,9 +432,14 @@ async def get_all_habit_logs_for_date(log_date: str) -> list[dict]:
     return [dict(r) for r in await cursor.fetchall()]
 
 
-async def delete_habit_log(log_id: int) -> bool:
+async def delete_habit_log(log_id: int, habit_id: int | None = None) -> bool:
     db = await get_db()
-    cursor = await db.execute("DELETE FROM habit_logs WHERE id = ?", (log_id,))
+    if habit_id is not None:
+        cursor = await db.execute(
+            "DELETE FROM habit_logs WHERE id = ? AND habit_id = ?", (log_id, habit_id)
+        )
+    else:
+        cursor = await db.execute("DELETE FROM habit_logs WHERE id = ?", (log_id,))
     await db.commit()
     return cursor.rowcount > 0
 
@@ -454,9 +475,10 @@ async def get_habit_trend(habit_id: int, date_from: str, date_to: str) -> list[d
 
 async def search_habits(keyword: str) -> list[dict]:
     db = await get_db()
+    escaped = _escape_like(keyword)
     cursor = await db.execute(
-        "SELECT * FROM habits WHERE name LIKE ? OR description LIKE ? ORDER BY is_active DESC, name",
-        (f"%{keyword}%", f"%{keyword}%"),
+        "SELECT * FROM habits WHERE (name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\') ORDER BY is_active DESC, name",
+        (f"%{escaped}%", f"%{escaped}%"),
     )
     return [dict(r) for r in await cursor.fetchall()]
 
@@ -485,12 +507,12 @@ async def get_goals(
 
 async def get_goals_with_milestone_counts(status: str | None = None, category: str | None = None) -> list[dict]:
     db = await get_db()
-    q = """SELECT g.*, 
-           COALESCE(ms.total, 0) as milestone_total, 
+    q = """SELECT g.*,
+           COALESCE(ms.total, 0) as milestone_total,
            COALESCE(ms.done, 0) as milestone_done
            FROM goals g
            LEFT JOIN (
-               SELECT goal_id, COUNT(*) as total, SUM(is_completed) as done 
+               SELECT goal_id, COUNT(*) as total, COALESCE(SUM(is_completed), 0) as done
                FROM milestones GROUP BY goal_id
            ) ms ON g.id = ms.goal_id
            WHERE 1=1"""
@@ -558,7 +580,7 @@ async def update_goal_progress(goal_id: int, progress: float) -> dict | None:
         status_update = ", status = 'ACHIEVED'"
     await db.execute(
         f"UPDATE goals SET progress = ?, updated_at = ?{status_update} WHERE id = ?",
-        (min(progress, 1.0), _now(), goal_id),
+        (max(0.0, min(progress, 1.0)), _now(), goal_id),
     )
     await db.commit()
     return await get_goal(goal_id)
@@ -566,31 +588,37 @@ async def update_goal_progress(goal_id: int, progress: float) -> dict | None:
 
 async def abandon_goal(goal_id: int) -> dict | None:
     db = await get_db()
-    await db.execute(
-        "UPDATE goals SET status = 'ABANDONED', updated_at = ? WHERE id = ?",
+    cursor = await db.execute(
+        "UPDATE goals SET status = 'ABANDONED', updated_at = ? WHERE id = ? AND status IN ('ACTIVE', 'PAUSED')",
         (_now(), goal_id),
     )
     await db.commit()
+    if cursor.rowcount == 0:
+        return None
     return await get_goal(goal_id)
 
 
 async def reactivate_goal(goal_id: int) -> dict | None:
     db = await get_db()
-    await db.execute(
-        "UPDATE goals SET status = 'ACTIVE', updated_at = ? WHERE id = ?",
+    cursor = await db.execute(
+        "UPDATE goals SET status = 'ACTIVE', updated_at = ? WHERE id = ? AND status != 'ACTIVE'",
         (_now(), goal_id),
     )
     await db.commit()
+    if cursor.rowcount == 0:
+        return None
     return await get_goal(goal_id)
 
 
 async def pause_goal(goal_id: int) -> dict | None:
     db = await get_db()
-    await db.execute(
-        "UPDATE goals SET status = 'PAUSED', updated_at = ? WHERE id = ?",
+    cursor = await db.execute(
+        "UPDATE goals SET status = 'PAUSED', updated_at = ? WHERE id = ? AND status = 'ACTIVE'",
         (_now(), goal_id),
     )
     await db.commit()
+    if cursor.rowcount == 0:
+        return None
     return await get_goal(goal_id)
 
 
@@ -667,15 +695,28 @@ async def update_milestone(milestone_id: int, data: dict) -> dict | None:
         if key in data:
             fields.append(f"{key} = ?")
             params.append(data[key])
-    if "is_completed" in data and data["is_completed"]:
-        fields.append("completed_at = ?")
-        params.append(_now())
+    if "is_completed" in data:
+        if data["is_completed"]:
+            fields.append("completed_at = ?")
+            params.append(_now())
+        else:
+            fields.append("completed_at = ?")
+            params.append(None)
     if not fields:
         return await get_milestone(milestone_id)
     params.append(milestone_id)
-    await db.execute(f"UPDATE milestones SET {', '.join(fields)} WHERE id = ?", params)
+    cursor = await db.execute(f"UPDATE milestones SET {', '.join(fields)} WHERE id = ?", params)
     await db.commit()
-    return await get_milestone(milestone_id)
+    if cursor.rowcount == 0:
+        return None
+    result = await get_milestone(milestone_id)
+    if "is_completed" in data and result:
+        # Get goal_id to sync progress
+        goal_id = result.get("goal_id")
+        if goal_id:
+            await _sync_goal_progress(goal_id)
+            result = await get_milestone(milestone_id)
+    return result
 
 
 async def delete_milestone(milestone_id: int, goal_id: int) -> bool:
@@ -693,22 +734,26 @@ async def delete_milestone(milestone_id: int, goal_id: int) -> bool:
 
 async def complete_milestone(milestone_id: int, goal_id: int) -> dict | None:
     db = await get_db()
-    await db.execute(
+    cursor = await db.execute(
         "UPDATE milestones SET is_completed = 1, completed_at = ? WHERE id = ? AND goal_id = ?",
         (_now(), milestone_id, goal_id),
     )
     await db.commit()
+    if cursor.rowcount == 0:
+        return None
     await _sync_goal_progress(goal_id)
     return await get_milestone(milestone_id)
 
 
 async def uncomplete_milestone(milestone_id: int, goal_id: int) -> dict | None:
     db = await get_db()
-    await db.execute(
+    cursor = await db.execute(
         "UPDATE milestones SET is_completed = 0, completed_at = NULL WHERE id = ? AND goal_id = ?",
         (milestone_id, goal_id),
     )
     await db.commit()
+    if cursor.rowcount == 0:
+        return None
     await _sync_goal_progress(goal_id)
     return await get_milestone(milestone_id)
 
@@ -716,12 +761,13 @@ async def uncomplete_milestone(milestone_id: int, goal_id: int) -> dict | None:
 async def _sync_goal_progress(goal_id: int) -> None:
     db = await get_db()
     cursor = await db.execute(
-        "SELECT COUNT(*) as total, SUM(is_completed) as done FROM milestones WHERE goal_id = ?",
+        "SELECT COUNT(*) as total, COALESCE(SUM(is_completed), 0) as done FROM milestones WHERE goal_id = ?",
         (goal_id,),
     )
     row = await cursor.fetchone()
     if row and row["total"] > 0:
-        new_progress = row["done"] / row["total"]
+        done = row["done"] or 0
+        new_progress = done / row["total"]
         await update_goal_progress(goal_id, new_progress)
 
 
@@ -752,7 +798,8 @@ def _enrich_block(row) -> dict:
     try:
         sh, sm = d["start_time"].split(":")
         eh, em = d["end_time"].split(":")
-        d["duration_min"] = (int(eh) * 60 + int(em)) - (int(sh) * 60 + int(sm))
+        duration = (int(eh) * 60 + int(em)) - (int(sh) * 60 + int(sm))
+        d["duration_min"] = max(0, duration)
     except (ValueError, KeyError):
         d["duration_min"] = 0
     return d
@@ -831,6 +878,7 @@ async def copy_schedule_block(block_id: int, target_date: str) -> dict | None:
         "end_time": original["end_time"],
         "title": original["title"],
         "source": "MANUAL",
+        "routine_id": original.get("routine_id"),
         "priority": original["priority"],
         "is_locked": 0,
         "note": original.get("note"),
@@ -842,11 +890,12 @@ async def get_month_schedule(year: int, month: int) -> list[dict]:
     db = await get_db()
     date_from = f"{year:04d}-{month:02d}-01"
     if month == 12:
-        date_to = f"{year + 1:04d}-01-01"
+        last_day = date(year + 1, 1, 1) - timedelta(days=1)
     else:
-        date_to = f"{year:04d}-{month + 1:02d}-01"
+        last_day = date(year, month + 1, 1) - timedelta(days=1)
+    date_to = last_day.isoformat()
     cursor = await db.execute(
-        "SELECT * FROM schedule_blocks WHERE date >= ? AND date < ? ORDER BY date, start_time",
+        "SELECT * FROM schedule_blocks WHERE date >= ? AND date <= ? ORDER BY date, start_time",
         (date_from, date_to),
     )
     return [_enrich_block(r) for r in await cursor.fetchall()]
@@ -887,9 +936,8 @@ async def apply_template(template_id: int, target_date: str) -> list[dict]:
     blocks = json.loads(row["blocks_json"])
     saved = []
     for b in blocks:
-        b["date"] = target_date
-        b["source"] = "TEMPLATE"
-        saved.append(await create_schedule_block(b))
+        block_data = {**b, "date": target_date, "source": "TEMPLATE"}
+        saved.append(await create_schedule_block(block_data))
     return saved
 
 
@@ -908,7 +956,7 @@ async def detect_conflicts(date_val: str, start_time: str, end_time: str, exclud
     q = """SELECT * FROM schedule_blocks
            WHERE date = ? AND start_time < ? AND end_time > ?"""
     params: list = [date_val, end_time, start_time]
-    if exclude_id:
+    if exclude_id is not None:
         q += " AND id != ?"
         params.append(exclude_id)
     cursor = await db.execute(q, params)
@@ -924,13 +972,14 @@ async def duplicate_routine(routine_id: int) -> dict | None:
     if not original:
         return None
     data = {
-        "name": f"{original['name']} (복사)",
+        "name": f"{original['name']} (copy)",
         "description": original.get("description"),
         "category": original["category"],
         "time_slot": original["time_slot"],
         "duration_min": original["duration_min"],
         "priority": original["priority"],
         "repeat_days": original["repeat_days"] if isinstance(original["repeat_days"], list) else json.loads(original["repeat_days"]),
+        "sort_order": original.get("sort_order", 0),
         "color": original.get("color", "#6366f1"),
         "icon": original.get("icon"),
     }
@@ -957,6 +1006,9 @@ async def increment_habit(habit_id: int, log_date: str, delta: float) -> dict:
 async def bulk_check_routines(items: list[dict], log_date: str) -> list[dict]:
     results = []
     for item in items:
+        routine = await get_routine(item["routine_id"])
+        if not routine:
+            continue
         result = await check_routine(item["routine_id"], log_date, item["status"], item.get("note"))
         results.append(result)
     return results
@@ -971,7 +1023,7 @@ async def cleanup_old_logs(retention_days: int) -> dict:
 
     c1 = await db.execute("DELETE FROM routine_logs WHERE date < ?", (cutoff,))
     c2 = await db.execute("DELETE FROM habit_logs WHERE date < ?", (cutoff,))
-    c3 = await db.execute("DELETE FROM schedule_blocks WHERE date < ?", (cutoff,))
+    c3 = await db.execute("DELETE FROM schedule_blocks WHERE date < ? AND is_locked = 0", (cutoff,))
     await db.commit()
     return {
         "cutoff_date": cutoff,
@@ -1046,8 +1098,8 @@ async def get_weekly_report(date_from: str, date_to: str) -> dict:
     habit_stats = [dict(r) for r in await cursor.fetchall()]
 
     cursor = await db.execute(
-        "SELECT id, title, status, progress FROM goals WHERE updated_at >= ? AND updated_at <= ?",
-        (date_from, date_to + "T23:59:59"),
+        "SELECT id, title, status, progress FROM goals WHERE updated_at >= ? AND updated_at < ?",
+        (date_from, date_to + " 23:59:59"),
     )
     goal_updates = [dict(r) for r in await cursor.fetchall()]
 
@@ -1067,10 +1119,10 @@ async def get_weekly_report(date_from: str, date_to: str) -> dict:
 async def get_monthly_report(year: int, month: int) -> dict:
     date_from = f"{year:04d}-{month:02d}-01"
     if month == 12:
-        date_to = f"{year + 1:04d}-01-01"
+        last_day = date(year + 1, 1, 1) - timedelta(days=1)
     else:
-        date_to = f"{year:04d}-{month + 1:02d}-01"
-    # Reuse weekly report logic with month range
+        last_day = date(year, month + 1, 1) - timedelta(days=1)
+    date_to = last_day.isoformat()
     return await get_weekly_report(date_from, date_to)
 
 
@@ -1087,8 +1139,13 @@ async def export_all() -> dict:
     routine_logs = [dict(r) for r in await (await db.execute("SELECT * FROM routine_logs")).fetchall()]
     habit_logs = [dict(r) for r in await (await db.execute("SELECT * FROM habit_logs")).fetchall()]
 
+    cursor = await db.execute("SELECT value FROM schema_meta WHERE key = 'version'")
+    row = await cursor.fetchone()
+    schema_ver = row["value"] if row else "0"
+
     return {
         "exported_at": _now(),
+        "schema_version": schema_ver,
         "routines": routines,
         "habits": habits,
         "goals": goals,
@@ -1126,7 +1183,11 @@ async def global_search(keyword: str) -> list[dict]:
     for h in habits:
         results.append({"type": "habit", "id": h["id"], "name": h["name"], "category": None, "is_active": h["is_active"]})
     db = await get_db()
-    cursor = await db.execute("SELECT * FROM goals WHERE title LIKE ? OR description LIKE ?", (f"%{keyword}%", f"%{keyword}%"))
+    escaped = _escape_like(keyword)
+    cursor = await db.execute(
+        "SELECT * FROM goals WHERE (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\') ORDER BY status, title",
+        (f"%{escaped}%", f"%{escaped}%"),
+    )
     for g in await cursor.fetchall():
         g = dict(g)
         results.append({"type": "goal", "id": g["id"], "name": g["title"], "category": g.get("category"), "is_active": 1 if g["status"] == "ACTIVE" else 0})

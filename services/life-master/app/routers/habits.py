@@ -57,7 +57,7 @@ async def habits_overview():
 
 
 @router.get("/search")
-async def search_habits(q: str):
+async def search_habits(q: str = Query(min_length=1)):
     return await repo.search_habits(q)
 
 
@@ -142,12 +142,15 @@ async def habit_logs(
     date_from: str | None = None,
     date_to: str | None = None,
 ):
+    habit = await repo.get_habit(habit_id)
+    if not habit:
+        raise HTTPException(status_code=404, detail="Habit not found")
     return await repo.get_habit_logs(habit_id, date_from=date_from, date_to=date_to)
 
 
 @router.delete("/{habit_id}/logs/{log_id}")
 async def delete_habit_log(habit_id: int, log_id: int):
-    ok = await repo.delete_habit_log(log_id)
+    ok = await repo.delete_habit_log(log_id, habit_id=habit_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Log not found")
     return {"deleted": log_id}
@@ -159,6 +162,9 @@ async def habit_heatmap(
     date_from: str = Query(default=None),
     date_to: str = Query(default=None),
 ):
+    habit = await repo.get_habit(habit_id)
+    if not habit:
+        raise HTTPException(status_code=404, detail="Habit not found")
     if not date_from:
         date_from = days_ago(90)
     if not date_to:

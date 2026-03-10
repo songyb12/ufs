@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import date
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.config import settings
 from app.database import repositories as repo
@@ -17,7 +17,7 @@ from app.models.schemas import (
     ScheduleTemplateCreate,
 )
 from app.services.optimizer import generate_schedule
-from app.utils.time_helpers import today_str, week_range
+from app.utils.time_helpers import DAY_NAMES, today_str, week_range
 
 logger = logging.getLogger("life-master.routers.scheduler")
 
@@ -42,7 +42,7 @@ async def week_schedule(date: str | None = None):
 
 
 @router.get("/month")
-async def month_schedule(year: int, month: int):
+async def month_schedule(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12)):
     return await repo.get_month_schedule(year, month)
 
 
@@ -86,9 +86,7 @@ async def copy_block(body: ScheduleCopyRequest):
 async def generate_day_schedule(body: ScheduleGenerateRequest):
     """Auto-generate schedule from routines for a given date."""
     target_date = body.date or today_str()
-    day_name = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][
-        date.fromisoformat(target_date).weekday()
-    ]
+    day_name = DAY_NAMES[date.fromisoformat(target_date).weekday()]
 
     routines = await repo.get_routines(active_only=True)
     day_routines = []
@@ -161,7 +159,12 @@ async def create_template(body: ScheduleTemplateCreate):
 
 
 @router.post("/templates/{template_id}/apply")
-async def apply_template(template_id: int, target_date: str):
+async def apply_template(template_id: int, target_date: str = Query()):
+    from datetime import date as d
+    try:
+        d.fromisoformat(target_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
     blocks = await repo.apply_template(template_id, target_date)
     if not blocks:
         raise HTTPException(status_code=404, detail="Template not found or empty")

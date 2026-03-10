@@ -82,6 +82,8 @@ async def abandon_goal(goal_id: int):
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     result = await repo.abandon_goal(goal_id)
+    if not result:
+        raise HTTPException(status_code=409, detail="Goal cannot be abandoned from current status")
     logger.info("Goal %d abandoned", goal_id)
     return result
 
@@ -92,6 +94,8 @@ async def reactivate_goal(goal_id: int):
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     result = await repo.reactivate_goal(goal_id)
+    if not result:
+        raise HTTPException(status_code=409, detail="Goal is already active")
     logger.info("Goal %d reactivated", goal_id)
     return result
 
@@ -102,6 +106,8 @@ async def pause_goal(goal_id: int):
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     result = await repo.pause_goal(goal_id)
+    if not result:
+        raise HTTPException(status_code=409, detail="Goal can only be paused from active status")
     logger.info("Goal %d paused", goal_id)
     return result
 

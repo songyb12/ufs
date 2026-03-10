@@ -1,5 +1,7 @@
 """Pydantic request/response schemas."""
 
+from datetime import date as date_type
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import (
@@ -19,14 +21,15 @@ VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
 
 class RoutineCreate(BaseModel):
-    name: str = Field(max_length=200)
+    name: str = Field(min_length=1, max_length=200)
     description: str | None = None
     category: RoutineCategory = RoutineCategory.GENERAL
     time_slot: TimeSlot = TimeSlot.FLEXIBLE
     duration_min: int = Field(default=30, ge=5, le=480)
     priority: int = Field(default=3, ge=1, le=5)
     repeat_days: list[str] = Field(
-        default=["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        default=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        min_length=1,
     )
     sort_order: int = 0
     color: str = Field(default="#6366f1", max_length=7)
@@ -49,7 +52,7 @@ class RoutineUpdate(BaseModel):
     duration_min: int | None = Field(default=None, ge=5, le=480)
     priority: int | None = Field(default=None, ge=1, le=5)
     repeat_days: list[str] | None = None
-    is_active: int | None = None
+    is_active: int | None = Field(default=None, ge=0, le=1)
     sort_order: int | None = None
     color: str | None = Field(default=None, max_length=7)
     icon: str | None = None
@@ -85,6 +88,13 @@ class RoutineCheckRequest(BaseModel):
     status: LogStatus = LogStatus.DONE
     note: str | None = None
     date: str | None = None
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
 
 
 class RoutineLogResponse(BaseModel):
@@ -132,7 +142,7 @@ class RoutineStatsResponse(BaseModel):
 
 
 class HabitCreate(BaseModel):
-    name: str = Field(max_length=200)
+    name: str = Field(min_length=1, max_length=200)
     description: str | None = None
     target_type: HabitTargetType = HabitTargetType.DAILY
     target_value: float = Field(default=1, gt=0)
@@ -149,7 +159,7 @@ class HabitUpdate(BaseModel):
     unit: str | None = Field(default=None, max_length=20)
     color: str | None = Field(default=None, max_length=7)
     icon: str | None = None
-    is_active: int | None = None
+    is_active: int | None = Field(default=None, ge=0, le=1)
 
 
 class HabitResponse(BaseModel):
@@ -169,6 +179,13 @@ class HabitResponse(BaseModel):
 class HabitLogRequest(BaseModel):
     value: float = Field(default=1, ge=0)
     date: str | None = None
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
 
 
 class HabitLogResponse(BaseModel):
@@ -199,13 +216,20 @@ class HabitOverviewItem(BaseModel):
 
 
 class GoalCreate(BaseModel):
-    title: str = Field(max_length=300)
+    title: str = Field(min_length=1, max_length=300)
     description: str | None = None
     category: GoalCategory = GoalCategory.GENERAL
     deadline: str | None = None
     progress: float = Field(default=0.0, ge=0, le=1)
     priority: int = Field(default=3, ge=1, le=5)
     color: str = Field(default="#6366f1", max_length=7)
+
+    @field_validator("deadline")
+    @classmethod
+    def validate_deadline(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
 
 
 class GoalUpdate(BaseModel):
@@ -216,6 +240,13 @@ class GoalUpdate(BaseModel):
     status: GoalStatus | None = None
     priority: int | None = Field(default=None, ge=1, le=5)
     color: str | None = Field(default=None, max_length=7)
+
+    @field_validator("deadline")
+    @classmethod
+    def validate_deadline(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
 
 
 class GoalResponse(BaseModel):
@@ -237,16 +268,30 @@ class GoalProgressUpdate(BaseModel):
 
 
 class MilestoneCreate(BaseModel):
-    title: str = Field(max_length=300)
+    title: str = Field(min_length=1, max_length=300)
     target_date: str | None = None
     sort_order: int = 0
+
+    @field_validator("target_date")
+    @classmethod
+    def validate_date(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
 
 
 class MilestoneUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=300)
     target_date: str | None = None
     sort_order: int | None = None
-    is_completed: int | None = None
+    is_completed: int | None = Field(default=None, ge=0, le=1)
+
+    @field_validator("target_date")
+    @classmethod
+    def validate_date(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
 
 
 class MilestoneResponse(BaseModel):
@@ -301,10 +346,16 @@ class ScheduleBlockCreate(BaseModel):
     date: str
     start_time: str = Field(pattern=r"^\d{2}:\d{2}$")
     end_time: str = Field(pattern=r"^\d{2}:\d{2}$")
-    title: str = Field(max_length=200)
+    title: str = Field(min_length=1, max_length=200)
     priority: int = Field(default=3, ge=1, le=5)
     is_locked: int = Field(default=0, ge=0, le=1)
     note: str | None = None
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        date_type.fromisoformat(v)
+        return v
 
     @field_validator("end_time")
     @classmethod
@@ -323,6 +374,22 @@ class ScheduleBlockUpdate(BaseModel):
     priority: int | None = Field(default=None, ge=1, le=5)
     is_locked: int | None = Field(default=None, ge=0, le=1)
     note: str | None = None
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
+
+    @field_validator("end_time")
+    @classmethod
+    def validate_time_range(cls, v: str | None, info) -> str | None:
+        if v is not None:
+            start = info.data.get("start_time")
+            if start and v <= start:
+                raise ValueError("end_time must be after start_time")
+        return v
 
 
 class ScheduleBlockResponse(BaseModel):
@@ -344,16 +411,36 @@ class ScheduleGenerateRequest(BaseModel):
     date: str | None = None
     break_min: int = Field(default=0, ge=0, le=60)
 
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
+
 
 class ScheduleCopyRequest(BaseModel):
     block_id: int
     target_date: str
 
+    @field_validator("target_date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        date_type.fromisoformat(v)
+        return v
+
 
 class ScheduleTemplateCreate(BaseModel):
-    name: str = Field(max_length=200)
+    name: str = Field(min_length=1, max_length=200)
     day_of_week: str
-    blocks: list[dict]
+    blocks: list[dict] = Field(min_length=1)
+
+    @field_validator("day_of_week")
+    @classmethod
+    def validate_day(cls, v: str) -> str:
+        if v not in VALID_DAYS:
+            raise ValueError(f"Invalid day: {v}. Use: {VALID_DAYS}")
+        return v
 
 
 class ScheduleTemplateResponse(BaseModel):
@@ -376,7 +463,14 @@ class BulkCheckItem(BaseModel):
 
 class BulkCheckRequest(BaseModel):
     date: str | None = None
-    items: list[BulkCheckItem]
+    items: list[BulkCheckItem] = Field(min_length=1)
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
 
 
 class BulkCheckResponse(BaseModel):
@@ -386,12 +480,12 @@ class BulkCheckResponse(BaseModel):
 
 
 class BulkActiveRequest(BaseModel):
-    routine_ids: list[int]
+    routine_ids: list[int] = Field(min_length=1)
     is_active: int = Field(ge=0, le=1)
 
 
 class BulkMilestoneCreate(BaseModel):
-    milestones: list[MilestoneCreate]
+    milestones: list[MilestoneCreate] = Field(min_length=1)
 
 
 # ── Habit Increment ──────────────────────────────────────
@@ -400,6 +494,13 @@ class BulkMilestoneCreate(BaseModel):
 class HabitIncrementRequest(BaseModel):
     delta: float = Field(default=1, description="Amount to add (negative to subtract)")
     date: str | None = None
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: str | None) -> str | None:
+        if v is not None:
+            date_type.fromisoformat(v)
+        return v
 
 
 # ── Dashboard ────────────────────────────────────────────
@@ -417,17 +518,20 @@ class DashboardResponse(BaseModel):
     schedule_blocks: int
     top_streaks: list[dict] = []
     upcoming_deadlines: list[dict] = []
+    overdue_goals: list[dict] = []
 
 
 # ── Export / Import ──────────────────────────────────────
 
 
 class ExportResponse(BaseModel):
-    version: str
+    version: str = ""
+    schema_version: str = ""
     exported_at: str
     routines: list[dict]
     habits: list[dict]
     goals: list[dict]
+    milestones: list[dict] = []
     routine_logs: list[dict]
     habit_logs: list[dict]
 

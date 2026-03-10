@@ -14,17 +14,31 @@ def set_db_path(path: str) -> None:
     _db_path = path
 
 
+async def _create_connection() -> aiosqlite.Connection:
+    conn = await aiosqlite.connect(_db_path)
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA foreign_keys=ON")
+    await conn.execute("PRAGMA busy_timeout=5000")
+    await conn.execute("PRAGMA cache_size=-8000")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
 async def get_db() -> aiosqlite.Connection:
     global _connection
     async with _db_lock:
+        if _connection is not None:
+            try:
+                await _connection.execute("SELECT 1")
+            except Exception:
+                try:
+                    await _connection.close()
+                except Exception:
+                    pass
+                _connection = None
         if _connection is None:
-            _connection = await aiosqlite.connect(_db_path)
-            _connection.row_factory = aiosqlite.Row
-            await _connection.execute("PRAGMA journal_mode=WAL")
-            await _connection.execute("PRAGMA foreign_keys=ON")
-            await _connection.execute("PRAGMA busy_timeout=5000")
-            await _connection.execute("PRAGMA cache_size=-8000")
-            await _connection.execute("PRAGMA synchronous=NORMAL")
+            _connection = await _create_connection()
     return _connection
 
 

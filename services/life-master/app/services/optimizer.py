@@ -1,7 +1,5 @@
 """Dynamic schedule optimizer — allocates routines into time blocks."""
 
-import json
-
 
 # Time slot preferences (hour ranges)
 SLOT_RANGES = {
@@ -42,6 +40,8 @@ def generate_schedule(
     Returns:
         List of generated schedule block dicts.
     """
+    if slot_interval <= 0:
+        slot_interval = 30
     start_min = day_start * 60
     end_min = day_end * 60
     # Round break to slot interval

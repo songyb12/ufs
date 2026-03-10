@@ -129,13 +129,17 @@ async def dashboard(date: str | None = None):
     """Today's (or specified date's) overview at a glance."""
     from app.database import repositories as repo
     from app.services.streak import calculate_streak
-    from app.utils.time_helpers import today_day_name, today_str
+    from app.utils.time_helpers import DAY_NAMES, today_day_name, today_str
 
-    DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
     if date:
         from datetime import date as d
+        try:
+            parsed = d.fromisoformat(date)
+        except ValueError:
+            from fastapi import HTTPException as HE
+            raise HE(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
         target = date
-        day_name = DAY_NAMES[d.fromisoformat(date).weekday()]
+        day_name = DAY_NAMES[parsed.weekday()]
     else:
         target = today_str()
         day_name = today_day_name()
@@ -166,12 +170,19 @@ async def weekly_report(date: str | None = None):
     """Weekly summary report."""
     from app.database import repositories as repo
     from app.utils.time_helpers import week_range
+    if date:
+        try:
+            from datetime import date as d
+            d.fromisoformat(date)
+        except ValueError:
+            from fastapi import HTTPException as HE
+            raise HE(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
     start, end = week_range(date)
     return await repo.get_weekly_report(start, end)
 
 
 @app.get("/report/monthly")
-async def monthly_report(year: int, month: int):
+async def monthly_report(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12)):
     """Monthly summary report."""
     from app.database import repositories as repo
     return await repo.get_monthly_report(year, month)
