@@ -52,6 +52,11 @@ function PairCard({ pair }) {
           <div style={{ padding: '0.15rem 0.5rem', borderRadius: '0.25rem', background: riskBg, color: riskColor, fontSize: '0.75rem', fontWeight: 600 }}>
             {ur.risk_level_kr || '?'}
           </div>
+          {ur.trend_kr && (
+            <div style={{ fontSize: '0.65rem', color: ur.trend === 'WORSENING' ? '#ef4444' : ur.trend === 'IMPROVING' ? '#22c55e' : 'var(--text-muted)', marginTop: '0.15rem' }}>
+              {ur.trend === 'WORSENING' ? '\u2191' : ur.trend === 'IMPROVING' ? '\u2193' : '\u2194'} {ur.trend_kr}
+            </div>
+          )}
         </div>
       </div>
 
@@ -193,7 +198,10 @@ export default function CarryTrade({ refreshKey }) {
 
   return (
     <div>
-      <h2 style={{ marginBottom: '0.5rem' }}>Carry Trade & Global Risk</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+        <h2>Carry Trade & Global Risk</h2>
+        {carry?.date && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Data: {carry.date}</span>}
+      </div>
       <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '1.25rem' }}>
         캐리 트레이드 위험 분석 및 글로벌 금융시장 리스크 요인
       </p>
@@ -212,6 +220,11 @@ export default function CarryTrade({ refreshKey }) {
               <Metric label="VIX" value={carry?.vix?.toFixed(1) || 'N/A'} color={carry?.vix > 25 ? '#ef4444' : carry?.vix > 20 ? '#eab308' : '#22c55e'} />
               <Metric label="DXY" value={carry?.dxy?.toFixed(1) || 'N/A'} color={carry?.dxy > 105 ? '#ef4444' : '#6b7280'} />
             </div>
+            {overall.scenario_kr && (
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontStyle: 'italic' }}>
+                {overall.scenario_kr}
+              </div>
+            )}
             {overall.advice && overall.advice.length > 0 && (
               <div style={{ background: RISK_BG[overall.level] || 'var(--bg-secondary)', borderRadius: '0.375rem', padding: '0.5rem 0.75rem' }}>
                 {overall.advice.map((a, i) => (
@@ -270,6 +283,30 @@ export default function CarryTrade({ refreshKey }) {
       {riskFactors.length === 0 && (
         <div className="card" style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
           현재 감지된 글로벌 리스크 요인 없음 (시장 안정)
+        </div>
+      )}
+
+      {/* Interest Rates */}
+      {carry?.interest_rates && Object.keys(carry.interest_rates).length > 0 && (
+        <div className="card" style={{ padding: '1rem', marginTop: '1.25rem' }}>
+          <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>주요국 기준금리</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {Object.entries(carry.interest_rates)
+              .sort(([,a], [,b]) => b - a)
+              .slice(0, 15)
+              .map(([cur, rate]) => (
+                <div key={cur} style={{
+                  padding: '0.35rem 0.6rem', borderRadius: '0.25rem',
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                  fontSize: '0.75rem',
+                }}>
+                  <span style={{ fontWeight: 700 }}>{cur}</span>{' '}
+                  <span style={{ color: rate > 4 ? '#ef4444' : rate < 1 ? '#22c55e' : '#3b82f6' }}>
+                    {rate.toFixed(2)}%
+                  </span>
+                </div>
+              ))}
+          </div>
         </div>
       )}
     </div>

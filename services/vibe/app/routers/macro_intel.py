@@ -1066,3 +1066,26 @@ async def backfill_forex_data(days: int = Query(90, ge=30, le=365)):
     except Exception as e:
         logger.error("Forex backfill failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Forex data backfill failed. Check server logs for details.")
+
+
+@router.post("/interest-rates")
+async def update_interest_rates(rates: dict[str, float]):
+    """Update interest rates for currencies. Body: {"USD": 5.25, "JPY": 0.25, ...}"""
+    db = await repo.get_db()
+    updated = 0
+    for currency, rate in rates.items():
+        currency = currency.upper().strip()
+        if len(currency) != 3 or not isinstance(rate, (int, float)):
+            continue
+        try:
+            await db.execute(
+                """INSERT INTO interest_rates (currency, rate, updated_at)
+                   VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(currency) DO UPDATE SET rate = excluded.rate, updated_at = excluded.updated_at""",
+                (currency, float(rate)),
+            )
+            updated += 1
+        except Exception as e:
+            logger.warning("Failed to update rate for %s: %s", currency, e)
+    await db.commit()
+    return {"updated": updated, "rates": rates}

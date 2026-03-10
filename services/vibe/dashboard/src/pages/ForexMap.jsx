@@ -268,6 +268,31 @@ export default function ForexMap({ refreshKey }) {
       {/* World Map */}
       <ForexWorldMap countries={countries} flows={flows} />
 
+      {/* Strength Summary */}
+      {countries.length > 0 && (
+        <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+          <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>통화 강도 요약</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {[...countries]
+              .filter(c => c.currency !== 'USD' && c.strength?.score != null)
+              .sort((a, b) => (b.strength?.score || 0) - (a.strength?.score || 0))
+              .slice(0, 12)
+              .map(c => (
+                <div key={c.currency} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.35rem',
+                  padding: '0.3rem 0.6rem', borderRadius: '0.25rem',
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                  fontSize: '0.75rem',
+                }}>
+                  <span>{c.flag}</span>
+                  <span style={{ fontWeight: 700 }}>{c.currency}</span>
+                  <span style={{ color: c.strength?.color || '#6b7280', fontWeight: 600 }}>{c.strength?.label}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* Flow Table and Country Table */}
       <div style={{ display: 'grid', gridTemplateColumns: flows.length > 0 ? '1fr 2fr' : '1fr', gap: '1rem' }}>
         <FlowTable flows={flows} />

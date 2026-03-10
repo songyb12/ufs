@@ -240,11 +240,24 @@ def _compute_unwind_risk(
     if not signals:
         signals.append("현재 특이 신호 없음")
 
+    # Trend direction
+    if fx_change_1w < -1 and fx_change_1d < -0.3:
+        trend = "WORSENING"
+        trend_kr = "악화 추세"
+    elif fx_change_1w > 1 and fx_change_1d > 0.3:
+        trend = "IMPROVING"
+        trend_kr = "개선 추세"
+    else:
+        trend = "STABLE"
+        trend_kr = "횡보"
+
     return {
         "risk_score": int(risk_score),
         "risk_level": risk_level,
         "risk_level_kr": risk_level_kr,
         "signals": signals,
+        "trend": trend,
+        "trend_kr": trend_kr,
     }
 
 
@@ -326,12 +339,16 @@ def _compute_overall_carry_risk(
 
     if avg_risk >= 60:
         level, level_kr = "HIGH", "위험"
+        scenario_kr = "캐리 트레이드 대규모 청산 진행 가능성 — 2024년 8월 엔캐리 청산 유사 상황"
     elif avg_risk >= 35:
         level, level_kr = "ELEVATED", "경계"
+        scenario_kr = "캐리 환경 악화 중 — BOJ 정책 변화 또는 VIX 급등 시 빠른 청산 가능"
     elif avg_risk >= 15:
         level, level_kr = "WATCH", "주의"
+        scenario_kr = "캐리 환경 소폭 불안정 — 모니터링 강화 필요"
     else:
         level, level_kr = "LOW", "양호"
+        scenario_kr = "캐리 트레이드 환경 안정 — 리스크 자산 우호적"
 
     advice = _generate_carry_advice(avg_risk, pairs, vix, dxy)
 
@@ -339,6 +356,7 @@ def _compute_overall_carry_risk(
         "score": int(avg_risk),
         "level": level,
         "level_kr": level_kr,
+        "scenario_kr": scenario_kr,
         "advice": advice,
     }
 
@@ -374,6 +392,12 @@ def _generate_carry_advice(
     v = vix or 18
     if v > 25:
         advice.append(f"VIX {v:.0f} 고수준 — 캐리 청산과 리스크오프 동시 진행 가능")
+
+    d = dxy or 103
+    if d > 108:
+        advice.append(f"DXY {d:.1f} — 달러 초강세로 이머징 자본유출 가속, 원화 약세 압력 주의")
+    elif d < 97:
+        advice.append(f"DXY {d:.1f} — 달러 약세로 캐리 환경 우호적, 이머징 자산 선호 구간")
 
     return advice
 
@@ -435,7 +459,10 @@ FOREX_FDR_SYMBOLS = {
     "USD/IDR": "USD/IDR",
     "USD/PHP": "USD/PHP",
     "USD/PLN": "USD/PLN",
+    "USD/CZK": "USD/CZK",
+    "USD/SAR": "USD/SAR",
     "NZD/USD": "NZD/USD",
+    "AUD/JPY": "AUD/JPY",
 }
 
 
@@ -725,6 +752,34 @@ def compute_global_risk_factors(
                 "market_impact_kr": "자본 유출 압력, 원화 약세, KR 채권 매력 감소",
                 "trigger_kr": "Fed 금리 동결/인상, 한국은행 금리 인하",
             })
+
+    # 8. Copper collapse (economic slowdown signal)
+    copper = macro.get("copper")
+    if copper and copper < 3.5:
+        factors.append({
+            "factor": "copper_collapse",
+            "name_kr": "구리 가격 하락",
+            "severity": "ELEVATED" if copper < 3.0 else "WATCH",
+            "severity_kr": "경계" if copper < 3.0 else "주의",
+            "score": min(100, int((4.0 - copper) * 30)),
+            "description_kr": f"구리 ${copper:.2f}/lb — 글로벌 경기둔화 신호 (Dr. Copper)",
+            "market_impact_kr": "경기민감주 약세, 이머징 수출국 타격, 원자재 전반 하락",
+            "trigger_kr": "중국 경기둔화, 글로벌 제조업 위축, 건설 부진",
+        })
+
+    # 9. Gold price surge (safe haven demand)
+    gold = macro.get("gold")
+    if gold and gold > 2500:
+        factors.append({
+            "factor": "gold_surge",
+            "name_kr": "금 가격 급등",
+            "severity": "ELEVATED" if gold > 2800 else "WATCH",
+            "severity_kr": "경계" if gold > 2800 else "주의",
+            "score": min(100, int((gold - 2000) * 0.08)),
+            "description_kr": f"금 ${gold:.0f}/oz — 안전자산 수요 급증, 인플레이션 헤지",
+            "market_impact_kr": "리스크오프 심화, 채권 대비 금 선호, 달러 약세 시 추가 상승",
+            "trigger_kr": "지정학 리스크, 중앙은행 매입, 실질금리 하락",
+        })
 
     # Sort by score
     factors.sort(key=lambda x: x.get("score", 0), reverse=True)
