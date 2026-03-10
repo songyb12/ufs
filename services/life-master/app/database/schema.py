@@ -2,12 +2,13 @@
 
 from app.database.connection import get_db
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 TABLES = [
     """CREATE TABLE IF NOT EXISTS routines (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
+        description TEXT,
         category TEXT NOT NULL DEFAULT 'GENERAL',
         time_slot TEXT NOT NULL DEFAULT 'FLEXIBLE',
         duration_min INTEGER NOT NULL DEFAULT 30,
@@ -15,6 +16,8 @@ TABLES = [
         repeat_days TEXT NOT NULL DEFAULT '["mon","tue","wed","thu","fri","sat","sun"]',
         is_active INTEGER NOT NULL DEFAULT 1,
         sort_order INTEGER NOT NULL DEFAULT 0,
+        color TEXT NOT NULL DEFAULT '#6366f1',
+        icon TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
@@ -33,10 +36,12 @@ TABLES = [
     """CREATE TABLE IF NOT EXISTS habits (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
+        description TEXT,
         target_type TEXT NOT NULL DEFAULT 'DAILY',
         target_value REAL NOT NULL DEFAULT 1,
         unit TEXT NOT NULL DEFAULT '회',
         color TEXT NOT NULL DEFAULT '#6366f1',
+        icon TEXT,
         is_active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -58,6 +63,8 @@ TABLES = [
         deadline TEXT,
         status TEXT NOT NULL DEFAULT 'ACTIVE',
         progress REAL NOT NULL DEFAULT 0.0,
+        priority INTEGER NOT NULL DEFAULT 3,
+        color TEXT NOT NULL DEFAULT '#6366f1',
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
@@ -70,7 +77,7 @@ TABLES = [
         completed_at TEXT,
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        FOREIGN KEY (goal_id) REFERENCES goals(id)
+        FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
     )""",
     """CREATE TABLE IF NOT EXISTS schedule_blocks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +93,14 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (routine_id) REFERENCES routines(id)
     )""",
+    """CREATE TABLE IF NOT EXISTS schedule_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        day_of_week TEXT NOT NULL,
+        blocks_json TEXT NOT NULL DEFAULT '[]',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_routine_logs_date ON routine_logs(date)",
     "CREATE INDEX IF NOT EXISTS idx_routine_logs_routine ON routine_logs(routine_id, date)",
@@ -94,6 +109,19 @@ TABLES = [
     "CREATE INDEX IF NOT EXISTS idx_schedule_blocks_date ON schedule_blocks(date)",
     "CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)",
     "CREATE INDEX IF NOT EXISTS idx_milestones_goal ON milestones(goal_id)",
+    "CREATE INDEX IF NOT EXISTS idx_schedule_templates_day ON schedule_templates(day_of_week)",
+]
+
+_MIGRATIONS = [
+    ("sort_order", "routines", "INTEGER NOT NULL DEFAULT 0"),
+    ("note", "schedule_blocks", "TEXT"),
+    ("description", "routines", "TEXT"),
+    ("description", "habits", "TEXT"),
+    ("icon", "routines", "TEXT"),
+    ("icon", "habits", "TEXT"),
+    ("color", "routines", "TEXT NOT NULL DEFAULT '#6366f1'"),
+    ("priority", "goals", "INTEGER NOT NULL DEFAULT 3"),
+    ("color", "goals", "TEXT NOT NULL DEFAULT '#6366f1'"),
 ]
 
 
@@ -105,15 +133,11 @@ async def init_db() -> None:
         "CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT)"
     )
 
-    # Migrations
-    try:
-        await db.execute("ALTER TABLE routines ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
-    except Exception:
-        pass
-    try:
-        await db.execute("ALTER TABLE schedule_blocks ADD COLUMN note TEXT")
-    except Exception:
-        pass
+    for col, table, typedef in _MIGRATIONS:
+        try:
+            await db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
+        except Exception:
+            pass
 
     await db.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",

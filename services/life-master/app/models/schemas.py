@@ -1,6 +1,6 @@
 """Pydantic request/response schemas."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import (
     BlockSource,
@@ -12,12 +12,15 @@ from app.models.enums import (
     TimeSlot,
 )
 
+VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
 
 # ── Routines ──────────────────────────────────────────────
 
 
 class RoutineCreate(BaseModel):
     name: str = Field(max_length=200)
+    description: str | None = None
     category: RoutineCategory = RoutineCategory.GENERAL
     time_slot: TimeSlot = TimeSlot.FLEXIBLE
     duration_min: int = Field(default=30, ge=5, le=480)
@@ -25,30 +28,57 @@ class RoutineCreate(BaseModel):
     repeat_days: list[str] = Field(
         default=["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
     )
+    sort_order: int = 0
+    color: str = Field(default="#6366f1", max_length=7)
+    icon: str | None = None
+
+    @field_validator("repeat_days")
+    @classmethod
+    def validate_days(cls, v: list[str]) -> list[str]:
+        invalid = set(v) - VALID_DAYS
+        if invalid:
+            raise ValueError(f"Invalid day(s): {invalid}. Use: {VALID_DAYS}")
+        return v
 
 
 class RoutineUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=200)
+    description: str | None = None
     category: RoutineCategory | None = None
     time_slot: TimeSlot | None = None
     duration_min: int | None = Field(default=None, ge=5, le=480)
     priority: int | None = Field(default=None, ge=1, le=5)
     repeat_days: list[str] | None = None
     is_active: int | None = None
+    sort_order: int | None = None
+    color: str | None = Field(default=None, max_length=7)
+    icon: str | None = None
+
+    @field_validator("repeat_days")
+    @classmethod
+    def validate_days(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            invalid = set(v) - VALID_DAYS
+            if invalid:
+                raise ValueError(f"Invalid day(s): {invalid}. Use: {VALID_DAYS}")
+        return v
 
 
 class RoutineResponse(BaseModel):
     id: int
     name: str
+    description: str | None = None
     category: str
     time_slot: str
     duration_min: int
     priority: int
     repeat_days: list[str] | str
     is_active: int
+    sort_order: int = 0
+    color: str = "#6366f1"
+    icon: str | None = None
     created_at: str
     updated_at: str
-    sort_order: int = 0
 
 
 class RoutineCheckRequest(BaseModel):
@@ -71,17 +101,20 @@ class RoutineLogResponse(BaseModel):
 class TodayRoutineResponse(BaseModel):
     id: int
     name: str
+    description: str | None = None
     category: str
     time_slot: str
     duration_min: int
     priority: int
     repeat_days: list[str] | str
     is_active: int
+    sort_order: int = 0
+    color: str = "#6366f1"
+    icon: str | None = None
     created_at: str
     updated_at: str
     log_status: str | None = None
     log_note: str | None = None
-    sort_order: int = 0
 
 
 class RoutineStatsResponse(BaseModel):
@@ -92,6 +125,7 @@ class RoutineStatsResponse(BaseModel):
     completion_rate: float
     date_from: str
     date_to: str
+    daily_breakdown: list[dict] = []
 
 
 # ── Habits ────────────────────────────────────────────────
@@ -99,28 +133,34 @@ class RoutineStatsResponse(BaseModel):
 
 class HabitCreate(BaseModel):
     name: str = Field(max_length=200)
+    description: str | None = None
     target_type: HabitTargetType = HabitTargetType.DAILY
     target_value: float = Field(default=1, gt=0)
     unit: str = Field(default="회", max_length=20)
     color: str = Field(default="#6366f1", max_length=7)
+    icon: str | None = None
 
 
 class HabitUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=200)
+    description: str | None = None
     target_type: HabitTargetType | None = None
     target_value: float | None = Field(default=None, gt=0)
     unit: str | None = Field(default=None, max_length=20)
     color: str | None = Field(default=None, max_length=7)
+    icon: str | None = None
     is_active: int | None = None
 
 
 class HabitResponse(BaseModel):
     id: int
     name: str
+    description: str | None = None
     target_type: str
     target_value: float
     unit: str
     color: str
+    icon: str | None = None
     is_active: int
     created_at: str
     updated_at: str
@@ -152,6 +192,7 @@ class HabitOverviewItem(BaseModel):
     habit: HabitResponse
     streak: StreakResponse
     recent_logs: list[HabitLogResponse]
+    today_value: float = 0
 
 
 # ── Goals ─────────────────────────────────────────────────
@@ -163,6 +204,8 @@ class GoalCreate(BaseModel):
     category: GoalCategory = GoalCategory.GENERAL
     deadline: str | None = None
     progress: float = Field(default=0.0, ge=0, le=1)
+    priority: int = Field(default=3, ge=1, le=5)
+    color: str = Field(default="#6366f1", max_length=7)
 
 
 class GoalUpdate(BaseModel):
@@ -171,6 +214,8 @@ class GoalUpdate(BaseModel):
     category: GoalCategory | None = None
     deadline: str | None = None
     status: GoalStatus | None = None
+    priority: int | None = Field(default=None, ge=1, le=5)
+    color: str | None = Field(default=None, max_length=7)
 
 
 class GoalResponse(BaseModel):
@@ -181,6 +226,8 @@ class GoalResponse(BaseModel):
     deadline: str | None = None
     status: str
     progress: float
+    priority: int = 3
+    color: str = "#6366f1"
     created_at: str
     updated_at: str
 
@@ -195,6 +242,13 @@ class MilestoneCreate(BaseModel):
     sort_order: int = 0
 
 
+class MilestoneUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    target_date: str | None = None
+    sort_order: int | None = None
+    is_completed: int | None = None
+
+
 class MilestoneResponse(BaseModel):
     id: int
     goal_id: int
@@ -204,6 +258,40 @@ class MilestoneResponse(BaseModel):
     completed_at: str | None = None
     sort_order: int
     created_at: str
+
+
+class GoalListItem(BaseModel):
+    id: int
+    title: str
+    description: str | None = None
+    category: str
+    deadline: str | None = None
+    status: str
+    progress: float
+    priority: int = 3
+    color: str = "#6366f1"
+    created_at: str
+    updated_at: str
+    milestone_total: int = 0
+    milestone_done: int = 0
+
+
+class GoalWithMilestones(BaseModel):
+    id: int
+    title: str
+    description: str | None = None
+    category: str
+    deadline: str | None = None
+    status: str
+    progress: float
+    priority: int = 3
+    color: str = "#6366f1"
+    created_at: str
+    updated_at: str
+    milestones: list[MilestoneResponse] = []
+    milestone_total: int = 0
+    milestone_done: int = 0
+    days_remaining: int | None = None
 
 
 # ── Schedule ──────────────────────────────────────────────
@@ -217,6 +305,14 @@ class ScheduleBlockCreate(BaseModel):
     priority: int = Field(default=3, ge=1, le=5)
     is_locked: int = Field(default=0, ge=0, le=1)
     note: str | None = None
+
+    @field_validator("end_time")
+    @classmethod
+    def validate_time_range(cls, v: str, info) -> str:
+        start = info.data.get("start_time")
+        if start and v <= start:
+            raise ValueError("end_time must be after start_time")
+        return v
 
 
 class ScheduleBlockUpdate(BaseModel):
@@ -240,12 +336,33 @@ class ScheduleBlockResponse(BaseModel):
     priority: int
     is_locked: int
     note: str | None = None
+    duration_min: int = 0
     created_at: str
 
 
 class ScheduleGenerateRequest(BaseModel):
     date: str | None = None
     break_min: int = Field(default=0, ge=0, le=60)
+
+
+class ScheduleCopyRequest(BaseModel):
+    block_id: int
+    target_date: str
+
+
+class ScheduleTemplateCreate(BaseModel):
+    name: str = Field(max_length=200)
+    day_of_week: str
+    blocks: list[dict]
+
+
+class ScheduleTemplateResponse(BaseModel):
+    id: int
+    name: str
+    day_of_week: str
+    blocks_json: str
+    is_active: int
+    created_at: str
 
 
 # ── Bulk Operations ──────────────────────────────────────
@@ -268,30 +385,21 @@ class BulkCheckResponse(BaseModel):
     results: list[RoutineLogResponse]
 
 
+class BulkActiveRequest(BaseModel):
+    routine_ids: list[int]
+    is_active: int = Field(ge=0, le=1)
+
+
+class BulkMilestoneCreate(BaseModel):
+    milestones: list[MilestoneCreate]
+
+
 # ── Habit Increment ──────────────────────────────────────
 
 
 class HabitIncrementRequest(BaseModel):
     delta: float = Field(default=1, description="Amount to add (negative to subtract)")
     date: str | None = None
-
-
-# ── Goal with Milestones ─────────────────────────────────
-
-
-class GoalWithMilestones(BaseModel):
-    id: int
-    title: str
-    description: str | None = None
-    category: str
-    deadline: str | None = None
-    status: str
-    progress: float
-    created_at: str
-    updated_at: str
-    milestones: list[MilestoneResponse] = []
-    milestone_total: int = 0
-    milestone_done: int = 0
 
 
 # ── Dashboard ────────────────────────────────────────────
@@ -301,9 +409,44 @@ class DashboardResponse(BaseModel):
     date: str
     routines_total: int
     routines_done: int
+    routines_remaining: int = 0
     routines_completion: float
     habits_logged_today: int
     habits_total: int
     active_goals: int
     schedule_blocks: int
     top_streaks: list[dict] = []
+    upcoming_deadlines: list[dict] = []
+
+
+# ── Export / Import ──────────────────────────────────────
+
+
+class ExportResponse(BaseModel):
+    version: str
+    exported_at: str
+    routines: list[dict]
+    habits: list[dict]
+    goals: list[dict]
+    routine_logs: list[dict]
+    habit_logs: list[dict]
+
+
+# ── Search ───────────────────────────────────────────────
+
+
+class SearchResult(BaseModel):
+    type: str
+    id: int
+    name: str
+    category: str | None = None
+    is_active: int = 1
+
+
+# ── Admin ────────────────────────────────────────────────
+
+
+class DbInfoResponse(BaseModel):
+    schema_version: int
+    table_counts: dict[str, int]
+    db_path: str

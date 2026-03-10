@@ -9,7 +9,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
@@ -104,6 +104,9 @@ async def root():
             "habit-tracker",
             "goal-system",
             "dynamic-scheduler",
+            "heatmaps",
+            "templates",
+            "export-import",
         ],
         "endpoints": {
             "routines": "/routines",
@@ -111,26 +114,37 @@ async def root():
             "goals": "/goals",
             "schedule": "/schedule",
             "dashboard": "/dashboard",
-            "weekly_report": "/report/weekly",
+            "search": "/search",
+            "report_weekly": "/report/weekly",
+            "report_monthly": "/report/monthly",
+            "export": "/export",
+            "admin": "/admin",
             "docs": "/docs",
         },
     }
 
 
 @app.get("/dashboard")
-async def dashboard():
-    """Today's overview: routines, habits, goals, schedule at a glance."""
+async def dashboard(date: str | None = None):
+    """Today's (or specified date's) overview at a glance."""
     from app.database import repositories as repo
+    from app.services.streak import calculate_streak
     from app.utils.time_helpers import today_day_name, today_str
 
-    data = await repo.get_dashboard_data(today_str(), today_day_name())
+    DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    if date:
+        from datetime import date as d
+        target = date
+        day_name = DAY_NAMES[d.fromisoformat(date).weekday()]
+    else:
+        target = today_str()
+        day_name = today_day_name()
 
-    # Top streaks
-    from app.services.streak import calculate_streak
+    data = await repo.get_dashboard_data(target, day_name)
 
-    habits = await repo.get_habits(active_only=True)
+    habits_list = await repo.get_habits(active_only=True)
     streaks = []
-    for h in habits:
+    for h in habits_list:
         logs = await repo.get_habit_logs(h["id"])
         s = calculate_streak(logs, h.get("target_value", 1))
         if s["current_streak"] > 0:
@@ -140,21 +154,56 @@ async def dashboard():
     return data
 
 
+@app.get("/search")
+async def global_search(q: str = Query(min_length=1)):
+    """Search across routines, habits, and goals."""
+    from app.database import repositories as repo
+    return await repo.global_search(q)
+
+
 @app.get("/report/weekly")
 async def weekly_report(date: str | None = None):
     """Weekly summary report."""
     from app.database import repositories as repo
     from app.utils.time_helpers import week_range
-
     start, end = week_range(date)
     return await repo.get_weekly_report(start, end)
+
+
+@app.get("/report/monthly")
+async def monthly_report(year: int, month: int):
+    """Monthly summary report."""
+    from app.database import repositories as repo
+    return await repo.get_monthly_report(year, month)
+
+
+@app.get("/export")
+async def export_data():
+    """Export all data as JSON."""
+    from app.database import repositories as repo
+    data = await repo.export_all()
+    data["version"] = settings.VERSION
+    return data
 
 
 @app.post("/admin/retention")
 async def run_retention():
     """Clean up old logs beyond retention period."""
     from app.database import repositories as repo
-
     result = await repo.cleanup_old_logs(settings.RETENTION_LOG_DAYS)
     logger.info("Retention cleanup: %s", result)
     return result
+
+
+@app.get("/admin/db-info")
+async def db_info():
+    """Database statistics and info."""
+    from app.database import repositories as repo
+    info = await repo.get_db_info()
+    info["db_path"] = settings.DB_PATH
+    return info
+
+
+@app.get("/version")
+async def version():
+    return {"service": settings.SERVICE_NAME, "version": settings.VERSION}

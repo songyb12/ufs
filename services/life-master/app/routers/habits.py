@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.database import repositories as repo
 from app.models.schemas import (
@@ -10,13 +10,12 @@ from app.models.schemas import (
     HabitIncrementRequest,
     HabitLogRequest,
     HabitLogResponse,
-    HabitOverviewItem,
     HabitResponse,
     HabitUpdate,
     StreakResponse,
 )
 from app.services.streak import calculate_streak
-from app.utils.time_helpers import today_str
+from app.utils.time_helpers import days_ago, today_str
 
 logger = logging.getLogger("life-master.routers.habits")
 
@@ -37,8 +36,12 @@ async def create_habit(body: HabitCreate):
 
 @router.get("/overview")
 async def habits_overview():
-    """Full dashboard: all active habits with streaks and recent logs."""
+    """Full dashboard: all active habits with streaks, recent logs, and today's value."""
     habits = await repo.get_habits(active_only=True)
+    today = today_str()
+    today_logs = await repo.get_all_habit_logs_for_date(today)
+    today_map = {log["habit_id"]: log["value"] for log in today_logs}
+
     overview = []
     for habit in habits:
         logs = await repo.get_habit_logs(habit["id"])
@@ -48,8 +51,14 @@ async def habits_overview():
             "habit": habit,
             "streak": {"habit_id": habit["id"], **streak_data},
             "recent_logs": recent,
+            "today_value": today_map.get(habit["id"], 0),
         })
     return overview
+
+
+@router.get("/search")
+async def search_habits(q: str):
+    return await repo.search_habits(q)
 
 
 @router.get("/{habit_id}", response_model=HabitResponse)
@@ -78,14 +87,42 @@ async def delete_habit(habit_id: int):
     return {"deleted": habit_id}
 
 
+@router.patch("/{habit_id}/restore", response_model=HabitResponse)
+async def restore_habit(habit_id: int):
+    result = await repo.restore_habit(habit_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Habit not found or already active")
+    logger.info("Habit restored: %d", habit_id)
+    return result
+
+
 @router.post("/{habit_id}/log", response_model=HabitLogResponse)
-async def log_habit(habit_id: int, body: HabitLogRequest):
+async def log_habit(habit_id: int, body: HabitLogRequest | None = None):
+    """Log a habit value. Body is optional — defaults to value=1 for today."""
     existing = await repo.get_habit(habit_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Habit not found")
-    log_date = body.date or today_str()
-    result = await repo.log_habit(habit_id, log_date, body.value)
-    logger.info("Habit %d logged: %.1f on %s", habit_id, body.value, log_date)
+    if body is None:
+        log_date = today_str()
+        value = 1
+    else:
+        log_date = body.date or today_str()
+        value = body.value
+    result = await repo.log_habit(habit_id, log_date, value)
+    logger.info("Habit %d logged: %.1f on %s", habit_id, value, log_date)
+    return result
+
+
+@router.patch("/{habit_id}/increment", response_model=HabitLogResponse)
+async def increment_habit(habit_id: int, body: HabitIncrementRequest | None = None):
+    """Add/subtract value. Body optional — defaults to +1 today."""
+    existing = await repo.get_habit(habit_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Habit not found")
+    delta = body.delta if body else 1
+    log_date = (body.date if body else None) or today_str()
+    result = await repo.increment_habit(habit_id, log_date, delta)
+    logger.info("Habit %d incremented by %.1f on %s", habit_id, delta, log_date)
     return result
 
 
@@ -108,13 +145,38 @@ async def habit_logs(
     return await repo.get_habit_logs(habit_id, date_from=date_from, date_to=date_to)
 
 
-@router.patch("/{habit_id}/increment", response_model=HabitLogResponse)
-async def increment_habit(habit_id: int, body: HabitIncrementRequest):
-    """Add/subtract value to today's habit log. Useful for counters (e.g., water cups)."""
-    existing = await repo.get_habit(habit_id)
-    if not existing:
+@router.delete("/{habit_id}/logs/{log_id}")
+async def delete_habit_log(habit_id: int, log_id: int):
+    ok = await repo.delete_habit_log(log_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Log not found")
+    return {"deleted": log_id}
+
+
+@router.get("/{habit_id}/heatmap")
+async def habit_heatmap(
+    habit_id: int,
+    date_from: str = Query(default=None),
+    date_to: str = Query(default=None),
+):
+    if not date_from:
+        date_from = days_ago(90)
+    if not date_to:
+        date_to = today_str()
+    return await repo.get_habit_heatmap(habit_id, date_from, date_to)
+
+
+@router.get("/{habit_id}/trend")
+async def habit_trend(
+    habit_id: int,
+    date_from: str = Query(default=None),
+    date_to: str = Query(default=None),
+):
+    if not date_from:
+        date_from = days_ago(30)
+    if not date_to:
+        date_to = today_str()
+    habit = await repo.get_habit(habit_id)
+    if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")
-    log_date = body.date or today_str()
-    result = await repo.increment_habit(habit_id, log_date, body.delta)
-    logger.info("Habit %d incremented by %.1f on %s", habit_id, body.delta, log_date)
-    return result
+    return await repo.get_habit_trend(habit_id, date_from, date_to)
