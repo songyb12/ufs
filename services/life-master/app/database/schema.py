@@ -6,7 +6,7 @@ from app.database.connection import get_db
 
 logger = logging.getLogger("life-master.schema")
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 TABLES = [
     """CREATE TABLE IF NOT EXISTS routines (
@@ -212,6 +212,37 @@ TABLES = [
         jlpt_level TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
+    # ── Daily Quests & Weekly Challenges ──────────────────
+    """CREATE TABLE IF NOT EXISTS jp_daily_quests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        slot INTEGER NOT NULL DEFAULT 0,
+        quest_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        target INTEGER NOT NULL,
+        xp_reward INTEGER NOT NULL,
+        tier TEXT NOT NULL DEFAULT 'basic',
+        current_progress INTEGER NOT NULL DEFAULT 0,
+        is_completed INTEGER NOT NULL DEFAULT 0,
+        completed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(date, slot)
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_weekly_challenges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        week_start TEXT NOT NULL,
+        challenge_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        target INTEGER NOT NULL,
+        xp_reward INTEGER NOT NULL,
+        current_progress INTEGER NOT NULL DEFAULT 0,
+        is_completed INTEGER NOT NULL DEFAULT 0,
+        completed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(week_start)
+    )""",
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_notification_logs_date ON notification_logs(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_notification_rules_active ON notification_rules(is_active, trigger_type)",
@@ -229,6 +260,8 @@ TABLES = [
     "CREATE INDEX IF NOT EXISTS idx_jp_review_logs_date ON jp_review_logs(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_jp_source_vocab_source ON jp_source_vocab(source_id)",
     "CREATE INDEX IF NOT EXISTS idx_jp_quiz_date ON jp_quiz_results(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_daily_quests_date ON jp_daily_quests(date)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_weekly_challenges_week ON jp_weekly_challenges(week_start)",
 ]
 
 _MIGRATIONS = [
@@ -241,6 +274,9 @@ _MIGRATIONS = [
     ("color", "routines", "TEXT NOT NULL DEFAULT '#6366f1'"),
     ("priority", "goals", "INTEGER NOT NULL DEFAULT 3"),
     ("color", "goals", "TEXT NOT NULL DEFAULT '#6366f1'"),
+    ("daily_quests_completed", "jp_player_stats", "INTEGER NOT NULL DEFAULT 0"),
+    ("weekly_challenges_completed", "jp_player_stats", "INTEGER NOT NULL DEFAULT 0"),
+    ("total_quizzes", "jp_player_stats", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

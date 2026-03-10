@@ -11,9 +11,14 @@ from pydantic import BaseModel, Field
 from app.database.connection import get_db
 from app.services.japanese import (
     ACHIEVEMENTS,
+    MASTERY_TIERS,
     calculate_xp,
     check_achievements,
+    generate_daily_quests,
+    get_mastery_tier,
+    get_weekly_challenge,
     level_from_xp,
+    mastery_xp_bonus,
     sm2_update,
     total_xp_for_level,
     xp_for_level,
@@ -376,7 +381,18 @@ async def submit_review(vocab_id: int, data: ReviewRequest):
         quality=data.quality,
         combo=today_correct if data.quality >= 3 else 0,
         is_streak_bonus=new_streak >= 3,
+        jlpt_level=vocab["jlpt_level"],
     )
+
+    # Mastery tier check — bonus XP on tier-up
+    old_tier = get_mastery_tier(card["repetitions"], card["interval_days"])
+    new_tier = get_mastery_tier(srs_result["repetitions"], srs_result["interval_days"])
+    tier_bonus = 0
+    if new_tier != old_tier:
+        tier_bonus = mastery_xp_bonus(new_tier)
+        xp_result["mastery_tier_up"] = new_tier
+        xp_result["mastery_bonus"] = tier_bonus
+        xp_result["total_xp"] += tier_bonus
 
     new_total_xp = player["total_xp"] + xp_result["total_xp"]
     new_level = level_from_xp(new_total_xp)
@@ -392,6 +408,29 @@ async def submit_review(vocab_id: int, data: ReviewRequest):
         (vocab_id, data.quality, data.time_ms, xp_result["total_xp"]),
     )
 
+    # Get mastery tier counts for achievement checks
+    cursor = await db.execute(
+        """SELECT
+            SUM(CASE WHEN repetitions >= 8 AND interval_days >= 30 THEN 1 ELSE 0 END) as gold,
+            SUM(CASE WHEN repetitions >= 12 AND interval_days >= 60 THEN 1 ELSE 0 END) as diamond,
+            SUM(CASE WHEN repetitions >= 15 AND interval_days >= 90 THEN 1 ELSE 0 END) as master
+           FROM jp_srs_cards"""
+    )
+    mastery_row = dict(await cursor.fetchone())
+    mastery_counts = {
+        "gold": mastery_row["gold"] or 0,
+        "diamond": mastery_row["diamond"] or 0,
+        "master": mastery_row["master"] or 0,
+    }
+
+    # Get quiz count
+    cursor = await db.execute("SELECT COUNT(*) as cnt FROM jp_quiz_results")
+    quiz_count = (await cursor.fetchone())["cnt"]
+
+    # Get daily quests / weekly challenges completed counts
+    dq_completed = player.get("daily_quests_completed", 0)
+    wc_completed = player.get("weekly_challenges_completed", 0)
+
     # Check achievements
     current_achievements = json.loads(player["achievements"]) if isinstance(player["achievements"], str) else player["achievements"]
     new_achievement_ids = check_achievements(
@@ -402,6 +441,10 @@ async def submit_review(vocab_id: int, data: ReviewRequest):
         combo_best=new_combo_best,
         total_xp=new_total_xp,
         level=new_level,
+        quiz_count=quiz_count,
+        daily_quests_completed=dq_completed,
+        weekly_challenges_completed=wc_completed,
+        mastery_counts=mastery_counts,
     )
 
     achievement_xp = sum(ACHIEVEMENTS[a]["xp_bonus"] for a in new_achievement_ids)
@@ -420,6 +463,47 @@ async def submit_review(vocab_id: int, data: ReviewRequest):
         (new_total_xp, new_level, new_streak, new_longest,
          today_str, new_reviews, new_correct, new_combo_best,
          json.dumps(all_achievements), _now()),
+    )
+
+    # Auto-update daily quest progress
+    today_quests_cursor = await db.execute(
+        "SELECT * FROM jp_daily_quests WHERE date = ? AND is_completed = 0",
+        (today_str,),
+    )
+    for quest in await today_quests_cursor.fetchall():
+        quest = dict(quest)
+        should_increment = False
+        if quest["quest_type"] == "review_count":
+            should_increment = True
+        elif quest["quest_type"] == "perfect_reviews" and data.quality == 5:
+            should_increment = True
+        elif quest["quest_type"] == "combo_reach" and new_combo_best >= quest["target"]:
+            should_increment = True
+        elif quest["quest_type"] == "new_vocab_learn" and card["repetitions"] == 0:
+            should_increment = True
+
+        if should_increment:
+            new_progress = quest["current_progress"] + 1
+            completed = 1 if new_progress >= quest["target"] else 0
+            completed_at = _now() if completed else None
+            await db.execute(
+                """UPDATE jp_daily_quests SET current_progress = ?, is_completed = ?,
+                   completed_at = ? WHERE id = ?""",
+                (new_progress, completed, completed_at, quest["id"]),
+            )
+            if completed and not quest["is_completed"]:
+                new_total_xp += quest["xp_reward"]
+                new_level = level_from_xp(new_total_xp)
+                # Update player's daily quest completion count
+                await db.execute(
+                    """UPDATE jp_player_stats SET daily_quests_completed =
+                       COALESCE(daily_quests_completed, 0) + 1 WHERE id = 1"""
+                )
+
+    # Re-update player XP if quest rewards were added
+    await db.execute(
+        "UPDATE jp_player_stats SET total_xp = ?, level = ? WHERE id = 1",
+        (new_total_xp, new_level),
     )
 
     await db.commit()
@@ -570,10 +654,24 @@ async def submit_quiz(data: QuizSubmitRequest):
 
         current_achievements = json.loads(player["achievements"]) if isinstance(player["achievements"], str) else player["achievements"]
         new_achs = []
+        if "first_quiz" not in current_achievements:
+            new_achs.append("first_quiz")
         if correct == total and "quiz_perfect" not in current_achievements:
             new_achs.append("quiz_perfect")
         if data.quiz_type == "time_attack" and data.time_seconds < 30 and "time_attack_30" not in current_achievements:
             new_achs.append("time_attack_30")
+        if data.quiz_type == "boss" and correct == total and "boss_clear" not in current_achievements:
+            new_achs.append("boss_clear")
+
+        # Quiz count achievements
+        cursor = await db.execute("SELECT COUNT(*) as cnt FROM jp_quiz_results")
+        total_quizzes = (await cursor.fetchone())["cnt"]
+        if total_quizzes >= 10 and "quiz_10" not in current_achievements:
+            new_achs.append("quiz_10")
+        if total_quizzes >= 50 and "quiz_50" not in current_achievements:
+            new_achs.append("quiz_50")
+        if total_quizzes >= 100 and "quiz_100" not in current_achievements:
+            new_achs.append("quiz_100")
 
         ach_xp = sum(ACHIEVEMENTS[a]["xp_bonus"] for a in new_achs)
         new_xp += ach_xp
@@ -581,11 +679,50 @@ async def submit_quiz(data: QuizSubmitRequest):
 
         await db.execute(
             """UPDATE jp_player_stats SET total_xp = ?, level = ?,
-               combo_best = ?, achievements = ?, updated_at = ?
+               combo_best = ?, achievements = ?,
+               total_quizzes = COALESCE(total_quizzes, 0) + 1,
+               updated_at = ?
                WHERE id = 1""",
             (new_xp, new_level, new_combo_best,
              json.dumps(current_achievements + new_achs), _now()),
         )
+
+        # Update daily quest progress for quiz-related quests
+        today_str = date.today().isoformat()
+        quiz_quest_cursor = await db.execute(
+            """SELECT * FROM jp_daily_quests
+               WHERE date = ? AND is_completed = 0
+               AND quest_type IN ('quiz_complete', 'quiz_perfect', 'time_attack_clear', 'boss_clear')""",
+            (today_str,),
+        )
+        for quest in await quiz_quest_cursor.fetchall():
+            quest = dict(quest)
+            should_complete = False
+            if quest["quest_type"] == "quiz_complete":
+                should_complete = True
+            elif quest["quest_type"] == "quiz_perfect" and correct == total:
+                should_complete = True
+            elif quest["quest_type"] == "time_attack_clear" and data.quiz_type == "time_attack":
+                should_complete = True
+            elif quest["quest_type"] == "boss_clear" and data.quiz_type == "boss" and correct == total:
+                should_complete = True
+
+            if should_complete:
+                new_prog = quest["current_progress"] + 1
+                is_done = 1 if new_prog >= quest["target"] else 0
+                await db.execute(
+                    """UPDATE jp_daily_quests SET current_progress = ?,
+                       is_completed = ?, completed_at = ? WHERE id = ?""",
+                    (new_prog, is_done, _now() if is_done else None, quest["id"]),
+                )
+                if is_done:
+                    new_xp += quest["xp_reward"]
+                    await db.execute(
+                        """UPDATE jp_player_stats SET total_xp = total_xp + ?,
+                           daily_quests_completed = COALESCE(daily_quests_completed, 0) + 1
+                           WHERE id = 1""",
+                        (quest["xp_reward"],),
+                    )
 
     await db.commit()
 
@@ -854,6 +991,290 @@ async def seed_data():
     """Seed initial JLPT vocabulary and content sources."""
     from app.database.jp_seed import seed_japanese_data
     result = await seed_japanese_data()
+    return result
+
+
+# ── Daily Quests ────────────────────────────────────────
+
+
+@router.get("/quests/daily")
+async def get_daily_quests():
+    """Get today's daily quests. Auto-generates if not yet created."""
+    db = await get_db()
+    today_str = date.today().isoformat()
+
+    cursor = await db.execute(
+        "SELECT * FROM jp_daily_quests WHERE date = ? ORDER BY slot",
+        (today_str,),
+    )
+    quests = [dict(r) for r in await cursor.fetchall()]
+
+    if not quests:
+        # Generate new daily quests
+        cursor = await db.execute("SELECT * FROM jp_player_stats WHERE id = 1")
+        player = await cursor.fetchone()
+        p_level = player["level"] if player else 1
+        p_streak = player["current_streak"] if player else 0
+
+        templates = generate_daily_quests(p_level, p_streak)
+        for t in templates:
+            await db.execute(
+                """INSERT OR IGNORE INTO jp_daily_quests
+                   (date, slot, quest_type, title, description, target, xp_reward, tier)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (today_str, t["slot"], t["quest_type"], t["title"],
+                 t["desc"], t["target"], t["xp_reward"], t["tier"]),
+            )
+        await db.commit()
+
+        cursor = await db.execute(
+            "SELECT * FROM jp_daily_quests WHERE date = ? ORDER BY slot",
+            (today_str,),
+        )
+        quests = [dict(r) for r in await cursor.fetchall()]
+
+    return {"date": today_str, "quests": quests}
+
+
+@router.post("/quests/daily/{quest_id}/progress")
+async def update_quest_progress(quest_id: int, increment: int = 1):
+    """Manually update a daily quest's progress (for quest types not auto-tracked)."""
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM jp_daily_quests WHERE id = ?", (quest_id,))
+    quest = await cursor.fetchone()
+    if not quest:
+        raise HTTPException(status_code=404, detail="Quest not found")
+
+    quest = dict(quest)
+    if quest["is_completed"]:
+        return {"status": "already_completed", "quest": quest}
+
+    new_progress = min(quest["current_progress"] + increment, quest["target"])
+    completed = 1 if new_progress >= quest["target"] else 0
+    completed_at = _now() if completed else None
+
+    await db.execute(
+        """UPDATE jp_daily_quests SET current_progress = ?, is_completed = ?,
+           completed_at = ? WHERE id = ?""",
+        (new_progress, completed, completed_at, quest_id),
+    )
+
+    xp_earned = 0
+    if completed and not quest["is_completed"]:
+        xp_earned = quest["xp_reward"]
+        await db.execute(
+            """UPDATE jp_player_stats SET total_xp = total_xp + ?,
+               daily_quests_completed = COALESCE(daily_quests_completed, 0) + 1,
+               updated_at = ? WHERE id = 1""",
+            (xp_earned, _now()),
+        )
+
+    await db.commit()
+    return {
+        "quest_id": quest_id,
+        "progress": new_progress,
+        "target": quest["target"],
+        "completed": bool(completed),
+        "xp_earned": xp_earned,
+    }
+
+
+# ── Weekly Challenge ────────────────────────────────────
+
+
+@router.get("/challenge/weekly")
+async def get_weekly_challenge_endpoint():
+    """Get this week's challenge. Auto-generates if not yet created."""
+    db = await get_db()
+    # Monday of current week
+    today = date.today()
+    week_start = (today - timedelta(days=today.weekday())).isoformat()
+    week_number = today.isocalendar()[1]
+
+    cursor = await db.execute(
+        "SELECT * FROM jp_weekly_challenges WHERE week_start = ?",
+        (week_start,),
+    )
+    challenge = await cursor.fetchone()
+
+    if not challenge:
+        ch = get_weekly_challenge(week_number)
+        await db.execute(
+            """INSERT OR IGNORE INTO jp_weekly_challenges
+               (week_start, challenge_type, title, description, target, xp_reward)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (week_start, ch["challenge_type"], ch["title"], ch["desc"],
+             ch["target"], ch["xp_reward"]),
+        )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT * FROM jp_weekly_challenges WHERE week_start = ?",
+            (week_start,),
+        )
+        challenge = await cursor.fetchone()
+
+    challenge = dict(challenge)
+
+    # Auto-calculate progress based on challenge type
+    progress = challenge["current_progress"]
+    if not challenge["is_completed"]:
+        if challenge["challenge_type"] == "weekly_review_count":
+            cursor = await db.execute(
+                "SELECT COUNT(*) as cnt FROM jp_review_logs WHERE created_at >= ?",
+                (week_start,),
+            )
+            progress = (await cursor.fetchone())["cnt"]
+        elif challenge["challenge_type"] == "weekly_quiz_count":
+            cursor = await db.execute(
+                "SELECT COUNT(*) as cnt FROM jp_quiz_results WHERE created_at >= ?",
+                (week_start,),
+            )
+            progress = (await cursor.fetchone())["cnt"]
+        elif challenge["challenge_type"] == "weekly_xp":
+            cursor = await db.execute(
+                "SELECT SUM(xp_earned) as total FROM jp_review_logs WHERE created_at >= ?",
+                (week_start,),
+            )
+            row = await cursor.fetchone()
+            progress = row["total"] or 0
+        elif challenge["challenge_type"] == "weekly_combo":
+            cursor = await db.execute(
+                "SELECT MAX(max_combo) as best FROM jp_quiz_results WHERE created_at >= ?",
+                (week_start,),
+            )
+            row = await cursor.fetchone()
+            progress = row["best"] or 0
+        elif challenge["challenge_type"] == "weekly_streak":
+            cursor = await db.execute(
+                """SELECT COUNT(DISTINCT date(created_at)) as days
+                   FROM jp_review_logs WHERE created_at >= ?""",
+                (week_start,),
+            )
+            progress = (await cursor.fetchone())["days"]
+        elif challenge["challenge_type"] == "weekly_accuracy":
+            cursor = await db.execute(
+                """SELECT SUM(CASE WHEN quality >= 3 THEN 1 ELSE 0 END) as correct,
+                          COUNT(*) as total
+                   FROM jp_review_logs WHERE created_at >= ?""",
+                (week_start,),
+            )
+            row = await cursor.fetchone()
+            if row["total"] and row["total"] > 0:
+                progress = int(row["correct"] / row["total"] * 100)
+            else:
+                progress = 0
+
+        # Check completion
+        completed = progress >= challenge["target"]
+        if completed and not challenge["is_completed"]:
+            await db.execute(
+                """UPDATE jp_weekly_challenges SET current_progress = ?,
+                   is_completed = 1, completed_at = ? WHERE id = ?""",
+                (progress, _now(), challenge["id"]),
+            )
+            await db.execute(
+                """UPDATE jp_player_stats SET total_xp = total_xp + ?,
+                   weekly_challenges_completed = COALESCE(weekly_challenges_completed, 0) + 1,
+                   updated_at = ? WHERE id = 1""",
+                (challenge["xp_reward"], _now()),
+            )
+            await db.commit()
+            challenge["is_completed"] = 1
+            challenge["xp_just_earned"] = challenge["xp_reward"]
+        else:
+            await db.execute(
+                "UPDATE jp_weekly_challenges SET current_progress = ? WHERE id = ?",
+                (progress, challenge["id"]),
+            )
+            await db.commit()
+
+        challenge["current_progress"] = progress
+
+    return {
+        "week_start": week_start,
+        "challenge": challenge,
+        "days_remaining": 7 - today.weekday(),
+    }
+
+
+# ── Mastery Tiers ───────────────────────────────────────
+
+
+@router.get("/mastery/summary")
+async def get_mastery_summary():
+    """Get vocabulary mastery tier distribution."""
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT c.repetitions, c.interval_days, v.jlpt_level
+           FROM jp_srs_cards c
+           JOIN jp_vocabulary v ON v.id = c.vocab_id
+           WHERE v.is_active = 1"""
+    )
+    rows = await cursor.fetchall()
+
+    tier_counts = {t: 0 for t in MASTERY_TIERS}
+    tier_by_level: dict[str, dict[str, int]] = {}
+
+    for row in rows:
+        tier = get_mastery_tier(row["repetitions"], row["interval_days"])
+        tier_counts[tier] += 1
+        jlpt = row["jlpt_level"]
+        if jlpt not in tier_by_level:
+            tier_by_level[jlpt] = {t: 0 for t in MASTERY_TIERS}
+        tier_by_level[jlpt][tier] += 1
+
+    total = sum(tier_counts.values())
+    tier_details = []
+    for key, info in MASTERY_TIERS.items():
+        tier_details.append({
+            "tier": key,
+            "label": info["label"],
+            "icon": info["icon"],
+            "count": tier_counts[key],
+            "percentage": round(tier_counts[key] / total * 100, 1) if total > 0 else 0,
+        })
+
+    return {
+        "total_vocab": total,
+        "tiers": tier_details,
+        "by_jlpt_level": tier_by_level,
+    }
+
+
+@router.get("/mastery/vocab")
+async def get_vocab_mastery(
+    jlpt_level: str | None = None,
+    tier: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Get vocabulary with mastery tier info."""
+    db = await get_db()
+    q = """SELECT v.*, c.repetitions, c.interval_days, c.ease_factor, c.next_review
+           FROM jp_srs_cards c
+           JOIN jp_vocabulary v ON v.id = c.vocab_id
+           WHERE v.is_active = 1"""
+    params: list = []
+    if jlpt_level:
+        q += " AND v.jlpt_level = ?"
+        params.append(jlpt_level)
+    q += " ORDER BY c.interval_days DESC, c.repetitions DESC LIMIT ?"
+    params.append(limit)
+
+    cursor = await db.execute(q, params)
+    rows = await cursor.fetchall()
+
+    result = []
+    for row in rows:
+        row = dict(row)
+        t = get_mastery_tier(row["repetitions"], row["interval_days"])
+        if tier and t != tier:
+            continue
+        info = MASTERY_TIERS[t]
+        row["mastery_tier"] = t
+        row["mastery_label"] = info["label"]
+        row["mastery_icon"] = info["icon"]
+        result.append(row)
+
     return result
 
 
