@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Life-Master</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a; color: #e2e8f0;
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 2rem 1rem;
+    }
+    h1 { color: #f97316; font-size: 1.8rem; margin-bottom: 0.25rem; }
+    .subtitle { color: #64748b; font-size: 0.85rem; margin-bottom: 2rem; }
+    .card {
+      background: #1e293b; border-radius: 12px; padding: 1.5rem;
+      width: 100%; max-width: 600px; margin-bottom: 1rem;
+    }
+    .card h2 { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+    .status-row { display: flex; justify-content: space-between; align-items: center;
+      padding: 0.5rem 0; border-bottom: 1px solid #334155; }
+    .status-row:last-child { border-bottom: none; }
+    .label { color: #94a3b8; font-size: 0.85rem; }
+    .value { color: #e2e8f0; font-size: 0.85rem; font-family: monospace; }
+    .badge {
+      display: inline-block; padding: 0.2rem 0.6rem; border-radius: 9999px;
+      font-size: 0.7rem; font-weight: 600;
+    }
+    .badge-healthy { background: #065f4620; color: #34d399; border: 1px solid #34d39940; }
+    .badge-planning { background: #f9731620; color: #f97316; border: 1px solid #f9731640; }
+    .features { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+    .feature-tag {
+      background: #334155; color: #94a3b8; padding: 0.3rem 0.75rem;
+      border-radius: 6px; font-size: 0.75rem;
+    }
+    .roadmap-item { padding: 0.5rem 0; border-bottom: 1px solid #334155; }
+    .roadmap-item:last-child { border-bottom: none; }
+    .roadmap-title { color: #e2e8f0; font-size: 0.85rem; font-weight: 500; }
+    .roadmap-desc { color: #64748b; font-size: 0.75rem; margin-top: 0.2rem; }
+    .footer { margin-top: 2rem; color: #475569; font-size: 0.7rem; text-align: center; }
+    #error { color: #ef4444; display: none; margin-top: 1rem; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <h1>Life-Master</h1>
+  <p class="subtitle">Intelligent Routine & Schedule Optimizer</p>
+
+  <div class="card">
+    <h2>Service Status</h2>
+    <div class="status-row">
+      <span class="label">Status</span>
+      <span id="status" class="badge badge-healthy">Loading...</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Version</span>
+      <span id="version" class="value">-</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Uptime Check</span>
+      <span id="timestamp" class="value">-</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Planned Features</h2>
+    <div class="features">
+      <span class="feature-tag">Routine Manager</span>
+      <span class="feature-tag">Dynamic Scheduler</span>
+      <span class="feature-tag">Goal Tracker</span>
+      <span class="feature-tag">Analytics</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Roadmap</h2>
+    <div class="roadmap-item">
+      <div class="roadmap-title">Phase 1: Core Routines</div>
+      <div class="roadmap-desc">CRUD for daily routines, time-block scheduling</div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-title">Phase 2: Smart Scheduling</div>
+      <div class="roadmap-desc">Priority-based auto-scheduling, conflict detection</div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-title">Phase 3: Analytics</div>
+      <div class="roadmap-desc">Completion tracking, streak analysis, optimization suggestions</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>UFS Ecosystem</h2>
+    <div class="status-row">
+      <span class="label">VIBE (Investment)</span>
+      <a href="/../../:8001/ui/" style="color:#38bdf8;font-size:0.8rem">:8001/ui/</a>
+    </div>
+    <div class="status-row">
+      <span class="label">Bocchi-Master (Music)</span>
+      <a href="/" style="color:#38bdf8;font-size:0.8rem">:3000</a>
+    </div>
+    <div class="status-row">
+      <span class="label">Life-Master (Routine)</span>
+      <span class="badge badge-planning">Current</span>
+    </div>
+  </div>
+
+  <p id="error"></p>
+  <p class="footer">UFS Life-Master v<span id="ver2">0.1.0</span></p>
+
+  <script>
+    async function checkHealth() {
+      try {
+        const res = await fetch('/health');
+        const data = await res.json();
+        document.getElementById('status').textContent = data.status || 'healthy';
+        document.getElementById('status').className = 'badge badge-healthy';
+        document.getElementById('version').textContent = data.version || '-';
+        document.getElementById('ver2').textContent = data.version || '0.1.0';
+        document.getElementById('timestamp').textContent =
+          new Date(data.timestamp).toLocaleString('ko-KR');
+      } catch (e) {
+        document.getElementById('status').textContent = 'Error';
+        document.getElementById('status').className = 'badge badge-planning';
+        document.getElementById('error').style.display = 'block';
+        document.getElementById('error').textContent = 'API connection failed: ' + e.message;
+      }
+    }
+    checkHealth();
+    setInterval(checkHealth, 30000);
+  </script>
+</body>
+</html>

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database.connection import close_db, set_db_path
@@ -229,3 +230,7 @@ async def db_info():
 @app.get("/version")
 async def version():
     return {"service": settings.SERVICE_NAME, "version": settings.VERSION}
+
+
+# Dashboard UI (must be after all API routes)
+app.mount("/ui", StaticFiles(directory="static", html=True), name="dashboard")
