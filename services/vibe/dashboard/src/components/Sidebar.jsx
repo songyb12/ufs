@@ -16,6 +16,8 @@ const NAV_GROUPS = [
     items: [
       { id: 'signals', icon: '\u26A1', label: '시그널' },
       { id: 'macro', icon: '\uD83C\uDF10', label: '매크로' },
+      { id: 'carry-trade', icon: '\uD83D\uDCB1', label: '캐리트레이드' },
+      { id: 'forex-map', icon: '\uD83D\uDDFA', label: '환율 세계지도' },
       { id: 'fund-flow', icon: '\uD83D\uDCB0', label: '자금흐름' },
       { id: 'screening', icon: '\uD83D\uDD0D', label: '스크리닝' },
       { id: 'guru', icon: '\uD83C\uDFAF', label: '구루 인사이트' },

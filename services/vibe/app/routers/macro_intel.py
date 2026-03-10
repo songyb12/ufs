@@ -18,6 +18,14 @@ from app.indicators.market_season import (
     detect_market_season,
     detect_yield_phase,
 )
+from app.indicators.carry_trade import (
+    compute_carry_trade_risk,
+    compute_forex_map_data,
+    compute_global_risk_factors,
+    CARRY_PAIRS,
+    CURRENCY_INFO,
+    FOREX_FDR_SYMBOLS,
+)
 from app.indicators.regime import (
     aggregate_sector_fund_flow,
     compute_cross_market_recommendation,
@@ -774,3 +782,257 @@ async def get_entry_scenarios():
     except Exception as e:
         logger.error("Entry scenarios failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Entry scenarios computation failed. Check server logs for details.")
+
+
+# ── Carry Trade & Forex Endpoints ──
+
+
+# Default interest rates (updated periodically — can be overridden by DB/API)
+_DEFAULT_RATES: dict[str, float] = {
+    "USD": 5.25,
+    "JPY": 0.25,
+    "EUR": 4.00,
+    "GBP": 5.00,
+    "CHF": 1.50,
+    "CNY": 3.45,
+    "KRW": 3.50,
+    "AUD": 4.35,
+    "CAD": 4.50,
+    "INR": 6.50,
+    "BRL": 10.75,
+    "MXN": 11.00,
+    "TWD": 2.00,
+    "SGD": 3.50,
+    "HKD": 5.25,
+    "SEK": 3.50,
+    "NOK": 4.50,
+    "ZAR": 8.25,
+    "TRY": 50.00,
+    "THB": 2.50,
+    "VND": 4.50,
+    "IDR": 6.25,
+    "PHP": 6.50,
+    "PLN": 5.75,
+    "CZK": 4.75,
+    "RUB": 16.00,
+    "SAR": 5.50,
+    "NZD": 5.50,
+}
+
+
+async def _get_interest_rates() -> dict[str, float]:
+    """Get interest rates from DB or fall back to defaults."""
+    try:
+        rates = await repo.get_interest_rates()
+        if rates:
+            return {**_DEFAULT_RATES, **rates}
+    except Exception:
+        pass
+    return {**_DEFAULT_RATES}
+
+
+async def _get_forex_data() -> dict[str, dict]:
+    """Get forex rate data from macro indicators and supplementary sources."""
+    macro = await repo.get_latest_macro()
+    macro_hist = await repo.get_macro_history(days=30)
+    fx_data: dict[str, dict] = {}
+
+    # USD/KRW from macro data
+    if macro and macro.get("usd_krw"):
+        current = macro["usd_krw"]
+        # Calculate changes from history
+        change_1d, change_1w, change_1m = _calc_fx_changes(
+            macro_hist, "usd_krw", current
+        )
+        fx_data["USD/KRW"] = {
+            "current": current,
+            "change_1d": change_1d,
+            "change_1w": change_1w,
+            "change_1m": change_1m,
+        }
+
+    # Try to get additional FX data from the database
+    try:
+        extra_fx = await repo.get_forex_rates()
+        if extra_fx:
+            for pair, data in extra_fx.items():
+                if pair not in fx_data:
+                    fx_data[pair] = data
+    except Exception:
+        pass
+
+    return fx_data
+
+
+def _calc_fx_changes(
+    history: list[dict], field: str, current: float
+) -> tuple[float, float, float]:
+    """Calculate 1d, 1w, 1m percentage changes from history."""
+    if not history or current is None:
+        return 0, 0, 0
+
+    vals = [(h.get("indicator_date", ""), h.get(field)) for h in history if h.get(field) is not None]
+    vals.sort(key=lambda x: x[0])
+
+    def _pct(old: float) -> float:
+        if old == 0:
+            return 0
+        return round((current - old) / old * 100, 2)
+
+    change_1d = _pct(vals[-2][1]) if len(vals) >= 2 else 0
+    change_1w = _pct(vals[-6][1]) if len(vals) >= 6 else 0
+    change_1m = _pct(vals[0][1]) if len(vals) >= 1 else 0
+
+    return change_1d, change_1w, change_1m
+
+
+@router.get("/carry-trade")
+async def get_carry_trade_analysis():
+    """Get carry trade risk analysis (엔캐리 트레이드 등).
+
+    Analyzes major carry trade pairs (JPY→USD, JPY→KRW, CHF→USD, EUR→USD, CNY→USD),
+    their unwind risk, and market impact.
+    """
+    try:
+        macro = await repo.get_latest_macro()
+        interest_rates = await _get_interest_rates()
+        fx_data = await _get_forex_data()
+
+        vix = macro.get("vix") if macro else None
+        dxy = macro.get("dxy_index") if macro else None
+
+        result = compute_carry_trade_risk(
+            interest_rates=interest_rates,
+            fx_data=fx_data,
+            vix=vix,
+            dxy=dxy,
+        )
+        result["date"] = macro.get("indicator_date") if macro else None
+        result["interest_rates"] = interest_rates
+        return result
+    except Exception as e:
+        logger.error("Carry trade analysis failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Carry trade analysis failed. Check server logs for details.")
+
+
+@router.get("/forex-map")
+async def get_forex_map():
+    """Get world map forex data with country positions, strength, and capital flows.
+
+    Returns data for rendering a world map with currency strength indicators,
+    interest rate differentials, and carry trade flow arrows.
+    """
+    try:
+        macro = await repo.get_latest_macro()
+        interest_rates = await _get_interest_rates()
+        fx_data = await _get_forex_data()
+
+        vix = macro.get("vix") if macro else None
+        dxy = macro.get("dxy_index") if macro else None
+
+        result = compute_forex_map_data(
+            fx_rates=fx_data,
+            interest_rates=interest_rates,
+            dxy=dxy,
+            vix=vix,
+        )
+        result["date"] = macro.get("indicator_date") if macro else None
+        return result
+    except Exception as e:
+        logger.error("Forex map failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Forex map data retrieval failed. Check server logs for details.")
+
+
+@router.get("/global-risk-factors")
+async def get_global_risk_factors():
+    """Get major global risk factors affecting financial markets.
+
+    Includes carry trade unwind, dollar strength, yield curve inversion,
+    oil shock, volatility spike, KRW weakness, and rate differential risks.
+    """
+    try:
+        macro = await repo.get_latest_macro()
+        interest_rates = await _get_interest_rates()
+        fx_data = await _get_forex_data()
+
+        vix = macro.get("vix") if macro else None
+        dxy = macro.get("dxy_index") if macro else None
+
+        carry_risk = compute_carry_trade_risk(
+            interest_rates=interest_rates,
+            fx_data=fx_data,
+            vix=vix,
+            dxy=dxy,
+        )
+
+        factors = compute_global_risk_factors(
+            macro_data=macro,
+            fx_data=fx_data,
+            interest_rates=interest_rates,
+            carry_risk=carry_risk,
+        )
+
+        return {
+            "factors": factors,
+            "count": len(factors),
+            "carry_risk_summary": carry_risk.get("overall_risk"),
+            "date": macro.get("indicator_date") if macro else None,
+        }
+    except Exception as e:
+        logger.error("Global risk factors failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Global risk factors analysis failed. Check server logs for details.")
+
+
+@router.post("/forex-backfill")
+async def backfill_forex_data(days: int = Query(90, ge=30, le=365)):
+    """Backfill historical forex data for major currency pairs.
+
+    Uses FinanceDataReader to fetch multi-day FX time-series.
+    """
+    try:
+        from app.collectors.macro import MacroCollector
+        from app.config import settings
+        import asyncio
+        from datetime import date, timedelta
+
+        loop = asyncio.get_running_loop()
+        start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+        end = date.today().strftime("%Y-%m-%d")
+
+        try:
+            import FinanceDataReader as fdr
+        except ImportError:
+            raise HTTPException(status_code=500, detail="FinanceDataReader not installed")
+
+        async def _fetch(symbol: str):
+            try:
+                df = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda s=symbol: fdr.DataReader(s, start, end)),
+                    timeout=30.0,
+                )
+                return df if df is not None and not df.empty else None
+            except Exception as e:
+                logger.warning("Forex fetch failed for %s: %s", symbol, e)
+                return None
+
+        # Fetch key pairs
+        key_pairs = ["USD/JPY", "EUR/USD", "GBP/USD", "USD/CHF", "USD/CNY", "AUD/USD"]
+        results = await asyncio.gather(*[_fetch(pair) for pair in key_pairs])
+
+        inserted = 0
+        for pair, df in zip(key_pairs, results):
+            if df is not None:
+                for dt_idx in df.index:
+                    dt_str = dt_idx.strftime("%Y-%m-%d")
+                    close = float(df.loc[dt_idx, "Close"]) if "Close" in df.columns else None
+                    if close:
+                        await repo.upsert_forex_rate(pair, dt_str, close)
+                        inserted += 1
+
+        logger.info("Forex backfill: %d records inserted for %d pairs", inserted, len(key_pairs))
+        return {"status": "ok", "records_inserted": inserted, "pairs": key_pairs}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Forex backfill failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Forex data backfill failed. Check server logs for details.")

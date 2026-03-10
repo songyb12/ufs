@@ -567,6 +567,27 @@ export async function getEntryScenarios() {
   return fetchJSON('/macro-intel/entry-scenarios')
 }
 
+export async function getCarryTrade() {
+  return fetchJSON('/macro-intel/carry-trade')
+}
+
+export async function getForexMap() {
+  return fetchJSON('/macro-intel/forex-map')
+}
+
+export async function getGlobalRiskFactors() {
+  return fetchJSON('/macro-intel/global-risk-factors')
+}
+
+export async function backfillForex(days = 30) {
+  const res = await fetch(`${BASE}/macro-intel/forex-backfill?days=${days}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
 // ── Guru Insights ──
 
 export async function getGuruInsights() {
