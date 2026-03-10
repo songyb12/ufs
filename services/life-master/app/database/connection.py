@@ -6,7 +6,7 @@ import aiosqlite
 
 _connection: aiosqlite.Connection | None = None
 _db_lock = asyncio.Lock()
-_db_path: str = "/app/data/life-master.db"
+_db_path: str | None = None
 
 
 def set_db_path(path: str) -> None:
@@ -14,8 +14,15 @@ def set_db_path(path: str) -> None:
     _db_path = path
 
 
+def _get_db_path() -> str:
+    if _db_path is not None:
+        return _db_path
+    from app.config import settings
+    return settings.DB_PATH
+
+
 async def _create_connection() -> aiosqlite.Connection:
-    conn = await aiosqlite.connect(_db_path)
+    conn = await aiosqlite.connect(_get_db_path())
     conn.row_factory = aiosqlite.Row
     await conn.execute("PRAGMA journal_mode=WAL")
     await conn.execute("PRAGMA foreign_keys=ON")

@@ -71,8 +71,9 @@ def generate_schedule(
         duration = ((duration + slot_interval - 1) // slot_interval) * slot_interval
         time_slot = routine.get("time_slot", "FLEXIBLE")
         pref_start, pref_end = SLOT_RANGES.get(time_slot, SLOT_RANGES["FLEXIBLE"])
-        pref_start_min = pref_start * 60
-        pref_end_min = pref_end * 60
+        # Clamp slot ranges to configured day bounds
+        pref_start_min = max(pref_start * 60, start_min)
+        pref_end_min = min(pref_end * 60, end_min)
 
         placed = False
 

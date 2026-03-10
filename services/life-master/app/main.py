@@ -9,12 +9,13 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
+from app.models.schemas import DashboardResponse, DbInfoResponse, ExportResponse, SearchResult
 from app.routers import goals, habits, routines, scheduler
 
 
@@ -118,13 +119,14 @@ async def root():
             "report_weekly": "/report/weekly",
             "report_monthly": "/report/monthly",
             "export": "/export",
-            "admin": "/admin",
+            "admin_retention": "/admin/retention",
+            "admin_db_info": "/admin/db-info",
             "docs": "/docs",
         },
     }
 
 
-@app.get("/dashboard")
+@app.get("/dashboard", response_model=DashboardResponse)
 async def dashboard(date: str | None = None):
     """Today's (or specified date's) overview at a glance."""
     from app.database import repositories as repo
@@ -136,8 +138,7 @@ async def dashboard(date: str | None = None):
         try:
             parsed = d.fromisoformat(date)
         except ValueError:
-            from fastapi import HTTPException as HE
-            raise HE(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
+            raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
         target = date
         day_name = DAY_NAMES[parsed.weekday()]
     else:
@@ -158,7 +159,7 @@ async def dashboard(date: str | None = None):
     return data
 
 
-@app.get("/search")
+@app.get("/search", response_model=list[SearchResult])
 async def global_search(q: str = Query(min_length=1)):
     """Search across routines, habits, and goals."""
     from app.database import repositories as repo
@@ -171,12 +172,11 @@ async def weekly_report(date: str | None = None):
     from app.database import repositories as repo
     from app.utils.time_helpers import week_range
     if date:
+        from datetime import date as d
         try:
-            from datetime import date as d
             d.fromisoformat(date)
         except ValueError:
-            from fastapi import HTTPException as HE
-            raise HE(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
+            raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
     start, end = week_range(date)
     return await repo.get_weekly_report(start, end)
 
@@ -188,7 +188,7 @@ async def monthly_report(year: int = Query(ge=2000, le=2100), month: int = Query
     return await repo.get_monthly_report(year, month)
 
 
-@app.get("/export")
+@app.get("/export", response_model=ExportResponse)
 async def export_data():
     """Export all data as JSON."""
     from app.database import repositories as repo
@@ -206,7 +206,7 @@ async def run_retention():
     return result
 
 
-@app.get("/admin/db-info")
+@app.get("/admin/db-info", response_model=DbInfoResponse)
 async def db_info():
     """Database statistics and info."""
     from app.database import repositories as repo

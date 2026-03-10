@@ -1,6 +1,10 @@
 """Database schema definitions and initialization."""
 
+import logging
+
 from app.database.connection import get_db
+
+logger = logging.getLogger("life-master.schema")
 
 SCHEMA_VERSION = 3
 
@@ -136,8 +140,11 @@ async def init_db() -> None:
     for col, table, typedef in _MIGRATIONS:
         try:
             await db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
-        except Exception:
-            pass
+        except Exception as e:
+            if "duplicate column" in str(e).lower():
+                pass  # Column already exists — expected
+            else:
+                logger.warning("Migration failed for %s.%s: %s", table, col, e)
 
     await db.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",

@@ -32,6 +32,14 @@ def month_range(ref_date: str | None = None) -> tuple[str, str]:
     return first.isoformat(), last.isoformat()
 
 
+def validate_date_str(s: str | None) -> str | None:
+    """Validate ISO date string. Returns the string if valid, None if input is None."""
+    if s is None:
+        return None
+    date.fromisoformat(s)  # raises ValueError if invalid
+    return s
+
+
 def days_ago(n: int) -> str:
     return (date.today() - timedelta(days=n)).isoformat()
 

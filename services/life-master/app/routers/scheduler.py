@@ -1,6 +1,5 @@
 """Dynamic scheduler endpoints."""
 
-import json
 import logging
 from datetime import date
 
@@ -15,6 +14,7 @@ from app.models.schemas import (
     ScheduleCopyRequest,
     ScheduleGenerateRequest,
     ScheduleTemplateCreate,
+    ScheduleTemplateResponse,
 )
 from app.services.optimizer import generate_schedule
 from app.utils.time_helpers import DAY_NAMES, today_str, week_range
@@ -41,7 +41,7 @@ async def week_schedule(date: str | None = None):
     return await repo.get_schedule_blocks(start, end)
 
 
-@router.get("/month")
+@router.get("/month", response_model=list[ScheduleBlockResponse])
 async def month_schedule(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12)):
     return await repo.get_month_schedule(year, month)
 
@@ -130,8 +130,19 @@ async def generate_day_schedule(body: ScheduleGenerateRequest):
 
 
 @router.get("/conflicts")
-async def check_conflicts(date: str, start_time: str, end_time: str):
+async def check_conflicts(
+    date: str = Query(),
+    start_time: str = Query(pattern=r"^\d{2}:\d{2}$"),
+    end_time: str = Query(pattern=r"^\d{2}:\d{2}$"),
+):
     """Check if a time range conflicts with existing blocks."""
+    from datetime import date as d
+    try:
+        d.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
+    if end_time <= start_time:
+        raise HTTPException(status_code=422, detail="end_time must be after start_time")
     conflicts = await repo.detect_conflicts(date, start_time, end_time)
     return {
         "date": date,
@@ -145,12 +156,12 @@ async def check_conflicts(date: str, start_time: str, end_time: str):
 # ── Templates ─────────────────────────────────────────────
 
 
-@router.get("/templates")
+@router.get("/templates", response_model=list[ScheduleTemplateResponse])
 async def list_templates(day_of_week: str | None = None):
     return await repo.get_templates(day_of_week)
 
 
-@router.post("/templates")
+@router.post("/templates", response_model=ScheduleTemplateResponse)
 async def create_template(body: ScheduleTemplateCreate):
     data = {"name": body.name, "day_of_week": body.day_of_week, "blocks": body.blocks}
     result = await repo.create_template(data)

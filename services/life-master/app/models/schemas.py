@@ -5,9 +5,7 @@ from datetime import date as date_type
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import (
-    BlockSource,
     GoalCategory,
-    GoalStatus,
     HabitTargetType,
     LogStatus,
     RoutineCategory,
@@ -45,7 +43,7 @@ class RoutineCreate(BaseModel):
 
 
 class RoutineUpdate(BaseModel):
-    name: str | None = Field(default=None, max_length=200)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
     category: RoutineCategory | None = None
     time_slot: TimeSlot | None = None
@@ -152,7 +150,7 @@ class HabitCreate(BaseModel):
 
 
 class HabitUpdate(BaseModel):
-    name: str | None = Field(default=None, max_length=200)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
     target_type: HabitTargetType | None = None
     target_value: float | None = Field(default=None, gt=0)
@@ -233,11 +231,11 @@ class GoalCreate(BaseModel):
 
 
 class GoalUpdate(BaseModel):
-    title: str | None = Field(default=None, max_length=300)
+    """Update goal metadata. Use dedicated endpoints for status changes."""
+    title: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = None
     category: GoalCategory | None = None
     deadline: str | None = None
-    status: GoalStatus | None = None
     priority: int | None = Field(default=None, ge=1, le=5)
     color: str | None = Field(default=None, max_length=7)
 

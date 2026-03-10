@@ -17,7 +17,7 @@ from app.models.schemas import (
     RoutineUpdate,
     TodayRoutineResponse,
 )
-from app.utils.time_helpers import days_ago, today_day_name, today_str
+from app.utils.time_helpers import days_ago, today_day_name, today_str, validate_date_str
 
 logger = logging.getLogger("life-master.routers.routines")
 
@@ -51,6 +51,11 @@ async def routine_stats(
     date_from: str = Query(default=None),
     date_to: str = Query(default=None),
 ):
+    try:
+        validate_date_str(date_from)
+        validate_date_str(date_to)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
     if not date_from:
         date_from = days_ago(30)
     if not date_to:
@@ -64,6 +69,11 @@ async def routine_heatmap(
     date_from: str = Query(default=None),
     date_to: str = Query(default=None),
 ):
+    try:
+        validate_date_str(date_from)
+        validate_date_str(date_to)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
     if not date_from:
         date_from = days_ago(90)
     if not date_to:
@@ -76,6 +86,11 @@ async def category_stats(
     date_from: str = Query(default=None),
     date_to: str = Query(default=None),
 ):
+    try:
+        validate_date_str(date_from)
+        validate_date_str(date_to)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
     if not date_from:
         date_from = days_ago(30)
     if not date_to:

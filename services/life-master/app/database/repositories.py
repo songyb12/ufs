@@ -559,7 +559,7 @@ async def update_goal(goal_id: int, data: dict) -> dict | None:
     db = await get_db()
     fields = []
     params = []
-    for key in ("title", "description", "category", "deadline", "status", "progress", "priority", "color"):
+    for key in ("title", "description", "category", "deadline", "priority", "color"):
         if key in data:
             fields.append(f"{key} = ?")
             params.append(data[key])
@@ -575,12 +575,15 @@ async def update_goal(goal_id: int, data: dict) -> dict | None:
 
 async def update_goal_progress(goal_id: int, progress: float) -> dict | None:
     db = await get_db()
-    status_update = ""
-    if progress >= 1.0:
-        status_update = ", status = 'ACHIEVED'"
+    clamped = max(0.0, min(progress, 1.0))
+    if clamped >= 1.0:
+        status_clause = ", status = 'ACHIEVED'"
+    else:
+        # Revert to ACTIVE only if currently ACHIEVED (milestone uncompleted)
+        status_clause = ", status = CASE WHEN status = 'ACHIEVED' THEN 'ACTIVE' ELSE status END"
     await db.execute(
-        f"UPDATE goals SET progress = ?, updated_at = ?{status_update} WHERE id = ?",
-        (max(0.0, min(progress, 1.0)), _now(), goal_id),
+        f"UPDATE goals SET progress = ?, updated_at = ?{status_clause} WHERE id = ?",
+        (clamped, _now(), goal_id),
     )
     await db.commit()
     return await get_goal(goal_id)
@@ -1075,10 +1078,10 @@ async def get_dashboard_data(today: str, day_name: str) -> dict:
     }
 
 
-# ── Weekly / Monthly Report ──────────────────────────────
+# ── Period Report ────────────────────────────────────────
 
 
-async def get_weekly_report(date_from: str, date_to: str) -> dict:
+async def get_period_report(date_from: str, date_to: str) -> dict:
     db = await get_db()
 
     cursor = await db.execute(
@@ -1116,6 +1119,10 @@ async def get_weekly_report(date_from: str, date_to: str) -> dict:
     }
 
 
+# Backward compat alias
+get_weekly_report = get_period_report
+
+
 async def get_monthly_report(year: int, month: int) -> dict:
     date_from = f"{year:04d}-{month:02d}-01"
     if month == 12:
@@ -1123,7 +1130,7 @@ async def get_monthly_report(year: int, month: int) -> dict:
     else:
         last_day = date(year, month + 1, 1) - timedelta(days=1)
     date_to = last_day.isoformat()
-    return await get_weekly_report(date_from, date_to)
+    return await get_period_report(date_from, date_to)
 
 
 # ── Export / Import ───────────────────────────────────────

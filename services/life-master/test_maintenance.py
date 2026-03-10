@@ -517,6 +517,47 @@ async def run_tests():
     except ValidationError:
         ok("invalid milestone date rejected", True)
 
+    # ── R101-R130 tests ──
+
+    # R106: progress revert on milestone uncomplete
+    g_rev = await repo.create_goal({"title": "Revert test", "category": "SKILL"})
+    m_rev1 = await repo.create_milestone(g_rev["id"], {"title": "Step 1"})
+    m_rev2 = await repo.create_milestone(g_rev["id"], {"title": "Step 2"})
+    await repo.complete_milestone(m_rev1["id"], g_rev["id"])
+    await repo.complete_milestone(m_rev2["id"], g_rev["id"])
+    g_check = await repo.get_goal(g_rev["id"])
+    ok("R106: auto-achieved at 100%", g_check["status"] == "ACHIEVED")
+    await repo.uncomplete_milestone(m_rev1["id"], g_rev["id"])
+    g_check2 = await repo.get_goal(g_rev["id"])
+    ok("R106: status reverted to ACTIVE", g_check2["status"] == "ACTIVE")
+    ok("R106: progress is 0.5", g_check2["progress"] == 0.5)
+
+    # R105: GoalUpdate no longer has status field
+    from app.models.schemas import GoalUpdate
+    gu = GoalUpdate(title="Updated")
+    ok("R105: GoalUpdate has no status", not hasattr(gu, 'status') or 'status' not in gu.model_fields)
+
+    # R119: period report alias works
+    pr = await repo.get_weekly_report(days_ago(7), today)
+    ok("R119: weekly_report alias works", "routine_summary" in pr)
+
+    # R111: Update name min_length
+    try:
+        RoutineUpdate(name="")
+        ok("R111: empty update name rejected", False)
+    except ValidationError:
+        ok("R111: empty update name rejected", True)
+
+    # R113: validate_date_str
+    from app.utils.time_helpers import validate_date_str
+    ok("R113: valid date passes", validate_date_str("2026-01-01") == "2026-01-01")
+    ok("R113: None passes", validate_date_str(None) is None)
+    try:
+        validate_date_str("bad")
+        ok("R113: invalid date raises", False)
+    except ValueError:
+        ok("R113: invalid date raises", True)
+
     await close_db()
 
     print(f"\n{'='*50}")
