@@ -239,8 +239,21 @@ export default function ForexMap({ refreshKey }) {
         세계 환율 현황, 통화 강도, 금리 기반 자본 흐름 시각화
       </p>
 
-      {/* DXY Panel */}
-      <DxyPanel analysis={data?.dxy_analysis} />
+      {/* DXY + VIX Panel */}
+      <div style={{ display: 'grid', gridTemplateColumns: data?.dxy_analysis ? '2fr 1fr' : '1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+        <DxyPanel analysis={data?.dxy_analysis} />
+        {data?.vix != null && (
+          <div className="card" style={{ padding: '1rem', borderLeft: `3px solid ${data.vix > 25 ? '#ef4444' : data.vix > 20 ? '#eab308' : '#22c55e'}` }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>VIX (공포지수)</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: data.vix > 25 ? '#ef4444' : data.vix > 20 ? '#eab308' : '#22c55e' }}>
+              {data.vix.toFixed(1)}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+              {data.vix > 30 ? '극단적 공포' : data.vix > 25 ? '높은 불안' : data.vix > 20 ? '불안 확대' : '안정'}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Legend */}
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', margin: '0.75rem 0', fontSize: '0.72rem' }}>

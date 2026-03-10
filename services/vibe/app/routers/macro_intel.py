@@ -24,7 +24,6 @@ from app.indicators.carry_trade import (
     compute_global_risk_factors,
     CARRY_PAIRS,
     CURRENCY_INFO,
-    FOREX_FDR_SYMBOLS,
 )
 from app.indicators.regime import (
     aggregate_sector_fund_flow,
@@ -826,8 +825,8 @@ async def _get_interest_rates() -> dict[str, float]:
         rates = await repo.get_interest_rates()
         if rates:
             return {**_DEFAULT_RATES, **rates}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to load interest rates from DB: %s", e)
     return {**_DEFAULT_RATES}
 
 
@@ -858,8 +857,21 @@ async def _get_forex_data() -> dict[str, dict]:
             for pair, data in extra_fx.items():
                 if pair not in fx_data:
                     fx_data[pair] = data
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to get supplementary forex data: %s", e)
+
+    # Compute JPY/KRW cross rate from USD/JPY and USD/KRW
+    if "JPY/KRW" not in fx_data:
+        usd_jpy = fx_data.get("USD/JPY", {})
+        usd_krw = fx_data.get("USD/KRW", {})
+        if usd_jpy.get("current") and usd_krw.get("current"):
+            cross = usd_krw["current"] / usd_jpy["current"]
+            fx_data["JPY/KRW"] = {
+                "current": round(cross, 4),
+                "change_1d": round((usd_krw.get("change_1d", 0) or 0) - (usd_jpy.get("change_1d", 0) or 0), 2),
+                "change_1w": round((usd_krw.get("change_1w", 0) or 0) - (usd_jpy.get("change_1w", 0) or 0), 2),
+                "change_1m": round((usd_krw.get("change_1m", 0) or 0) - (usd_jpy.get("change_1m", 0) or 0), 2),
+            }
 
     return fx_data
 
@@ -867,21 +879,39 @@ async def _get_forex_data() -> dict[str, dict]:
 def _calc_fx_changes(
     history: list[dict], field: str, current: float
 ) -> tuple[float, float, float]:
-    """Calculate 1d, 1w, 1m percentage changes from history."""
+    """Calculate 1d, 1w, 1m percentage changes from history using date-based lookups."""
     if not history or current is None:
         return 0, 0, 0
+
+    from datetime import date as d, timedelta
 
     vals = [(h.get("indicator_date", ""), h.get(field)) for h in history if h.get(field) is not None]
     vals.sort(key=lambda x: x[0])
 
-    def _pct(old: float) -> float:
-        if old == 0:
+    if not vals:
+        return 0, 0, 0
+
+    def _pct(old: float | None) -> float:
+        if old is None or old == 0:
             return 0
         return round((current - old) / old * 100, 2)
 
-    change_1d = _pct(vals[-2][1]) if len(vals) >= 2 else 0
-    change_1w = _pct(vals[-6][1]) if len(vals) >= 6 else 0
-    change_1m = _pct(vals[0][1]) if len(vals) >= 1 else 0
+    def _find_closest(target_date: str) -> float | None:
+        """Find value closest to target date (looking backwards)."""
+        best = None
+        for dt_str, val in vals:
+            if dt_str <= target_date:
+                best = val
+        return best
+
+    today = d.today()
+    target_1d = (today - timedelta(days=1)).isoformat()
+    target_1w = (today - timedelta(days=7)).isoformat()
+    target_1m = (today - timedelta(days=30)).isoformat()
+
+    change_1d = _pct(_find_closest(target_1d))
+    change_1w = _pct(_find_closest(target_1w))
+    change_1m = _pct(_find_closest(target_1m))
 
     return change_1d, change_1w, change_1m
 
@@ -1016,7 +1046,7 @@ async def backfill_forex_data(days: int = Query(90, ge=30, le=365)):
                 return None
 
         # Fetch key pairs
-        key_pairs = ["USD/JPY", "EUR/USD", "GBP/USD", "USD/CHF", "USD/CNY", "AUD/USD"]
+        key_pairs = ["USD/JPY", "EUR/USD", "GBP/USD", "USD/CHF", "USD/CNY", "AUD/USD", "USD/KRW", "AUD/JPY"]
         results = await asyncio.gather(*[_fetch(pair) for pair in key_pairs])
 
         inserted = 0
@@ -1030,7 +1060,7 @@ async def backfill_forex_data(days: int = Query(90, ge=30, le=365)):
                         inserted += 1
 
         logger.info("Forex backfill: %d records inserted for %d pairs", inserted, len(key_pairs))
-        return {"status": "ok", "records_inserted": inserted, "pairs": key_pairs}
+        return {"status": "ok", "saved": inserted, "records_inserted": inserted, "pairs": key_pairs}
     except HTTPException:
         raise
     except Exception as e:

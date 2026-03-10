@@ -1903,7 +1903,7 @@ async def get_fx_history(days: int = 200) -> list[dict]:
 
 
 async def get_interest_rates() -> dict[str, float]:
-    """Get interest rates from settings or return empty dict."""
+    """Get interest rates from DB or return empty dict."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1911,7 +1911,8 @@ async def get_interest_rates() -> dict[str, float]:
         )
         rows = await cursor.fetchall()
         return {r["currency"]: r["rate"] for r in rows}
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to get interest rates: %s", e)
         return {}
 
 
@@ -1953,34 +1954,18 @@ async def get_forex_rates() -> dict[str, dict]:
                 "change_1m": _pct(prev_20d),
             }
         return result
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to get forex rates: %s", e)
         return {}
 
 
 async def upsert_forex_rate(pair: str, trade_date: str, close_price: float) -> None:
     """Insert or update a forex rate."""
     db = await get_db()
-    try:
-        await db.execute(
-            """INSERT INTO forex_history (pair, trade_date, close_price)
-               VALUES (?, ?, ?)
-               ON CONFLICT(pair, trade_date) DO UPDATE SET close_price = excluded.close_price""",
-            (pair, trade_date, close_price),
-        )
-        await db.commit()
-    except Exception:
-        # Table may not exist yet — create it
-        await db.execute(
-            """CREATE TABLE IF NOT EXISTS forex_history (
-                pair TEXT NOT NULL,
-                trade_date TEXT NOT NULL,
-                close_price REAL NOT NULL,
-                PRIMARY KEY (pair, trade_date)
-            )"""
-        )
-        await db.execute(
-            """INSERT OR REPLACE INTO forex_history (pair, trade_date, close_price)
-               VALUES (?, ?, ?)""",
-            (pair, trade_date, close_price),
-        )
-        await db.commit()
+    await db.execute(
+        """INSERT INTO forex_history (pair, trade_date, close_price)
+           VALUES (?, ?, ?)
+           ON CONFLICT(pair, trade_date) DO UPDATE SET close_price = excluded.close_price""",
+        (pair, trade_date, close_price),
+    )
+    await db.commit()

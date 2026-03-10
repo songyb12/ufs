@@ -50,6 +50,14 @@ CARRY_PAIRS = {
         "fx_symbol": "USD/CNY",
         "description_kr": "중국 위안화 약세 시 달러 자산 선호",
     },
+    "JPY_AUD": {
+        "funding": "JPY",
+        "investing": "AUD",
+        "label": "엔캐리 (JPY→AUD)",
+        "label_en": "Yen Carry (JPY→AUD)",
+        "fx_symbol": "AUD/JPY",
+        "description_kr": "일본 저금리 자금으로 호주 고금리 자산 투자 (전통 캐리 대표)",
+    },
 }
 
 
@@ -116,9 +124,9 @@ def compute_carry_trade_risk(
             "investing_rate": investing_rate,
             "rate_differential": round(rate_diff, 2) if rate_diff is not None else None,
             "fx_current": fx_current,
-            "fx_change_1d_pct": round(fx_change_1d, 2) if fx_change_1d else 0,
-            "fx_change_1w_pct": round(fx_change_1w, 2) if fx_change_1w else 0,
-            "fx_change_1m_pct": round(fx_change_1m, 2) if fx_change_1m else 0,
+            "fx_change_1d_pct": round(fx_change_1d, 2) if fx_change_1d is not None else 0,
+            "fx_change_1w_pct": round(fx_change_1w, 2) if fx_change_1w is not None else 0,
+            "fx_change_1m_pct": round(fx_change_1m, 2) if fx_change_1m is not None else 0,
             "carry_score": carry_score,
             "unwind_risk": unwind_risk,
             "market_impact": impact,
@@ -532,7 +540,7 @@ def _compute_currency_strength(currency: str, fx_data: dict) -> dict:
 def _compute_capital_flows(countries: list[dict]) -> list[dict]:
     """Compute capital flow arrows between countries based on rate differentials."""
     flows = []
-    rated_countries = [c for c in countries if c.get("interest_rate") is not None]
+    rated_countries = [c for c in countries if c.get("interest_rate") is not None and isinstance(c["interest_rate"], (int, float))]
 
     # Sort by rate to find natural carry flow direction
     rated_countries.sort(key=lambda x: x["interest_rate"])

@@ -55,6 +55,18 @@ function PairCard({ pair }) {
         </div>
       </div>
 
+      {/* Rate comparison */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', fontSize: '0.75rem' }}>
+        <span style={{ color: 'var(--text-muted)' }}>{pair.funding}</span>
+        <span style={{ fontWeight: 700, color: '#3b82f6' }}>{pair.funding_rate != null ? `${pair.funding_rate}%` : '?'}</span>
+        <span style={{ color: 'var(--text-muted)' }}>{'\u2192'}</span>
+        <span style={{ color: 'var(--text-muted)' }}>{pair.investing}</span>
+        <span style={{ fontWeight: 700, color: '#a855f7' }}>{pair.investing_rate != null ? `${pair.investing_rate}%` : '?'}</span>
+        <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.7rem' }}>
+          {pair.rate_differential != null ? `차이 ${pair.rate_differential}%p` : ''}
+        </span>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginBottom: '0.75rem' }}>
         <Metric label="금리차" value={pair.rate_differential != null ? `${pair.rate_differential}%p` : 'N/A'} />
         <Metric label="캐리 매력" value={pair.carry_score} suffix="/100" color={pair.carry_score > 60 ? '#22c55e' : pair.carry_score < 40 ? '#ef4444' : '#eab308'} />
@@ -77,6 +89,23 @@ function PairCard({ pair }) {
           ))}
         </div>
       )}
+
+      {/* Carry score bar */}
+      <div style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>
+          <span>캐리 매력도</span>
+          <span>{pair.carry_score}/100</span>
+        </div>
+        <div style={{ height: '5px', background: 'var(--border)', borderRadius: '3px' }}>
+          <div style={{
+            width: `${pair.carry_score}%`,
+            height: '100%',
+            borderRadius: '3px',
+            background: pair.carry_score > 60 ? '#22c55e' : pair.carry_score < 40 ? '#ef4444' : '#eab308',
+            transition: 'width 0.3s',
+          }} />
+        </div>
+      </div>
 
       {pair.market_impact?.impacts?.length > 0 && (
         <div style={{ marginTop: '0.5rem' }}>
@@ -147,7 +176,7 @@ export default function CarryTrade({ refreshKey }) {
     ])
       .then(([c, rf]) => {
         setCarry(c)
-        setRiskFactors(Array.isArray(rf) ? rf : rf?.factors || [])
+        setRiskFactors(rf?.factors || (Array.isArray(rf) ? rf : []))
       })
       .catch(err => toast.error('Load failed: ' + err.message))
       .finally(() => setLoading(false))
@@ -195,6 +224,32 @@ export default function CarryTrade({ refreshKey }) {
           </div>
         </div>
       </div>
+
+      {/* Risk Comparison */}
+      {pairs.length > 0 && (
+        <div className="card" style={{ padding: '1rem', marginBottom: '1.25rem' }}>
+          <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>페어별 위험도 비교</h3>
+          {pairs.map(p => {
+            const ur = p.unwind_risk || {}
+            const color = RISK_COLORS[ur.risk_level] || '#6b7280'
+            return (
+              <div key={p.pair_id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                <span style={{ width: '140px', fontSize: '0.78rem', flexShrink: 0 }}>{p.label}</span>
+                <div style={{ flex: 1, height: '18px', background: 'var(--bg-secondary)', borderRadius: '9px', overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${Math.max(ur.risk_score || 0, 3)}%`,
+                    height: '100%',
+                    background: color,
+                    borderRadius: '9px',
+                    transition: 'width 0.4s ease',
+                  }} />
+                </div>
+                <span style={{ width: '30px', fontSize: '0.75rem', fontWeight: 700, color, textAlign: 'right' }}>{ur.risk_score || 0}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* Carry Pairs */}
       <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>캐리 트레이드 페어 분석</h3>
