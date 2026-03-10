@@ -16,6 +16,7 @@ from app.services.japanese import (
     check_achievements,
     generate_daily_quests,
     get_mastery_tier,
+    get_player_title,
     get_weekly_challenge,
     level_from_xp,
     mastery_xp_bonus,
@@ -121,7 +122,7 @@ class PlayerStatsResponse(BaseModel):
     accuracy: float
     combo_best: int
     achievements: list[dict]
-    title: str
+    title: dict
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -141,21 +142,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _player_title(level: int) -> str:
-    """Return a title based on level."""
-    if level >= 50:
-        return "日本語の達人"
-    elif level >= 40:
-        return "言語マスター"
-    elif level >= 30:
-        return "上級学習者"
-    elif level >= 20:
-        return "中級突破者"
-    elif level >= 10:
-        return "見習い"
-    elif level >= 5:
-        return "初心者"
-    return "入門者"
+def _player_title(level: int) -> dict:
+    """Return a title based on level (delegates to service)."""
+    return get_player_title(level)
 
 
 # ── Vocabulary CRUD ──────────────────────────────────────
@@ -411,6 +400,8 @@ async def submit_review(vocab_id: int, data: ReviewRequest):
     # Get mastery tier counts for achievement checks
     cursor = await db.execute(
         """SELECT
+            SUM(CASE WHEN repetitions >= 3 AND interval_days >= 7 THEN 1 ELSE 0 END) as bronze,
+            SUM(CASE WHEN repetitions >= 5 AND interval_days >= 14 THEN 1 ELSE 0 END) as silver,
             SUM(CASE WHEN repetitions >= 8 AND interval_days >= 30 THEN 1 ELSE 0 END) as gold,
             SUM(CASE WHEN repetitions >= 12 AND interval_days >= 60 THEN 1 ELSE 0 END) as diamond,
             SUM(CASE WHEN repetitions >= 15 AND interval_days >= 90 THEN 1 ELSE 0 END) as master
@@ -418,6 +409,8 @@ async def submit_review(vocab_id: int, data: ReviewRequest):
     )
     mastery_row = dict(await cursor.fetchone())
     mastery_counts = {
+        "bronze": mastery_row["bronze"] or 0,
+        "silver": mastery_row["silver"] or 0,
         "gold": mastery_row["gold"] or 0,
         "diamond": mastery_row["diamond"] or 0,
         "master": mastery_row["master"] or 0,
@@ -446,6 +439,28 @@ async def submit_review(vocab_id: int, data: ReviewRequest):
         weekly_challenges_completed=wc_completed,
         mastery_counts=mastery_counts,
     )
+
+    # Hidden achievements — time-based triggers
+    now_dt = datetime.now(timezone.utc)
+    hour = now_dt.hour
+    if hour >= 0 and hour < 5 and "night_owl" not in current_achievements and "night_owl" not in new_achievement_ids:
+        new_achievement_ids.append("night_owl")
+    if hour >= 4 and hour < 6 and "early_bird" not in current_achievements and "early_bird" not in new_achievement_ids:
+        new_achievement_ids.append("early_bird")
+
+    # Weekend warrior: 50+ reviews on a weekend day
+    if now_dt.weekday() >= 5 and "weekend_warrior" not in current_achievements and "weekend_warrior" not in new_achievement_ids:
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM jp_review_logs WHERE created_at >= date('now')",
+        )
+        today_reviews = (await cursor.fetchone())["cnt"]
+        if today_reviews >= 50:
+            new_achievement_ids.append("weekend_warrior")
+
+    # Comeback kid: streak broken then 3+ days again
+    if new_streak >= 3 and "comeback_kid" not in current_achievements and "comeback_kid" not in new_achievement_ids:
+        if player.get("longest_streak", 0) > player.get("current_streak", 0):
+            new_achievement_ids.append("comeback_kid")
 
     achievement_xp = sum(ACHIEVEMENTS[a]["xp_bonus"] for a in new_achievement_ids)
     new_total_xp += achievement_xp
@@ -660,8 +675,30 @@ async def submit_quiz(data: QuizSubmitRequest):
             new_achs.append("quiz_perfect")
         if data.quiz_type == "time_attack" and data.time_seconds < 30 and "time_attack_30" not in current_achievements:
             new_achs.append("time_attack_30")
+        if data.quiz_type == "time_attack" and data.time_seconds < 15 and "time_attack_15" not in current_achievements:
+            new_achs.append("time_attack_15")
         if data.quiz_type == "boss" and correct == total and "boss_clear" not in current_achievements:
             new_achs.append("boss_clear")
+
+        # Boss clear 5 times
+        if data.quiz_type == "boss" and correct == total and "boss_clear_5" not in current_achievements:
+            cursor = await db.execute(
+                """SELECT COUNT(*) as cnt FROM jp_quiz_results
+                   WHERE quiz_type = 'boss' AND correct = total_questions"""
+            )
+            boss_clears = (await cursor.fetchone())["cnt"]
+            if boss_clears >= 5:
+                new_achs.append("boss_clear_5")
+
+        # Quiz 3 perfect in a row
+        if correct == total and "quiz_3_perfect" not in current_achievements:
+            cursor = await db.execute(
+                """SELECT correct, total_questions FROM jp_quiz_results
+                   ORDER BY id DESC LIMIT 3"""
+            )
+            recent = await cursor.fetchall()
+            if len(recent) >= 3 and all(r["correct"] == r["total_questions"] for r in recent):
+                new_achs.append("quiz_3_perfect")
 
         # Quiz count achievements
         cursor = await db.execute("SELECT COUNT(*) as cnt FROM jp_quiz_results")
@@ -896,11 +933,14 @@ async def get_all_achievements():
 
     result = []
     for aid, info in ACHIEVEMENTS.items():
+        is_hidden = info.get("category") == "hidden"
         result.append({
             "id": aid,
-            "name": info["name"],
-            "desc": info["desc"],
+            "name": info["name"] if (aid in unlocked or not is_hidden) else "???",
+            "desc": info["desc"] if (aid in unlocked or not is_hidden) else "히든 업적 — 특정 조건을 달성하면 해금!",
             "xp_bonus": info["xp_bonus"],
+            "category": info.get("category", "milestone"),
+            "rarity": info.get("rarity", "common"),
             "unlocked": aid in unlocked,
         })
     return result
