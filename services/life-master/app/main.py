@@ -16,7 +16,7 @@ from app.config import settings
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.models.schemas import DashboardResponse, DbInfoResponse, ExportResponse, SearchResult
-from app.routers import goals, habits, routines, scheduler
+from app.routers import goals, habits, notifications, routines, scheduler
 
 
 def _setup_logging() -> None:
@@ -74,6 +74,7 @@ app.include_router(routines.router)
 app.include_router(habits.router)
 app.include_router(goals.router)
 app.include_router(scheduler.router)
+app.include_router(notifications.router)
 
 
 @app.get("/health")
@@ -108,6 +109,7 @@ async def root():
             "heatmaps",
             "templates",
             "export-import",
+            "notifications",
         ],
         "endpoints": {
             "routines": "/routines",
@@ -120,6 +122,7 @@ async def root():
             "report_monthly": "/report/monthly",
             "export": "/export",
             "admin_retention": "/admin/retention",
+            "notifications": "/notifications",
             "admin_db_info": "/admin/db-info",
             "docs": "/docs",
         },

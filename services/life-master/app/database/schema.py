@@ -6,7 +6,7 @@ from app.database.connection import get_db
 
 logger = logging.getLogger("life-master.schema")
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 TABLES = [
     """CREATE TABLE IF NOT EXISTS routines (
@@ -105,7 +105,34 @@ TABLES = [
         is_active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
+    """CREATE TABLE IF NOT EXISTS notification_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        trigger_type TEXT NOT NULL DEFAULT 'ROUTINE_REMINDER',
+        target_id INTEGER,
+        cron_time TEXT,
+        days TEXT NOT NULL DEFAULT '["mon","tue","wed","thu","fri","sat","sun"]',
+        priority TEXT NOT NULL DEFAULT '0',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        last_sent_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS notification_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rule_id INTEGER,
+        trigger_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        success INTEGER NOT NULL DEFAULT 0,
+        detail TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (rule_id) REFERENCES notification_rules(id) ON DELETE SET NULL
+    )""",
     # Indexes
+    "CREATE INDEX IF NOT EXISTS idx_notification_logs_date ON notification_logs(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_notification_rules_active ON notification_rules(is_active, trigger_type)",
     "CREATE INDEX IF NOT EXISTS idx_routine_logs_date ON routine_logs(date)",
     "CREATE INDEX IF NOT EXISTS idx_routine_logs_routine ON routine_logs(routine_id, date)",
     "CREATE INDEX IF NOT EXISTS idx_habit_logs_date ON habit_logs(date)",

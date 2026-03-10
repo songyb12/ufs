@@ -382,8 +382,8 @@ async def run_tests():
 
     # ── DB Info ──
     info = await repo.get_db_info()
-    ok("db info", info["schema_version"] == 3)
-    ok("table counts", len(info["table_counts"]) == 8)
+    ok("db info", info["schema_version"] == 4)
+    ok("table counts", len(info["table_counts"]) == 10)
 
     # ── Cleanup ──
     cleanup = await repo.cleanup_old_logs(0)
@@ -557,6 +557,111 @@ async def run_tests():
         ok("R113: invalid date raises", False)
     except ValueError:
         ok("R113: invalid date raises", True)
+
+    # ── Notification feature tests ──
+
+    # CRUD notification rules
+    rule1 = await repo.create_notification_rule({
+        "name": "Morning routine",
+        "trigger_type": "ROUTINE_REMINDER",
+        "target_id": r1["id"],
+        "cron_time": "07:00",
+        "days": ["mon", "tue", "wed", "thu", "fri"],
+        "priority": "0",
+    })
+    ok("notif: create rule", rule1["id"] > 0)
+    ok("notif: rule name", rule1["name"] == "Morning routine")
+    ok("notif: rule trigger", rule1["trigger_type"] == "ROUTINE_REMINDER")
+    ok("notif: rule days parsed", isinstance(rule1["days"], list))
+    ok("notif: rule cron_time", rule1["cron_time"] == "07:00")
+
+    rule_get = await repo.get_notification_rule(rule1["id"])
+    ok("notif: get rule", rule_get is not None)
+    ok("notif: get rule name", rule_get["name"] == "Morning routine")
+
+    rule_updated = await repo.update_notification_rule(rule1["id"], {"name": "Updated rule", "priority": "1"})
+    ok("notif: update rule", rule_updated["name"] == "Updated rule")
+    ok("notif: update priority", rule_updated["priority"] == "1")
+
+    rule2 = await repo.create_notification_rule({
+        "name": "Habit reminder",
+        "trigger_type": "HABIT_REMINDER",
+        "target_id": 1,
+        "cron_time": "21:00",
+    })
+    ok("notif: create rule 2", rule2["id"] > 0)
+
+    rules_all = await repo.get_notification_rules()
+    ok("notif: list rules", len(rules_all) >= 2)
+
+    rules_active = await repo.get_notification_rules(active_only=True)
+    ok("notif: list active rules", len(rules_active) >= 2)
+
+    # Disable rule
+    await repo.update_notification_rule(rule2["id"], {"is_active": 0})
+    rules_active2 = await repo.get_notification_rules(active_only=True)
+    ok("notif: disable rule", len(rules_active2) == len(rules_active) - 1)
+
+    # Active rules for trigger
+    day = today_day_name()
+    trigger_rules = await repo.get_active_rules_for_trigger("ROUTINE_REMINDER", day)
+    weekday_match = day in ["mon", "tue", "wed", "thu", "fri"]
+    ok("notif: trigger rules filter", len(trigger_rules) == (1 if weekday_match else 0))
+
+    # Notification log
+    log_entry = await repo.create_notification_log({
+        "rule_id": rule1["id"],
+        "trigger_type": "ROUTINE_REMINDER",
+        "title": "Test",
+        "message": "Test message",
+        "provider": "pushover",
+        "success": True,
+        "detail": "sent",
+    })
+    ok("notif: create log", log_entry["id"] > 0)
+    ok("notif: log success", log_entry["success"] == 1)
+
+    logs = await repo.get_notification_logs(limit=10)
+    ok("notif: get logs", len(logs) >= 1)
+
+    # Update last sent
+    await repo.update_rule_last_sent(rule1["id"])
+    rule_check = await repo.get_notification_rule(rule1["id"])
+    ok("notif: last_sent_at updated", rule_check["last_sent_at"] is not None)
+
+    # Rules count
+    count = await repo.get_notification_rules_count()
+    ok("notif: rules count", count >= 1)
+
+    # Delete rule
+    ok("notif: delete rule", await repo.delete_notification_rule(rule2["id"]))
+    ok("notif: delete nonexistent", not await repo.delete_notification_rule(9999))
+
+    # Schema validation
+    from app.models.schemas import NotificationRuleCreate, NotificationRuleUpdate, NotificationTestRequest
+    nr = NotificationRuleCreate(name="Test rule")
+    ok("notif: schema create valid", nr.trigger_type == "ROUTINE_REMINDER")
+
+    try:
+        NotificationRuleCreate(name="Test", trigger_type="INVALID")
+        ok("notif: invalid trigger rejected", False)
+    except ValidationError:
+        ok("notif: invalid trigger rejected", True)
+
+    try:
+        NotificationRuleCreate(name="Test", days=["invalid_day"])
+        ok("notif: invalid days rejected", False)
+    except ValidationError:
+        ok("notif: invalid days rejected", True)
+
+    ntr = NotificationTestRequest()
+    ok("notif: test request defaults", ntr.title == "테스트 알림")
+
+    # Notification service (disabled by default)
+    from app.services.notifications import send_notification, NotificationPriority
+    result = await send_notification("Test", "Test message")
+    ok("notif: disabled returns false", result["ok"] is False)
+    ok("notif: disabled detail", "disabled" in result["detail"].lower())
 
     await close_db()
 

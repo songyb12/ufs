@@ -552,3 +552,104 @@ class DbInfoResponse(BaseModel):
     schema_version: int
     table_counts: dict[str, int]
     db_path: str
+
+
+# ── Notifications ───────────────────────────────────────
+
+
+class NotificationRuleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    trigger_type: str = Field(default="ROUTINE_REMINDER")
+    target_id: int | None = None
+    cron_time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    days: list[str] = Field(
+        default=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        min_length=1,
+    )
+    priority: str = Field(default="0")
+    is_active: int = Field(default=1, ge=0, le=1)
+
+    @field_validator("trigger_type")
+    @classmethod
+    def validate_trigger(cls, v: str) -> str:
+        valid = {"ROUTINE_REMINDER", "HABIT_REMINDER", "GOAL_DEADLINE", "STREAK_WARNING", "DAILY_SUMMARY", "CUSTOM"}
+        if v not in valid:
+            raise ValueError(f"Invalid trigger_type: {v}. Use: {valid}")
+        return v
+
+    @field_validator("days")
+    @classmethod
+    def validate_days(cls, v: list[str]) -> list[str]:
+        invalid = set(v) - VALID_DAYS
+        if invalid:
+            raise ValueError(f"Invalid day(s): {invalid}. Use: {VALID_DAYS}")
+        return v
+
+
+class NotificationRuleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    trigger_type: str | None = None
+    target_id: int | None = None
+    cron_time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    days: list[str] | None = None
+    priority: str | None = None
+    is_active: int | None = Field(default=None, ge=0, le=1)
+
+    @field_validator("trigger_type")
+    @classmethod
+    def validate_trigger(cls, v: str | None) -> str | None:
+        if v is not None:
+            valid = {"ROUTINE_REMINDER", "HABIT_REMINDER", "GOAL_DEADLINE", "STREAK_WARNING", "DAILY_SUMMARY", "CUSTOM"}
+            if v not in valid:
+                raise ValueError(f"Invalid trigger_type: {v}. Use: {valid}")
+        return v
+
+    @field_validator("days")
+    @classmethod
+    def validate_days(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            invalid = set(v) - VALID_DAYS
+            if invalid:
+                raise ValueError(f"Invalid day(s): {invalid}. Use: {VALID_DAYS}")
+        return v
+
+
+class NotificationRuleResponse(BaseModel):
+    id: int
+    name: str
+    trigger_type: str
+    target_id: int | None = None
+    cron_time: str | None = None
+    days: list[str] | str
+    priority: str
+    is_active: int
+    last_sent_at: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class NotificationLogResponse(BaseModel):
+    id: int
+    rule_id: int | None = None
+    trigger_type: str
+    title: str
+    message: str
+    provider: str
+    success: int
+    detail: str | None = None
+    created_at: str
+
+
+class NotificationTestRequest(BaseModel):
+    title: str = Field(default="테스트 알림", max_length=250)
+    message: str = Field(default="Life-Master 알림 테스트입니다.", max_length=1024)
+    priority: str = Field(default="0")
+
+
+class NotificationConfigResponse(BaseModel):
+    enabled: bool
+    provider: str
+    pushover_configured: bool
+    ntfy_configured: bool
+    ntfy_server: str
+    rules_count: int

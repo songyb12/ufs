@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
 
+    # Notifications (Pushover for Apple Watch support)
+    PUSHOVER_USER_KEY: str = ""
+    PUSHOVER_APP_TOKEN: str = ""
+    NTFY_TOPIC: str = ""
+    NTFY_SERVER: str = "https://ntfy.sh"
+    NOTIFICATION_PROVIDER: str = "pushover"  # "pushover" or "ntfy"
+    NOTIFICATION_ENABLED: bool = False
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

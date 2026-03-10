@@ -1167,7 +1167,7 @@ async def export_all() -> dict:
 
 async def get_db_info() -> dict:
     db = await get_db()
-    tables = ["routines", "routine_logs", "habits", "habit_logs", "goals", "milestones", "schedule_blocks", "schedule_templates"]
+    tables = ["routines", "routine_logs", "habits", "habit_logs", "goals", "milestones", "schedule_blocks", "schedule_templates", "notification_rules", "notification_logs"]
     counts = {}
     for table in tables:
         cursor = await db.execute(f"SELECT COUNT(*) as cnt FROM {table}")
@@ -1176,6 +1176,143 @@ async def get_db_info() -> dict:
     row = await cursor.fetchone()
     version = int(row["value"]) if row else 0
     return {"schema_version": version, "table_counts": counts}
+
+
+# ── Search ────────────────────────────────────────────────
+
+
+# ── Notification Rules ────────────────────────────────────
+
+
+async def get_notification_rules(active_only: bool = False) -> list[dict]:
+    db = await get_db()
+    q = "SELECT * FROM notification_rules"
+    if active_only:
+        q += " WHERE is_active = 1"
+    q += " ORDER BY trigger_type, name"
+    cursor = await db.execute(q)
+    rows = await cursor.fetchall()
+    return [_parse_notification_rule(r) for r in rows]
+
+
+def _parse_notification_rule(row) -> dict:
+    d = dict(row)
+    if isinstance(d.get("days"), str):
+        try:
+            d["days"] = json.loads(d["days"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return d
+
+
+async def get_notification_rule(rule_id: int) -> dict | None:
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM notification_rules WHERE id = ?", (rule_id,))
+    row = await cursor.fetchone()
+    return _parse_notification_rule(row) if row else None
+
+
+async def create_notification_rule(data: dict) -> dict:
+    db = await get_db()
+    cursor = await db.execute(
+        """INSERT INTO notification_rules (name, trigger_type, target_id, cron_time, days, priority, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            data["name"],
+            data.get("trigger_type", "ROUTINE_REMINDER"),
+            data.get("target_id"),
+            data.get("cron_time"),
+            json.dumps(data.get("days", ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])),
+            data.get("priority", "0"),
+            data.get("is_active", 1),
+        ),
+    )
+    await db.commit()
+    return await get_notification_rule(cursor.lastrowid)
+
+
+async def update_notification_rule(rule_id: int, data: dict) -> dict | None:
+    db = await get_db()
+    fields = []
+    params = []
+    for key in ("name", "trigger_type", "target_id", "cron_time", "priority", "is_active"):
+        if key in data:
+            fields.append(f"{key} = ?")
+            params.append(data[key])
+    if "days" in data:
+        fields.append("days = ?")
+        params.append(json.dumps(data["days"]))
+    if not fields:
+        return await get_notification_rule(rule_id)
+    fields.append("updated_at = ?")
+    params.append(_now())
+    params.append(rule_id)
+    cursor = await db.execute(f"UPDATE notification_rules SET {', '.join(fields)} WHERE id = ?", params)
+    await db.commit()
+    if cursor.rowcount == 0:
+        return None
+    return await get_notification_rule(rule_id)
+
+
+async def delete_notification_rule(rule_id: int) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM notification_rules WHERE id = ?", (rule_id,))
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def update_rule_last_sent(rule_id: int) -> None:
+    db = await get_db()
+    await db.execute(
+        "UPDATE notification_rules SET last_sent_at = ? WHERE id = ?",
+        (_now(), rule_id),
+    )
+    await db.commit()
+
+
+async def create_notification_log(data: dict) -> dict:
+    db = await get_db()
+    cursor = await db.execute(
+        """INSERT INTO notification_logs (rule_id, trigger_type, title, message, provider, success, detail)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            data.get("rule_id"),
+            data["trigger_type"],
+            data["title"],
+            data["message"],
+            data["provider"],
+            1 if data.get("success") else 0,
+            data.get("detail"),
+        ),
+    )
+    await db.commit()
+    cursor2 = await db.execute("SELECT * FROM notification_logs WHERE id = ?", (cursor.lastrowid,))
+    return dict(await cursor2.fetchone())
+
+
+async def get_notification_logs(limit: int = 50) -> list[dict]:
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT * FROM notification_logs ORDER BY created_at DESC LIMIT ?", (limit,)
+    )
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_active_rules_for_trigger(trigger_type: str, day_name: str) -> list[dict]:
+    """Get active rules matching trigger type and current day."""
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT * FROM notification_rules
+           WHERE is_active = 1 AND trigger_type = ? AND days LIKE ?""",
+        (trigger_type, f'%"{day_name}"%'),
+    )
+    return [_parse_notification_rule(r) for r in await cursor.fetchall()]
+
+
+async def get_notification_rules_count() -> int:
+    db = await get_db()
+    cursor = await db.execute("SELECT COUNT(*) as cnt FROM notification_rules WHERE is_active = 1")
+    return (await cursor.fetchone())["cnt"]
 
 
 # ── Search ────────────────────────────────────────────────
