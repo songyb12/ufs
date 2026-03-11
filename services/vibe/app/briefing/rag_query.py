@@ -148,7 +148,25 @@ SQL_GENERATION_SYSTEM_PROMPT = """당신은 VIBE 투자 데이터베이스의 SQ
 2. LIMIT은 최대 100
 3. 종목명으로 질문하면 watchlist 테이블과 JOIN하여 symbol 매핑
 4. 날짜 필터가 없으면 최신 데이터 기준으로 쿼리
-5. 한 번에 하나의 쿼리만 생성"""
+5. 한 번에 하나의 쿼리만 생성
+6. 최신 시그널: signal_date = (SELECT MAX(signal_date) FROM signals) 서브쿼리 사용
+7. 종목명 검색: watchlist.name LIKE '%키워드%' 사용 (한국어 종목명)
+
+예시:
+Q: "삼성전자 최근 RSI는?"
+SQL: SELECT w.name, t.rsi_14, t.trade_date FROM technical_indicators t JOIN watchlist w ON t.symbol = w.symbol AND t.market = w.market WHERE w.name LIKE '%삼성전자%' ORDER BY t.trade_date DESC LIMIT 10
+
+Q: "BUY 시그널 종목 목록"
+SQL: SELECT w.name, s.symbol, s.market, s.raw_score, s.rsi_value, s.confidence FROM signals s JOIN watchlist w ON s.symbol = w.symbol AND s.market = w.market WHERE s.signal_date = (SELECT MAX(signal_date) FROM signals) AND s.final_signal = 'BUY' ORDER BY s.raw_score DESC
+
+Q: "VIX 추이"
+SQL: SELECT indicator_date, vix FROM macro_indicators ORDER BY indicator_date DESC LIMIT 30
+
+Q: "포트폴리오 현황"
+SQL: SELECT ps.symbol, w.name, ps.market, ps.entry_price, ps.position_size, ps.sector FROM portfolio_state ps JOIN watchlist w ON ps.symbol = w.symbol AND ps.market = w.market WHERE ps.position_size > 0 AND ps.is_hidden = 0
+
+Q: "최근 매도 기록"
+SQL: SELECT pe.symbol, w.name, pe.entry_price, pe.exit_price, pe.pnl_pct, pe.exit_date, pe.exit_reason FROM position_exits pe JOIN watchlist w ON pe.symbol = w.symbol AND pe.market = w.market ORDER BY pe.exit_date DESC LIMIT 10"""
 
 SYNTHESIS_SYSTEM_PROMPT = """당신은 VIBE 투자 분석 어시스턴트입니다.
 SQL 쿼리 결과를 바탕으로 사용자의 질문에 한국어로 답변하세요.

@@ -112,8 +112,9 @@
 1. ~~Docker Compose에 MCP SSE 서비스 추가 (port 8005)~~ ✅ 완료 (Day 1 세션2)
 2. Claude Desktop 실제 연동 테스트
 3. LLM API 키 설정 후 end-to-end 테스트
-4. RAG 쿼리 프롬프트 튜닝 (한국어 질문 → SQL 정확도 개선)
-5. Agent review 프롬프트 최적화 (iteration 수 최소화)
+4. ~~RAG 쿼리 프롬프트 튜닝~~ ✅ 완료 (Day 1 세션3) — 5개 few-shot 예시 추가
+5. ~~Agent review 프롬프트 최적화~~ ✅ 완료 (Day 1 세션3) — 5단계 작업 순서 + 리포트 템플릿
+6. ~~테스트 작성 (Structured Output, MCP, Vocab Similarity)~~ ✅ 완료 (Day 1 세션3)
 
 ---
 
@@ -130,4 +131,53 @@
 ```
 수정: docker-compose.yml, CLAUDE.md, docs/ai-techniques-progress.md
 신규: services/vibe/tests/test_rag_query.py, services/vibe/tests/test_similarity.py
+```
+
+---
+
+## Day 1 세션3 — 2026-03-11
+
+### 프롬프트 튜닝 + 테스트 스위트 완성
+
+#### RAG 쿼리 프롬프트 튜닝
+- [x] `rag_query.py` SQL_GENERATION_SYSTEM_PROMPT에 5개 few-shot 예시 추가
+  - 한국 주식 (005930 삼성전자), 미국 주식, 매크로, 포트폴리오, JOIN 쿼리 등
+
+#### Agent Review 프롬프트 최적화
+- [x] `agent_review.py` AGENT_SYSTEM_PROMPT 강화
+  - 5단계 명시적 작업 순서 (portfolio → macro/sentiment → signals → performance → report)
+  - 상세 리포트 템플릿 (포트폴리오 현황, 시장 환경, 종목 분석, 리스크 플래그, 액션 아이템)
+
+#### 테스트 스위트 작성 (총 41개 신규 테스트)
+- [x] `services/vibe/tests/test_structured_output.py` — 7개 테스트
+  - S7: tool_use 요청 형식, no-tool-block 폴백, API 에러 처리
+  - S8: array→dict 변환, tool schema name 검증
+  - S9: held/entry dict 변환, tool schema name 검증
+  - mock: `patch.dict("sys.modules")` 방식으로 lazy import 우회
+- [x] `master-core/tests/test_mcp_server.py` — 16개 테스트
+  - Tool definitions: 필수 필드, 유니크 이름, 유효 메서드, 서비스 매핑, 스키마 구조
+  - _call_service: GET/POST 라우팅, 파라미터 필터링, 게이트웨이 URL, 에러 처리
+- [x] `services/life-master/tests/test_vocab_similarity.py` — 18개 테스트
+  - Jaccard: 동일/이질/부분 오버랩/빈 셋
+  - Char overlap: 한자 공유, 빈 문자열
+  - Feature similarity: JLPT/POS/태그/문자 가중치 조합 검증
+
+### 테스트 결과
+- test_structured_output.py: 7/7 passed
+- test_mcp_server.py: 16/16 passed
+- test_vocab_similarity.py: 18/18 passed
+
+### 추가 파일 변경
+```
+수정:
+  services/vibe/app/briefing/rag_query.py (프롬프트 튜닝)
+  services/vibe/app/briefing/agent_review.py (프롬프트 최적화)
+  docs/ai-techniques-progress.md
+
+신규:
+  services/vibe/tests/test_structured_output.py
+  master-core/tests/__init__.py
+  master-core/tests/test_mcp_server.py
+  services/life-master/tests/__init__.py
+  services/life-master/tests/test_vocab_similarity.py
 ```
