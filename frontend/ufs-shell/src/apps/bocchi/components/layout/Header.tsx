@@ -22,6 +22,7 @@ export function Header({ instrument, onInstrumentChange }: HeaderProps) {
           if (found) onInstrumentChange(found)
         }}
         className="bg-slate-700 text-slate-300 text-sm rounded px-3 py-1.5 outline-none border border-slate-600 hover:border-slate-500"
+        aria-label="Select instrument tuning"
       >
         <optgroup label="Guitar">
           {GUITAR_TUNINGS.map((inst) => (

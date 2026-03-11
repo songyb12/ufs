@@ -142,9 +142,9 @@ export function Fretboard({
         viewBox={zoomViewBox}
         preserveAspectRatio="xMinYMid meet"
         className="w-full min-w-[800px]"
-        style={leftHanded ? { transform: 'scaleX(-1)' } : undefined}
         role="img"
         aria-label={`${instrument.name} fretboard${leftHanded ? ' (left-handed)' : ''}${isZoomed ? ` (frets ${startFret}-${endFret})` : ''}`}
+        style={leftHanded ? { transform: 'scaleX(-1)' } : undefined}
       >
         {/* Background */}
         <rect

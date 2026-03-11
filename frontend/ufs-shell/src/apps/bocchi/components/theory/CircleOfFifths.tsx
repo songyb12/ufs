@@ -108,7 +108,7 @@ export const CircleOfFifths = memo(function CircleOfFifths({
       </div>
 
       <div className="flex justify-center">
-        <svg viewBox="0 0 300 300" width={280} height={280}>
+        <svg viewBox="0 0 300 300" width={280} height={280} role="img" aria-label="Circle of Fifths">
           {/* Background circle */}
           <circle cx={CENTER_X} cy={CENTER_Y} r={OUTER_R + 2} fill="#0f172a" stroke="#334155" strokeWidth={1} />
 

@@ -136,6 +136,7 @@ export function ScaleSelector({
             onDefinitionChange(found ?? null)
           }}
           className="bg-slate-700 text-slate-300 text-sm rounded px-2 py-1 outline-none border border-slate-600"
+          aria-label={`Select ${mode}`}
         >
           <option value="">
             {mode === 'scale' ? 'Select scale...' : 'Select chord...'}
