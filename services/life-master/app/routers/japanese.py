@@ -1325,3 +1325,35 @@ def _shuffle(items: list) -> list:
     shuffled = items.copy()
     random.shuffle(shuffled)
     return shuffled
+
+
+# ── Vocabulary Similarity & Grouping ──────────────────────
+
+
+@router.get("/vocab/{vocab_id}/similar")
+async def get_similar_vocab(vocab_id: int, top_n: int = Query(10, ge=1, le=30)):
+    """Find words similar to the given vocabulary item (feature-based)."""
+    from app.services.vocab_similarity import find_similar_words
+    return await find_similar_words(vocab_id, top_n=top_n)
+
+
+@router.get("/vocab/{vocab_id}/similar-semantic")
+async def get_similar_vocab_semantic(vocab_id: int, top_n: int = Query(10, ge=1, le=30)):
+    """Find semantically similar words using embeddings (requires sentence-transformers)."""
+    from app.services.vocab_similarity import find_similar_words_embedding
+    return await find_similar_words_embedding(vocab_id, top_n=top_n)
+
+
+@router.get("/vocab/groups/thematic")
+async def get_thematic_groups(
+    jlpt_level: str | None = None,
+    max_groups: int = Query(8, ge=1, le=20),
+    group_size: int = Query(5, ge=2, le=15),
+):
+    """Group vocabulary into thematic clusters for study sessions."""
+    from app.services.vocab_similarity import group_vocab_by_theme
+    return await group_vocab_by_theme(
+        jlpt_level=jlpt_level,
+        max_groups=max_groups,
+        group_size=group_size,
+    )

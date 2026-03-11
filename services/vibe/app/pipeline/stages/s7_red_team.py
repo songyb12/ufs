@@ -221,8 +221,7 @@ Challenge this BUY recommendation. Find 3 reasons it could fail."""
             return None
 
     async def _call_anthropic(self, prompt: str) -> dict | None:
-        """Call Anthropic Claude API (native async)."""
-        text = ""
+        """Call Anthropic Claude API with structured output via tool_use."""
         try:
             import anthropic
 
@@ -232,11 +231,38 @@ Challenge this BUY recommendation. Find 3 reasons it could fail."""
                 max_tokens=500,
                 system=RED_TEAM_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
+                tools=[{
+                    "name": "red_team_result",
+                    "description": "Submit red-team analysis result for a BUY signal",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "concern_level": {
+                                "type": "string",
+                                "enum": ["LOW", "MEDIUM", "HIGH"],
+                            },
+                            "risk_flags": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "maxItems": 5,
+                            },
+                            "reasoning": {"type": "string"},
+                            "recommended_action": {
+                                "type": "string",
+                                "enum": ["MAINTAIN", "DOWNGRADE"],
+                            },
+                        },
+                        "required": ["concern_level", "risk_flags", "reasoning", "recommended_action"],
+                    },
+                }],
+                tool_choice={"type": "tool", "name": "red_team_result"},
             )
-            text = response.content[0].text
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return {"concern_level": "LOW", "risk_flags": [], "reasoning": text[:200]}
+            # tool_use guarantees structured output matching the schema
+            for block in response.content:
+                if block.type == "tool_use":
+                    return block.input
+            logger.warning("No tool_use block in response")
+            return {"concern_level": "LOW", "risk_flags": [], "reasoning": "No structured response", "recommended_action": "MAINTAIN"}
         except Exception as e:
             logger.error("Anthropic API call failed: %s", e, exc_info=True)
             return None

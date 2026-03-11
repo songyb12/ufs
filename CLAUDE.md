@@ -25,7 +25,16 @@
 - DB: SQLite per service (PostgreSQL 마이그레이션 경로 확보)
 - Bocchi: React (Web Audio API + WebMIDI API)
 - Network: 로컬 전용, REST only
-- Docker Compose: ufs-shell:3000, bocchi-frontend:3001, master-core:8000, vibe:8001, lab-studio:8002, eng-ops:8003, life-master:8004
+- Docker Compose: ufs-shell:3000, bocchi-frontend:3001, master-core:8000, mcp-server:8005(SSE), vibe:8001, lab-studio:8002, eng-ops:8003, life-master:8004
+
+## AI Techniques (구현 완료)
+- **MCP Server**: `master-core/app/mcp_server.py` — Claude Desktop/Agent에서 UFS 전체 서비스 접근 (12 tools, stdio+SSE)
+- **SQL-RAG**: `services/vibe/app/briefing/rag_query.py` — 자연어 → SQL → 한국어 답변 (POST /briefing/query)
+- **Agentic Review**: `services/vibe/app/briefing/agent_review.py` — LLM 자율 포트폴리오 분석 (POST /briefing/agent-review)
+- **Structured Output**: s7/s8/s9 _call_anthropic()에 tool_use 적용 (json.loads 제거)
+- **Stock Similarity**: `services/vibe/app/indicators/similarity.py` — feature-vector cosine similarity (GET /signals/similar/{symbol})
+- **Vocab Grouping**: `services/life-master/app/services/vocab_similarity.py` — 일본어 단어 유사도/테마 그룹핑
+- 진행상황 로그: `docs/ai-techniques-progress.md`
 
 ## VIBE Auth
 - ID/PW 로그인 (bcrypt + JWT), dev 계정: dev/dev1234

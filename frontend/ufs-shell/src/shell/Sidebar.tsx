@@ -15,7 +15,7 @@ export function Sidebar({ open }: SidebarProps) {
   if (!open) return null
 
   return (
-    <aside className="w-56 flex flex-col bg-ufs-800 border-r border-ufs-600/50">
+    <aside className="w-56 flex flex-col bg-ufs-800 border-r border-ufs-600/50 h-screen sticky top-0">
       {/* Logo */}
       <NavLink
         to="/"
@@ -31,7 +31,7 @@ export function Sidebar({ open }: SidebarProps) {
       </NavLink>
 
       {/* Navigation */}
-      <nav className="flex-1 py-3 px-3 space-y-1">
+      <nav className="flex-1 py-3 px-3 space-y-1 overflow-y-auto">
         <NavLink
           to="/"
           end
@@ -62,10 +62,11 @@ export function Sidebar({ open }: SidebarProps) {
             className={({ isActive }) =>
               `sidebar-item flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
                 isActive
-                  ? 'bg-accent/10 text-accent'
+                  ? 'bg-white/5 font-medium'
                   : 'text-ufs-400 hover:bg-ufs-700 hover:text-white'
               }`
             }
+            style={({ isActive }) => isActive ? { color: app.color } : undefined}
           >
             <svg
               className="w-4 h-4 shrink-0"

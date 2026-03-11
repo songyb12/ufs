@@ -3,28 +3,35 @@ UFS Master Core - API Gateway (Level 0)
 
 All Level 1 service requests are proxied through this gateway.
 Endpoints:
-  GET  /                    → System info
-  GET  /health              → Aggregated health of all services
-  GET  /services             → List registered services + status
-  ANY  /api/v1/{service}/** → Proxy to target service
+  GET  /                    -> System info
+  GET  /health              -> Aggregated health of all services
+  GET  /services            -> List registered services + status
+  ANY  /api/v1/{service}/** -> Proxy to target service
 """
 
+import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import SERVICE_REGISTRY, settings
+
+logger = logging.getLogger("ufs.gateway")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage shared HTTP client lifecycle."""
     app.state.http_client = httpx.AsyncClient(timeout=30.0)
+    logger.info("Master Core v%s started — %d services registered", settings.VERSION, len(SERVICE_REGISTRY))
     yield
     await app.state.http_client.aclose()
+    logger.info("Master Core shutdown")
 
 
 app = FastAPI(
@@ -32,6 +39,34 @@ app = FastAPI(
     version=settings.VERSION,
     lifespan=lifespan,
 )
+
+# CORS — allow Shell and dev frontends
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    elapsed = (time.perf_counter() - start) * 1000
+    if not request.url.path.startswith("/health"):
+        logger.info(
+            "%s %s -> %d (%.1fms)",
+            request.method, request.url.path, response.status_code, elapsed,
+        )
+    response.headers["X-Response-Time"] = f"{elapsed:.1f}ms"
+    return response
 
 
 # --------------------------------------------------
@@ -96,7 +131,7 @@ async def gateway_proxy(service: str, path: str, request: Request):
     """
     Proxy requests to Level 1 services.
 
-    Example: GET /api/v1/vibe/dashboard → GET http://vibe:8001/dashboard
+    Example: GET /api/v1/vibe/dashboard -> GET http://vibe:8001/dashboard
     """
     if service not in SERVICE_REGISTRY:
         return JSONResponse(
@@ -123,11 +158,18 @@ async def gateway_proxy(service: str, path: str, request: Request):
             content=body,
             params=request.query_params,
         )
+        content_type = resp.headers.get("content-type", "")
+        if content_type.startswith("application/json"):
+            return JSONResponse(
+                status_code=resp.status_code,
+                content=resp.json(),
+            )
         return JSONResponse(
             status_code=resp.status_code,
-            content=resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {"raw": resp.text},
+            content={"raw": resp.text},
         )
     except httpx.RequestError as e:
+        logger.warning("Proxy to %s failed: %s", service, e)
         return JSONResponse(
             status_code=502,
             content={"error": f"Service '{service}' unreachable", "detail": str(e)},

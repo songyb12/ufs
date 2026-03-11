@@ -1,3 +1,5 @@
+import logging
+
 from pydantic_settings import BaseSettings
 
 
@@ -5,8 +7,9 @@ class Settings(BaseSettings):
     """Master Core configuration."""
 
     SERVICE_NAME: str = "master-core"
-    VERSION: str = "0.1.0"
+    VERSION: str = "0.2.0"
     DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
 
     # Level 1 service URLs
     VIBE_URL: str = "http://vibe:8001"
@@ -21,6 +24,12 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
 
 # Service registry: name -> URL mapping
 SERVICE_REGISTRY: dict[str, str] = {

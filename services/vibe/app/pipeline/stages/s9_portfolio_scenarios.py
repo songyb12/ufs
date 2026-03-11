@@ -219,9 +219,21 @@ class PortfolioScenarioStage(BaseStage):
         return None
 
     async def _call_anthropic(self, prompt: str) -> dict | None:
-        """Call Anthropic Claude API (native async)."""
+        """Call Anthropic Claude API with structured output via tool_use."""
         try:
             import anthropic
+
+            symbol_scenario_schema = {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string", "description": "Stock symbol code"},
+                        "scenario": {"type": "string", "description": "2-3 sentence Korean scenario"},
+                    },
+                    "required": ["symbol", "scenario"],
+                },
+            }
 
             client = anthropic.AsyncAnthropic(api_key=self.config.LLM_API_KEY)
             response = await client.messages.create(
@@ -229,11 +241,30 @@ class PortfolioScenarioStage(BaseStage):
                 max_tokens=4000,
                 system=SCENARIO_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
+                tools=[{
+                    "name": "portfolio_scenarios",
+                    "description": "Submit portfolio scenarios for held and entry stocks",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "held": symbol_scenario_schema,
+                            "entry": symbol_scenario_schema,
+                        },
+                        "required": ["held", "entry"],
+                    },
+                }],
+                tool_choice={"type": "tool", "name": "portfolio_scenarios"},
             )
-            text = response.content[0].text
-            return json.loads(text)
-        except json.JSONDecodeError:
-            logger.warning("[S9] LLM response not valid JSON")
+            for block in response.content:
+                if block.type == "tool_use":
+                    # Convert arrays back to {symbol: scenario} dicts
+                    result = {"held": {}, "entry": {}}
+                    for item in block.input.get("held", []):
+                        result["held"][item["symbol"]] = item["scenario"]
+                    for item in block.input.get("entry", []):
+                        result["entry"][item["symbol"]] = item["scenario"]
+                    return result
+            logger.warning("[S9] No tool_use block in response")
             return None
         except Exception as e:
             logger.error("[S9] Anthropic API failed: %s", e, exc_info=True)

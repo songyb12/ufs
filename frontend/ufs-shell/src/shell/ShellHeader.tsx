@@ -1,4 +1,4 @@
-import { useLocation } from 'react-router-dom'
+import { useLocation, Link } from 'react-router-dom'
 import { APP_REGISTRY } from '../shared/appRegistry.ts'
 
 interface ShellHeaderProps {
@@ -12,6 +12,9 @@ export function ShellHeader({ sidebarOpen, onToggleSidebar }: ShellHeaderProps) 
   const currentApp = APP_REGISTRY.find((app) =>
     location.pathname.startsWith(app.path),
   )
+
+  // Build breadcrumb segments
+  const segments = location.pathname.split('/').filter(Boolean)
 
   return (
     <header className="h-14 flex items-center justify-between px-4 bg-ufs-800 border-b border-ufs-600/50">
@@ -30,19 +33,31 @@ export function ShellHeader({ sidebarOpen, onToggleSidebar }: ShellHeaderProps) 
           </svg>
         </button>
 
-        {currentApp ? (
-          <div className="flex items-center gap-2">
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: currentApp.color }}
-            />
-            <span className="text-sm font-medium text-white">
-              {currentApp.name}
+        {/* Breadcrumb */}
+        <nav className="flex items-center gap-1.5 text-sm" aria-label="Breadcrumb">
+          <Link to="/" className="text-ufs-400 hover:text-white transition-colors">
+            Home
+          </Link>
+          {segments.map((seg, i) => (
+            <span key={i} className="flex items-center gap-1.5">
+              <span className="text-ufs-600">/</span>
+              {i === 0 && currentApp ? (
+                <Link
+                  to={currentApp.path}
+                  className="font-medium transition-colors"
+                  style={{ color: currentApp.color }}
+                >
+                  {currentApp.name}
+                </Link>
+              ) : (
+                <span className="text-ufs-400">{seg}</span>
+              )}
             </span>
-          </div>
-        ) : (
-          <span className="text-sm font-medium text-white">Home</span>
-        )}
+          ))}
+          {segments.length === 0 && (
+            <span className="text-ufs-600">/</span>
+          )}
+        </nav>
       </div>
 
       <div className="flex items-center gap-2 text-ufs-400 text-xs">

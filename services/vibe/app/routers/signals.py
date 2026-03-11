@@ -27,6 +27,23 @@ async def get_performance(market: str | None = None, lookback_days: int = Query(
     return summary
 
 
+@router.get("/similar/{symbol}")
+async def get_similar_stocks(
+    symbol: str,
+    market: str | None = None,
+    top_n: int = Query(5, ge=1, le=20),
+):
+    """Find stocks similar to the given symbol based on technical/fundamental profile."""
+    from app.indicators.similarity import find_similar_stocks
+
+    result = await find_similar_stocks(
+        symbol=symbol,
+        market=market.upper() if market else None,
+        top_n=top_n,
+    )
+    return result
+
+
 @router.get("/{market}", response_model=list[SignalResponse])
 async def get_signals_by_market(market: str):
     """Get the latest signals for a specific market (KR or US)."""
