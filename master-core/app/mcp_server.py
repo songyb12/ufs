@@ -209,8 +209,19 @@ _TOOL_MAP: dict[str, dict] = {t["name"]: t for t in TOOL_DEFINITIONS}
 
 
 # ---------------------------------------------------------------------------
-# HTTP client for calling services
+# HTTP client for calling services (shared across tool calls)
 # ---------------------------------------------------------------------------
+
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Get or create shared HTTP client."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=30.0)
+    return _http_client
+
 
 async def _call_service(tool_def: dict, arguments: dict) -> str:
     """Forward a tool call to the appropriate Level 1 service via HTTP."""
@@ -220,28 +231,28 @@ async def _call_service(tool_def: dict, arguments: dict) -> str:
 
     # Determine base URL
     if service == "__gateway__":
-        base_url = f"http://localhost:{8000}"
+        base_url = "http://localhost:8000"
     else:
         base_url = SERVICE_REGISTRY.get(service)
         if not base_url:
             return json.dumps({"error": f"Service '{service}' not registered"})
 
     url = f"{base_url}/{path}"
+    client = _get_http_client()
 
-    # Add query params from arguments for GET, body for POST
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            if method == "GET":
-                params = {k: v for k, v in arguments.items() if v is not None}
-                resp = await client.get(url, params=params)
-            else:
-                resp = await client.request(method, url, json=arguments)
+    try:
+        if method == "GET":
+            params = {k: v for k, v in arguments.items() if v is not None}
+            resp = await client.get(url, params=params)
+        else:
+            resp = await client.request(method, url, json=arguments)
 
-            if resp.headers.get("content-type", "").startswith("application/json"):
-                return json.dumps(resp.json(), ensure_ascii=False, default=str)
-            return resp.text
-        except httpx.RequestError as e:
-            return json.dumps({"error": f"Service unreachable: {e}"})
+        if resp.headers.get("content-type", "").startswith("application/json"):
+            return json.dumps(resp.json(), ensure_ascii=False, default=str)
+        return resp.text
+    except httpx.RequestError as e:
+        logger.error("Tool '%s' -> %s failed: %s", tool_def["name"], url, e)
+        return json.dumps({"error": f"Service unreachable: {e}"})
 
 
 # ---------------------------------------------------------------------------
