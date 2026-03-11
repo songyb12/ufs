@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "ufs-master-core": {
+      "command": "python",
+      "args": ["-m", "app.mcp_server"],
+      "cwd": "/path/to/ufs/master-core",
+      "env": {}
+    }
+  }
+}

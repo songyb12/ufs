@@ -51,6 +51,54 @@ async def generate_briefing_endpoint(target_date: str | None = None):
         raise HTTPException(status_code=500, detail="Briefing generation failed. Check server logs for details.")
 
 
+class RagQueryRequest(BaseModel):
+    question: str = Field(..., min_length=2, max_length=500, description="Natural language question about VIBE data")
+
+
+@router.post("/query")
+async def rag_query_endpoint(req: RagQueryRequest):
+    """SQL-RAG: Ask natural language questions about VIBE data.
+
+    Converts questions to SQL, executes safely, and returns synthesized Korean answers.
+    Example: "삼성전자 최근 RSI 추이는?" or "BUY 시그널이 가장 많은 종목은?"
+    """
+    from app.briefing.rag_query import rag_query
+
+    logger.info("RAG query requested: %s", req.question[:80])
+    try:
+        result = await rag_query(req.question)
+        return result
+    except Exception as e:
+        logger.error("RAG query failed: error=%s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="RAG query failed. Check server logs.")
+
+
+class AgentReviewRequest(BaseModel):
+    request: str = Field(default="포트폴리오를 종합 리뷰해주세요.", max_length=500)
+    portfolio_id: int = 1
+
+
+@router.post("/agent-review")
+async def agent_portfolio_review(req: AgentReviewRequest):
+    """Agentic portfolio review: LLM autonomously gathers data and writes a review.
+
+    The agent iterates up to 5 times, calling tools to fetch portfolio positions,
+    signals, macro data, and more, then synthesizes a comprehensive Korean report.
+    """
+    from app.briefing.agent_review import run_portfolio_review
+
+    logger.info("Agent review requested: %s", req.request[:80])
+    try:
+        result = await run_portfolio_review(
+            request=req.request,
+            portfolio_id=req.portfolio_id,
+        )
+        return result
+    except Exception as e:
+        logger.error("Agent review failed: error=%s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Agent review failed. Check server logs.")
+
+
 class AnalyzeRequest(BaseModel):
     question: str = Field(default="오늘의 시장 상황을 종합 분석해주세요.", max_length=1000)
     markets: list[str] | None = None

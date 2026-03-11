@@ -153,7 +153,7 @@ class SignalExplanationStage(BaseStage):
             return None
 
     async def _call_anthropic(self, prompt: str) -> dict[str, str] | None:
-        """Call Anthropic Claude API for batch explanation (native async)."""
+        """Call Anthropic Claude API for batch explanation with structured output."""
         try:
             import anthropic
 
@@ -164,11 +164,37 @@ class SignalExplanationStage(BaseStage):
                 max_tokens=4000,
                 system=EXPLANATION_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
+                tools=[{
+                    "name": "signal_explanations",
+                    "description": "Submit Korean explanations for each stock signal",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "explanations": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "symbol": {"type": "string", "description": "Stock symbol code"},
+                                        "explanation": {"type": "string", "description": "2-3 sentence Korean explanation"},
+                                    },
+                                    "required": ["symbol", "explanation"],
+                                },
+                            },
+                        },
+                        "required": ["explanations"],
+                    },
+                }],
+                tool_choice={"type": "tool", "name": "signal_explanations"},
             )
-            text = response.content[0].text
-            return json.loads(text)
-        except json.JSONDecodeError:
-            logger.warning("[S8] LLM response not valid JSON, skipping")
+            for block in response.content:
+                if block.type == "tool_use":
+                    # Convert array back to {symbol: explanation} dict
+                    return {
+                        item["symbol"]: item["explanation"]
+                        for item in block.input.get("explanations", [])
+                    }
+            logger.warning("[S8] No tool_use block in response")
             return None
         except Exception as e:
             logger.error("[S8] Anthropic API call failed: %s", e, exc_info=True)
