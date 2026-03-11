@@ -32,6 +32,22 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      // Frontend service proxies (iframe targets)
+      '/svc/bocchi': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/svc\/bocchi/, ''),
+      },
+      '/svc/vibe': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/svc\/vibe/, '/ui'),
+      },
+      '/svc/life': {
+        target: 'http://localhost:8004',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/svc\/life/, '/ui'),
+      },
     },
   },
 })

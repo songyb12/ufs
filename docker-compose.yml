@@ -39,7 +39,7 @@ services:
     build: ./master-core
     container_name: ufs-mcp-server
     ports:
-      - "8005:8005"
+      - "127.0.0.1:8005:8005"
     environment:
       - SERVICE_NAME=mcp-server
       - VIBE_URL=http://vibe:8001

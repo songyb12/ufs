@@ -1,0 +1,17 @@
+{
+  "name": "UFS - Personal AI OS",
+  "short_name": "UFS",
+  "description": "Unified Frontend Shell for personal microservices",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1729",
+  "theme_color": "#0f1729",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

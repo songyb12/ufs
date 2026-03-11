@@ -9,6 +9,7 @@ interface DashboardData {
 }
 
 export default function LifeApp() {
+  const [viewMode, setViewMode] = useState<'overview' | 'dashboard'>('overview')
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -23,6 +24,27 @@ export default function LifeApp() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
+
+  if (viewMode === 'dashboard') {
+    return (
+      <div className="flex flex-col h-full -m-6">
+        <div className="flex items-center justify-between px-4 py-2 bg-ufs-800 border-b border-ufs-600/50">
+          <span className="text-sm text-white font-medium">Life-Master Dashboard</span>
+          <button
+            onClick={() => setViewMode('overview')}
+            className="text-xs text-ufs-400 hover:text-white px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors"
+          >
+            Back to Overview
+          </button>
+        </div>
+        <iframe
+          src="/svc/life/"
+          className="flex-1 w-full border-0"
+          title="Life-Master Dashboard"
+        />
+      </div>
+    )
+  }
 
   const features = [
     { name: 'Routines', desc: 'Daily/weekly routine manager', endpoint: '/routines' },
@@ -39,7 +61,26 @@ export default function LifeApp() {
         <h1 className="text-xl font-bold text-white mb-1">
           Life<span className="text-violet-400">-Master</span>
         </h1>
-        <p className="text-ufs-400 text-sm">Routine & Schedule Optimizer</p>
+        <p className="text-ufs-400 text-sm">Routine &amp; Schedule Optimizer</p>
+      </div>
+
+      <div className="flex items-center gap-3 mb-6">
+        <button
+          onClick={() => setViewMode('dashboard')}
+          className="px-4 py-2 rounded-lg bg-violet-500/20 text-violet-300 text-sm hover:bg-violet-500/30 transition-colors border border-violet-500/30"
+        >
+          Open Dashboard
+        </button>
+        {!loading && !error && (
+          <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400">
+            healthy
+          </span>
+        )}
+        {error && (
+          <span className="text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-400">
+            unreachable
+          </span>
+        )}
       </div>
 
       {/* Dashboard Summary */}

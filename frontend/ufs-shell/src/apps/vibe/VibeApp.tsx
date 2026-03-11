@@ -43,7 +43,7 @@ export default function VibeApp() {
           </button>
         </div>
         <iframe
-          src="/api/vibe/ui/"
+          src="/svc/vibe/"
           className="flex-1 w-full border-0"
           title="VIBE Dashboard"
         />
