@@ -28,6 +28,30 @@ services:
       - ufs-network
     restart: unless-stopped
 
+  # MCP Server (SSE transport for HTTP-based MCP clients)
+  mcp-server:
+    build: ./master-core
+    container_name: ufs-mcp-server
+    ports:
+      - "8005:8005"
+    environment:
+      - SERVICE_NAME=mcp-server
+      - VIBE_URL=http://vibe:8001
+      - LAB_STUDIO_URL=http://lab-studio:8002
+      - ENGINEERING_OPS_URL=http://engineering-ops:8003
+      - LIFE_MASTER_URL=http://life-master:8004
+    env_file:
+      - .env
+    command: ["python", "-m", "app.mcp_server", "--sse"]
+    depends_on:
+      vibe:
+        condition: service_healthy
+      life-master:
+        condition: service_healthy
+    networks:
+      - ufs-network
+    restart: unless-stopped
+
   # ============================================
   # Level 1: Sub-Projects
   # ============================================

@@ -109,8 +109,25 @@
 | `sentence-transformers` | >=2.2.0 | #5 Embedding | Life-Master | optional (없어도 feature-based fallback) |
 
 ### 다음 단계 (향후 세션)
-1. Docker Compose에 MCP SSE 서비스 추가 (port 8005)
+1. ~~Docker Compose에 MCP SSE 서비스 추가 (port 8005)~~ ✅ 완료 (Day 1 세션2)
 2. Claude Desktop 실제 연동 테스트
 3. LLM API 키 설정 후 end-to-end 테스트
 4. RAG 쿼리 프롬프트 튜닝 (한국어 질문 → SQL 정확도 개선)
 5. Agent review 프롬프트 최적화 (iteration 수 최소화)
+
+---
+
+## Day 1 세션2 — 2026-03-11
+
+### 추가 작업
+- [x] Docker Compose에 `mcp-server` 서비스 추가 (port 8005, SSE transport)
+- [x] VIBE 신규 테스트 44개 작성 및 통과
+  - `test_rag_query.py`: SQL 검증/보안 테스트 23개
+  - `test_similarity.py`: cosine similarity, normalize, feature vector 테스트 21개
+- [x] CLAUDE.md에 AI Techniques 섹션 추가
+
+### 추가 파일 변경
+```
+수정: docker-compose.yml, CLAUDE.md, docs/ai-techniques-progress.md
+신규: services/vibe/tests/test_rag_query.py, services/vibe/tests/test_similarity.py
+```
