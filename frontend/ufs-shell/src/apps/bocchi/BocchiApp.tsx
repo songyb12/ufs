@@ -635,12 +635,12 @@ export default function BocchiApp() {
   )
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex flex-col -m-6">
       {/* Bocchi sub-header: instrument selector */}
       <Header instrument={instrument} onInstrumentChange={setInstrument} />
 
-      {/* Main content */}
-      <main className="flex-1 flex flex-col gap-4 p-4 max-w-7xl mx-auto w-full">
+      {/* Main content — uses negative margin to reclaim ShellLayout padding */}
+      <div className="flex flex-col gap-4 p-4 max-w-7xl mx-auto w-full">
         {/* Note click info toast */}
         <NoteToast ref={noteToastRef} rootNote={selectedRoot ?? progressionKey ?? undefined} />
 
@@ -1136,7 +1136,7 @@ export default function BocchiApp() {
           visible={showShortcutHelp}
           onClose={() => setShowShortcutHelp(false)}
         />
-      </main>
+      </div>
     </div>
   )
 }
