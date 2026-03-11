@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     # Scheduler defaults
     DAY_START_HOUR: int = Field(default=6, ge=0, le=23)
-    DAY_END_HOUR: int = Field(default=23, ge=1, le=24)
+    DAY_END_HOUR: int = Field(default=23, ge=1, le=23)
     SLOT_INTERVAL_MIN: int = Field(default=30, ge=5, le=120)
 
     # Data retention

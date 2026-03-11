@@ -5,10 +5,9 @@ VIBE - Investment Intelligence Service
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-
-import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -119,8 +118,10 @@ app = FastAPI(
 
 # CORS middleware (for dashboard frontend)
 _cors_origins = [
+    "http://localhost:3000",   # UFS Shell
     "http://localhost:5173",   # Vite dev
     "http://localhost:8001",   # Self (embedded dashboard)
+    "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8001",
 ]
