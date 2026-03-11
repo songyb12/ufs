@@ -6,7 +6,6 @@ interface BackingTrackPanelProps {
   drumVolume: number
   bassVolume: number
   styleIndex: number
-  styleName: string
   onToggle: () => void
   onDrumVolumeChange: (v: number) => void
   onBassVolumeChange: (v: number) => void
@@ -18,7 +17,6 @@ export const BackingTrackPanel = memo(function BackingTrackPanel({
   drumVolume,
   bassVolume,
   styleIndex,
-  styleName: _styleName,
   onToggle,
   onDrumVolumeChange,
   onBassVolumeChange,
@@ -37,12 +35,13 @@ export const BackingTrackPanel = memo(function BackingTrackPanel({
               ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40'
               : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
           }`}
+          aria-label={enabled ? 'Disable backing track' : 'Enable backing track'}
         >
           {enabled ? 'ON' : 'OFF'}
         </button>
       </div>
 
-      {/* Style selector — always visible */}
+      {/* Style selector */}
       <div className="flex gap-1.5 flex-wrap">
         {BACKING_STYLES.map((style, idx) => (
           <button
@@ -71,6 +70,7 @@ export const BackingTrackPanel = memo(function BackingTrackPanel({
               value={Math.round(drumVolume * 100)}
               onChange={(e) => onDrumVolumeChange(Number(e.target.value) / 100)}
               className="flex-1 h-1 accent-emerald-500"
+              aria-label="Drum volume"
             />
             <span className="w-8 text-right text-slate-500">
               {Math.round(drumVolume * 100)}
@@ -85,6 +85,7 @@ export const BackingTrackPanel = memo(function BackingTrackPanel({
               value={Math.round(bassVolume * 100)}
               onChange={(e) => onBassVolumeChange(Number(e.target.value) / 100)}
               className="flex-1 h-1 accent-emerald-500"
+              aria-label="Bass volume"
             />
             <span className="w-8 text-right text-slate-500">
               {Math.round(bassVolume * 100)}

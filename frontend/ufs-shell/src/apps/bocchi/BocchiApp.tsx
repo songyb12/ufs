@@ -1010,7 +1010,6 @@ export default function BocchiApp() {
             drumVolume={backingTrack.drumVolume}
             bassVolume={backingTrack.bassVolume}
             styleIndex={backingTrack.styleIndex}
-            styleName={backingTrack.style.name}
             onToggle={backingTrack.toggle}
             onDrumVolumeChange={backingTrack.setDrumVolume}
             onBassVolumeChange={backingTrack.setBassVolume}
