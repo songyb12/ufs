@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.polaris import repository as polaris_repo
 from app.polaris.collectors.llm_extractor import extract_initial_profile
@@ -133,7 +133,9 @@ async def get_profile_history(figure_id: str):
 
 
 @router.get("/figures/{figure_id}/events", response_model=list[dict])
-async def list_events(figure_id: str, limit: int = 50, min_significance: int = 1):
+async def list_events(figure_id: str,
+                      limit: int = Query(50, ge=1, le=200),
+                      min_significance: int = Query(1, ge=1, le=5)):
     """List events for a figure."""
     figure = await polaris_repo.get_figure(figure_id)
     if not figure:
@@ -198,13 +200,17 @@ async def scan_news(figure_id: str, body: NewsScanRequest | None = None):
         min_significance=min_sig,
     )
 
-    # Store events
+    # Store events (with dedup)
     created = []
     for event in events:
+        event_title = event.get("article_title", "")
+        if event_title and await polaris_repo.event_exists(figure_id, event_title):
+            continue
+
         record = await polaris_repo.insert_event(
             figure_id=figure_id,
             event_type=event.get("event_type", "statement"),
-            title=event.get("article_title", ""),
+            title=event_title,
             summary=event.get("summary", ""),
             raw_content=event.get("market_relevance", ""),
             source_url=event.get("article_url", ""),
@@ -312,7 +318,8 @@ async def predict(figure_id: str, body: PredictRequest | None = None):
 
 
 @router.get("/figures/{figure_id}/predictions", response_model=list[dict])
-async def list_predictions(figure_id: str, limit: int = 20,
+async def list_predictions(figure_id: str,
+                           limit: int = Query(20, ge=1, le=100),
                            status: str | None = None):
     """List predictions for a figure."""
     figure = await polaris_repo.get_figure(figure_id)

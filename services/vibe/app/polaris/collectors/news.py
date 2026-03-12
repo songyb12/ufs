@@ -9,8 +9,6 @@ from __future__ import annotations
 import logging
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
-from typing import Any
 from urllib.parse import quote
 
 import httpx

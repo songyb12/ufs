@@ -11,8 +11,6 @@ import logging
 from datetime import datetime, timezone
 from functools import partial
 
-from app.config import settings
-
 logger = logging.getLogger("vibe.polaris.scheduler")
 
 
@@ -63,10 +61,15 @@ async def polaris_news_scan() -> dict:
 
             # 3. Store events
             for event in events:
+                # Dedup: skip if an event with the same title already exists
+                event_title = event.get("article_title", "")
+                if event_title and await polaris_repo.event_exists(figure_id, event_title):
+                    continue
+
                 await polaris_repo.insert_event(
                     figure_id=figure_id,
                     event_type=event.get("event_type", "statement"),
-                    title=event.get("article_title", ""),
+                    title=event_title,
                     summary=event.get("summary", ""),
                     raw_content=event.get("market_relevance", ""),
                     source_url=event.get("article_url", ""),

@@ -9,9 +9,8 @@ Uses LLM (Claude tool_use) to:
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
-from datetime import datetime, timezone
 
 from app.config import settings
 
@@ -153,25 +152,27 @@ async def classify_news_batch(
     Returns:
         List of classified events, filtered and sorted by significance desc.
     """
-    import asyncio
+    # Limit concurrent LLM calls to avoid rate limiting
+    sem = asyncio.Semaphore(3)
 
     async def _classify_one(article: dict) -> dict | None:
-        result = await classify_news_event(
-            figure_name=figure_name,
-            article_title=article.get("title", ""),
-            article_description=article.get("description", ""),
-            article_source=article.get("source", ""),
-        )
-        if not result.get("is_relevant", False):
-            return None
-        if result.get("significance", 1) < min_significance:
-            return None
+        async with sem:
+            result = await classify_news_event(
+                figure_name=figure_name,
+                article_title=article.get("title", ""),
+                article_description=article.get("description", ""),
+                article_source=article.get("source", ""),
+            )
+            if not result.get("is_relevant", False):
+                return None
+            if result.get("significance", 1) < min_significance:
+                return None
 
-        # Attach original article metadata
-        result["article_title"] = article.get("title", "")
-        result["article_url"] = article.get("url", "")
-        result["article_published"] = article.get("published", "")
-        return result
+            # Attach original article metadata
+            result["article_title"] = article.get("title", "")
+            result["article_url"] = article.get("url", "")
+            result["article_published"] = article.get("published", "")
+            return result
 
     tasks = [_classify_one(article) for article in articles]
     results = await asyncio.gather(*tasks, return_exceptions=True)

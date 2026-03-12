@@ -153,13 +153,15 @@ async def get_figure(figure_id: str) -> dict:
     return _row_to_dict(row)
 
 
-async def get_figure_by_name(name: str) -> dict:
+async def get_figure_by_name(name: str) -> dict | None:
     db = await get_db()
     c = await db.execute(
         "SELECT * FROM polaris_figures WHERE name = ? OR name_ko = ?",
         (name, name),
     )
     row = await c.fetchone()
+    if not row:
+        return None
     return _row_to_dict(row)
 
 
@@ -217,6 +219,16 @@ async def insert_profile(figure_id: str, profile_data: dict,
 
 
 # ── Events ──
+
+
+async def event_exists(figure_id: str, title: str) -> bool:
+    """Check if an event with the same title already exists for a figure."""
+    db = await get_db()
+    c = await db.execute(
+        "SELECT 1 FROM polaris_events WHERE figure_id = ? AND title = ? LIMIT 1",
+        (figure_id, title),
+    )
+    return await c.fetchone() is not None
 
 
 async def insert_event(figure_id: str, event_type: str, title: str,

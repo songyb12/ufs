@@ -7,7 +7,6 @@ based on active POLARIS predictions with market impact data.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 from app.polaris import repository as polaris_repo
 from app.polaris.analysis.market_mapper import summarize_market_impact
