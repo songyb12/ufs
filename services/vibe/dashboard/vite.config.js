@@ -31,6 +31,12 @@ export default defineConfig({
       '/academy': 'http://localhost:8001',
       '/notifications': 'http://localhost:8001',
       '/auth': 'http://localhost:8001',
+      '/soxl': 'http://localhost:8001',
+      '/geopolitical': 'http://localhost:8001',
+      '/carry-trade': 'http://localhost:8001',
+      '/forex': 'http://localhost:8001',
+      '/fund-flow': 'http://localhost:8001',
+      '/strategy-settings': 'http://localhost:8001',
     },
   },
 })
