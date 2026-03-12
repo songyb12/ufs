@@ -44,7 +44,7 @@ export default function Signals({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\u26A1'} Signals</h2>
+          <h2>{'⚡'} Signals</h2>
           <p className="subtitle">Signal history and performance tracking</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -59,10 +59,10 @@ export default function Signals({ onNavigate, refreshKey }) {
               .catch(err => { setError(err.message); toast.error('시그널 로드 실패') })
               .finally(() => setLoading(false))
           }}>
-            {'\u21BB'} Refresh
+            {'↻'} Refresh
           </button>
           <button className="btn btn-outline" onClick={() => { exportSignalsCSV(signals); toast.success(`${signals.length}개 시그널 CSV 다운로드 완료`) }}>
-            {'\uD83D\uDCE5'} CSV
+            {'📥'} CSV
           </button>
           <HelpButton section="signals" onNavigate={onNavigate} />
         </div>
@@ -127,7 +127,7 @@ export default function Signals({ onNavigate, refreshKey }) {
       {/* Signal Trend Chart */}
       {chartData.length > 1 && (
         <div className="chart-container">
-          <h3>{'\uD83D\uDCC8'} Daily Signal Trend</h3>
+          <h3>{'📈'} Daily Signal Trend</h3>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -208,7 +208,7 @@ export default function Signals({ onNavigate, refreshKey }) {
                   <td className="hide-on-tablet">{s.macro_score?.toFixed(1)}</td>
                   <td className="hide-on-mobile">
                     {s.hard_limit_triggered
-                      ? <span className="badge badge-sell">{'\uD83D\uDED1'}</span>
+                      ? <span className="badge badge-sell">{'🛑'}</span>
                       : '-'
                     }
                   </td>

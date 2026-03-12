@@ -43,7 +43,7 @@ export function ToastProvider({ children, toastRef }) {
         {toasts.map(t => (
           <div key={t.id} className={`toast toast-${t.type}`} onClick={() => removeToast(t.id)}>
             <span className="toast-icon">
-              {t.type === 'success' ? '\u2713' : t.type === 'error' ? '\u2715' : t.type === 'warn' ? '\u26A0' : '\u2139'}
+              {t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : t.type === 'warn' ? '⚠' : 'ℹ'}
             </span>
             <span className="toast-message">{t.message}</span>
           </div>

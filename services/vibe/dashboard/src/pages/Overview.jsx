@@ -18,7 +18,7 @@ import { useToast } from '../components/Toast'
 const QUICK_NAV = [
   {
     id: 'action-plan',
-    icon: '\uD83D\uDCCB',
+    icon: '📋',
     title: '오늘의 액션 플랜',
     desc: '전략 스탠스, 추천 종목, 포트폴리오 조치',
     gradient: 'linear-gradient(135deg, rgba(59,130,246,0.15), rgba(99,102,241,0.1))',
@@ -26,7 +26,7 @@ const QUICK_NAV = [
   },
   {
     id: 'signals',
-    icon: '\u26A1',
+    icon: '⚡',
     title: '시그널 분석',
     desc: '종목별 BUY/SELL/HOLD 상세 분석',
     gradient: 'linear-gradient(135deg, rgba(34,197,94,0.12), rgba(22,163,74,0.08))',
@@ -34,7 +34,7 @@ const QUICK_NAV = [
   },
   {
     id: 'macro',
-    icon: '\uD83C\uDF10',
+    icon: '🌐',
     title: '매크로·레짐 분석',
     desc: '시장 국면, 투자 시계, 섹터 영향도',
     gradient: 'linear-gradient(135deg, rgba(234,179,8,0.12), rgba(245,158,11,0.08))',
@@ -42,7 +42,7 @@ const QUICK_NAV = [
   },
   {
     id: 'portfolio',
-    icon: '\uD83D\uDCBC',
+    icon: '💼',
     title: '포트폴리오 현황',
     desc: '보유 종목, 손익, 리밸런싱 필요 여부',
     gradient: 'linear-gradient(135deg, rgba(168,85,247,0.12), rgba(139,92,246,0.08))',
@@ -179,14 +179,14 @@ export default function Overview({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\u2302'} 오버뷰</h2>
+          <h2>{'⌂'} 오버뷰</h2>
           <p className="subtitle">
             최근 분석: {summary.latest_signal_date || 'N/A'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <button className="btn btn-outline" onClick={() => { setLoading(true); loadData().finally(() => setLoading(false)) }}>
-            {'\u21BB'} 새로고침
+            {'↻'} 새로고침
           </button>
           <HelpButton section="overview" onNavigate={onNavigate} />
         </div>
@@ -274,7 +274,7 @@ export default function Overview({ onNavigate, refreshKey }) {
           onClick={() => onNavigate('action-plan')}
           style={{ whiteSpace: 'nowrap', padding: '0.6rem 1.25rem' }}
         >
-          {'\uD83D\uDCCB'} 액션 플랜 보기 {'\u2192'}
+          {'📋'} 액션 플랜 보기 {'→'}
         </button>
       </div>
 
@@ -455,7 +455,7 @@ export default function Overview({ onNavigate, refreshKey }) {
       {/* ── Charts Row ── */}
       <div className="grid-2">
         <div className="chart-container">
-          <h3>{'\uD83D\uDCC8'} 시그널 분포</h3>
+          <h3>{'📈'} 시그널 분포</h3>
           {pieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
@@ -483,7 +483,7 @@ export default function Overview({ onNavigate, refreshKey }) {
         </div>
 
         <div className="chart-container">
-          <h3>{'\u26A1'} 스코어 상위 종목</h3>
+          <h3>{'⚡'} 스코어 상위 종목</h3>
           {barData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={barData} layout="vertical">
@@ -520,14 +520,14 @@ export default function Overview({ onNavigate, refreshKey }) {
       {/* ── Latest Signals Table ── */}
       <div className="table-container">
         <div className="table-header">
-          <h3>{'\u26A1'} 최근 시그널</h3>
+          <h3>{'⚡'} 최근 시그널</h3>
           <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
             <span className="card-sub">{new Set(signals.map(s => `${s.symbol}-${s.market}`)).size}개 종목</span>
             <button
               className="btn btn-outline btn-sm"
               onClick={() => onNavigate('signals')}
             >
-              전체 보기 {'\u2192'}
+              전체 보기 {'→'}
             </button>
           </div>
         </div>

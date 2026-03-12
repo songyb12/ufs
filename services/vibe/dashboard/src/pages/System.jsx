@@ -16,11 +16,11 @@ import PageGuide from '../components/PageGuide'
 import { useToast } from '../components/Toast'
 
 const SYSTEM_TABS = [
-  { key: 'status', label: '\uD83D\uDFE2 시스템 현황' },
-  { key: 'config', label: '\u2699 설정' },
-  { key: 'notify', label: '\uD83D\uDD14 알림' },
-  { key: 'data', label: '\uD83D\uDCCA 데이터' },
-  { key: 'account', label: '\uD83D\uDC64 계정 & 워치리스트' },
+  { key: 'status', label: '🟢 시스템 현황' },
+  { key: 'config', label: '⚙ 설정' },
+  { key: 'notify', label: '🔔 알림' },
+  { key: 'data', label: '📊 데이터' },
+  { key: 'account', label: '👤 계정 & 워치리스트' },
 ]
 
 export default function System({ onNavigate, refreshKey }) {
@@ -254,18 +254,18 @@ export default function System({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\u2699'} 시스템</h2>
+          <h2>{'⚙'} 시스템</h2>
           <p className="subtitle">서비스 상태, 스케줄러, 파이프라인 관리</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button className="btn btn-primary" onClick={() => handleTrigger('KR')} disabled={triggering}>
-            {triggering ? '실행 중...' : '\u25B6 KR 실행'}
+            {triggering ? '실행 중...' : '▶ KR 실행'}
           </button>
           <button className="btn btn-primary" onClick={() => handleTrigger('US')} disabled={triggering}>
-            {triggering ? '실행 중...' : '\u25B6 US 실행'}
+            {triggering ? '실행 중...' : '▶ US 실행'}
           </button>
           <button className="btn btn-outline" onClick={refresh}>
-            {'\u21BB'} 새로고침
+            {'↻'} 새로고침
           </button>
           <HelpButton section="system" onNavigate={onNavigate} />
         </div>
@@ -332,7 +332,7 @@ export default function System({ onNavigate, refreshKey }) {
       {/* Scheduler Jobs */}
       <div className="table-container">
         <div className="table-header">
-          <h3>{'\u23F0'} 스케줄러</h3>
+          <h3>{'⏰'} 스케줄러</h3>
           <span className={`badge ${health?.scheduler?.running ? 'badge-completed' : 'badge-failed'}`}>
             {health?.scheduler?.running ? 'Running' : 'Stopped'}
           </span>
@@ -365,7 +365,7 @@ export default function System({ onNavigate, refreshKey }) {
       {/* Pipeline Runs */}
       <div className="table-container">
         <div className="table-header">
-          <h3>{'\uD83D\uDD04'} 파이프라인 실행 이력</h3>
+          <h3>{'🔄'} 파이프라인 실행 이력</h3>
         </div>
         <table>
           <thead>
@@ -445,7 +445,7 @@ export default function System({ onNavigate, refreshKey }) {
       {llmSettings && (
         <div className="table-container">
           <div className="table-header">
-            <h3>{'\uD83E\uDDE0'} LLM \uC124\uC815</h3>
+            <h3>{'🧠'} LLM 설정</h3>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 Provider: <strong style={{ color: 'var(--text-primary)' }}>{llmSettings.config?.LLM_PROVIDER}</strong>
@@ -455,7 +455,7 @@ export default function System({ onNavigate, refreshKey }) {
               </span>
               <span className={`badge ${llmSettings.config?.LLM_API_KEY_SET ? 'badge-completed' : 'badge-failed'}`}
                 style={{ fontSize: '0.65rem' }}>
-                API Key {llmSettings.config?.LLM_API_KEY_SET ? '\u2713 \uC124\uC815\uB428' : '\u2717 \uBBF8\uC124\uC815'}
+                API Key {llmSettings.config?.LLM_API_KEY_SET ? '✓ 설정됨' : '✗ 미설정'}
               </span>
             </div>
           </div>
@@ -466,27 +466,27 @@ export default function System({ onNavigate, refreshKey }) {
               {[
                 {
                   key: 'LLM_RED_TEAM_ENABLED',
-                  label: 'Red-Team \uAC80\uC99D',
-                  desc: 'Stage 7: BUY \uC2DC\uADF8\uB110 LLM \uC5ED\uBC1C\uC0C1 \uAC80\uC99D',
-                  icon: '\uD83D\uDEE1',
+                  label: 'Red-Team 검증',
+                  desc: 'Stage 7: BUY 시그널 LLM 역발상 검증',
+                  icon: '🛡',
                   stage: 'S7',
-                  costHint: '~\u20A9150/\uC2E4\uD589',
+                  costHint: '~₩150/실행',
                 },
                 {
                   key: 'LLM_EXPLANATION_ENABLED',
-                  label: '\uC2DC\uADF8\uB110 \uD574\uC124',
-                  desc: 'Stage 8: \uD55C\uAD6D\uC5B4 \uC885\ubaa9\ubcc4 \uBD84\uC11D + \uC2DC\uD669 \uBE0C\uB9AC\uD551',
-                  icon: '\uD83D\uDCDD',
-                  stage: 'S8+\uBE0C\uB9AC\uD551',
-                  costHint: '~\u20A9300/\uC2E4\uD589',
+                  label: '시그널 해설',
+                  desc: 'Stage 8: 한국어 종목별 분석 + 시황 브리핑',
+                  icon: '📝',
+                  stage: 'S8+브리핑',
+                  costHint: '~₩300/실행',
                 },
                 {
                   key: 'LLM_SCENARIO_ENABLED',
-                  label: '\uD3EC\uD2B8\uD3F4\uB9AC\uC624 \uC2DC\uB098\uB9AC\uC624',
-                  desc: 'Stage 9: \uBCF4\uC720/\uC9C4\uC785 \uC885\uBAA9 \uC2DC\uB098\uB9AC\uC624 \uBD84\uC11D',
-                  icon: '\uD83C\uDFAF',
+                  label: '포트폴리오 시나리오',
+                  desc: 'Stage 9: 보유/진입 종목 시나리오 분석',
+                  icon: '🎯',
                   stage: 'S9',
-                  costHint: '~\u20A9200/\uC2E4\uD589',
+                  costHint: '~₩200/실행',
                 },
               ].map(({ key, label, desc, icon, stage, costHint }) => {
                 const enabled = llmSettings?.features?.[key]
@@ -505,7 +505,7 @@ export default function System({ onNavigate, refreshKey }) {
                       <button
                         onClick={() => handleLLMToggle(key)}
                         disabled={isToggling || !apiKeySet}
-                        title={!apiKeySet ? 'API Key\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 (.env\uC5D0\uC11C LLM_API_KEY \uC124\uC815 \uD544\uC694)' : ''}
+                        title={!apiKeySet ? 'API Key가 설정되지 않았습니다 (.env에서 LLM_API_KEY 설정 필요)' : ''}
                         style={{
                           width: '48px', height: '26px',
                           borderRadius: '13px',
@@ -547,11 +547,11 @@ export default function System({ onNavigate, refreshKey }) {
             {/* Rule-based status */}
             <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--bg-primary)', borderRadius: '0.5rem', border: '1px solid var(--border)' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {'\u2139\uFE0F'} \uADDC\uCE59 \uAE30\uBC18 \uBD84\uC11D\uC740 LLM \uC124\uC815\uACFC \uBB34\uAD00\uD558\uAC8C \uD56D\uC0C1 \uD65C\uC131\uD654 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.
-                LLM\uC740 \uADDC\uCE59 \uAE30\uBC18 \uACB0\uACFC\uC5D0 \uCD94\uAC00 \uBCF4\uAC15\uD558\uB294 \uC5ED\uD560\uC744 \uD569\uB2C8\uB2E4.
+                {'ℹ️'} 규칙 기반 분석은 LLM 설정과 무관하게 항상 활성화 상태입니다.
+                LLM은 규칙 기반 결과에 추가 보강하는 역할을 합니다.
                 {!llmSettings.config?.LLM_API_KEY_SET && (
                   <span style={{ color: 'var(--yellow)', display: 'block', marginTop: '0.25rem' }}>
-                    {'\u26A0'} LLM \uAE30\uB2A5\uC744 \uC0AC\uC6A9\uD558\uB824\uBA74 .env \uD30C\uC77C\uC5D0 LLM_API_KEY\uB97C \uC124\uC815\uD558\uC138\uC694.
+                    {'⚠'} LLM 기능을 사용하려면 .env 파일에 LLM_API_KEY를 설정하세요.
                   </span>
                 )}
               </span>
@@ -563,7 +563,7 @@ export default function System({ onNavigate, refreshKey }) {
       {/* Portfolio Capital Setting */}
       <div className="table-container" style={{ marginTop: '1.5rem' }}>
         <div className="table-header">
-          <h3>{'\uD83D\uDCB0'} 투자 자본금 설정</h3>
+          <h3>{'💰'} 투자 자본금 설정</h3>
         </div>
         <div className="card" style={{ padding: '1rem' }}>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
@@ -622,13 +622,13 @@ export default function System({ onNavigate, refreshKey }) {
       {notifSchedule && (
         <div className="table-container">
           <div className="table-header">
-            <h3>{'\uD83D\uDD14'} 알림 스케줄</h3>
+            <h3>{'🔔'} 알림 스케줄</h3>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <button className="btn btn-outline btn-sm" onClick={handleNotifTest}>
-                {'\uD83E\uDDEA'} 테스트
+                {'🧪'} 테스트
               </button>
               <button className="btn btn-primary btn-sm" onClick={handleNotifSave} disabled={notifSaving}>
-                {notifSaving ? '저장 중...' : '\u2714 저장'}
+                {notifSaving ? '저장 중...' : '✔ 저장'}
               </button>
             </div>
           </div>
@@ -771,10 +771,10 @@ export default function System({ onNavigate, refreshKey }) {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
                 {[
-                  { key: 'pipeline_kr', label: 'KR 파이프라인', desc: '한국 시장 분석 결과', icon: '\uD83C\uDDF0\uD83C\uDDF7' },
-                  { key: 'pipeline_us', label: 'US 파이프라인', desc: '미국 시장 분석 결과', icon: '\uD83C\uDDFA\uD83C\uDDF8' },
-                  { key: 'price_alerts', label: '가격 알림', desc: '손절/목표가 도달 알림', icon: '\uD83D\uDCC8' },
-                  { key: 'weekly_report', label: '주간 리포트', desc: '일요일 주간 성과 요약', icon: '\uD83D\uDCCA' },
+                  { key: 'pipeline_kr', label: 'KR 파이프라인', desc: '한국 시장 분석 결과', icon: '🇰🇷' },
+                  { key: 'pipeline_us', label: 'US 파이프라인', desc: '미국 시장 분석 결과', icon: '🇺🇸' },
+                  { key: 'price_alerts', label: '가격 알림', desc: '손절/목표가 도달 알림', icon: '📈' },
+                  { key: 'weekly_report', label: '주간 리포트', desc: '일요일 주간 성과 요약', icon: '📊' },
                 ].map(({ key, label, desc, icon }) => {
                   const active = notifSchedule.channels?.[key]
                   return (
@@ -814,7 +814,7 @@ export default function System({ onNavigate, refreshKey }) {
                 background: 'var(--bg-primary)', border: '1px solid var(--border)',
               }}>
                 <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
-                  {'\uD83E\uDDEA'} 현재 시점 알림 테스트 결과
+                  {'🧪'} 현재 시점 알림 테스트 결과
                 </div>
                 <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                   {Object.entries(notifTest.would_notify || {}).map(([ch, ok]) => (
@@ -836,7 +836,7 @@ export default function System({ onNavigate, refreshKey }) {
       {/* Alert Settings */}
       <div className="table-container" style={{ marginTop: '1.5rem' }}>
         <div className="table-header">
-          <h3>{'\uD83D\uDD14'} 알림 설정</h3>
+          <h3>{'🔔'} 알림 설정</h3>
           <span className="card-sub">{alertConfig.length} settings</span>
         </div>
         <table>
@@ -892,7 +892,7 @@ export default function System({ onNavigate, refreshKey }) {
       {alertHistory.length > 0 && (
         <div className="table-container">
           <div className="table-header">
-            <h3>{'\u26A0'} 최근 알림 이력</h3>
+            <h3>{'⚠'} 최근 알림 이력</h3>
             <span className="card-sub">{alertHistory.length} alerts</span>
           </div>
           <table>
@@ -931,7 +931,7 @@ export default function System({ onNavigate, refreshKey }) {
       {dataStatus && (
         <div className="table-container">
           <div className="table-header">
-            <h3>{'\uD83D\uDDC4'} 수집 데이터 현황</h3>
+            <h3>{'🗄'} 수집 데이터 현황</h3>
           </div>
           <table>
             <thead>
@@ -998,7 +998,7 @@ export default function System({ onNavigate, refreshKey }) {
       {/* Monthly Reports */}
       <div className="table-container" style={{ marginTop: '1.5rem' }}>
         <div className="table-header">
-          <h3>{'\uD83D\uDCC5'} 월간 리포트</h3>
+          <h3>{'📅'} 월간 리포트</h3>
           <button
             className="btn btn-primary btn-sm"
             onClick={handleGenerateReport}
@@ -1064,10 +1064,10 @@ export default function System({ onNavigate, refreshKey }) {
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div className="card-label">{'\uD83D\uDD10'} {'\uC778\uC99D'} {'\uC0C1\uD0DC'}</div>
+            <div className="card-label">{'🔐'} {'인증'} {'상태'}</div>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '0.5rem' }}>
               <span className={`badge ${authUser ? 'badge-completed' : getStoredApiKey() ? 'badge-completed' : 'badge-hold'}`}>
-                {authUser ? `\uD83D\uDD12 ${authUser}` : getStoredApiKey() ? '\uD83D\uDD12 API Key \uC778\uC99D\uB428' : '\uD83D\uDD13 \uC778\uC99D \uC5C6\uC74C'}
+                {authUser ? `🔒 ${authUser}` : getStoredApiKey() ? '🔒 API Key 인증됨' : '🔓 인증 없음'}
               </span>
               {!authUser && getStoredApiKey() && (
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -1080,19 +1080,19 @@ export default function System({ onNavigate, refreshKey }) {
             {authUser && (
               <button className="btn btn-outline btn-sm"
                 onClick={() => setShowPwChange(!showPwChange)}>
-                {'\uD83D\uDD11'} {'\uBE44\uBC00\uBC88\uD638 \uBCC0\uACBD'}
+                {'🔑'} {'비밀번호 변경'}
               </button>
             )}
             <button
               className="btn btn-outline btn-sm"
               onClick={() => {
-                if (confirm('\uB85C\uADF8\uC544\uC6C3 \uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?')) {
+                if (confirm('로그아웃 하시겠습니까?')) {
                   logout()
                 }
               }}
               style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
             >
-              {'\uD83D\uDEAA'} {'\uB85C\uADF8\uC544\uC6C3'}
+              {'🚪'} {'로그아웃'}
             </button>
           </div>
         </div>
@@ -1101,33 +1101,33 @@ export default function System({ onNavigate, refreshKey }) {
         {showPwChange && (
           <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--bg-primary)', borderRadius: '0.5rem' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxWidth: '300px' }}>
-              <input type="password" placeholder={'\uD604\uC7AC \uBE44\uBC00\uBC88\uD638'} value={currentPw}
+              <input type="password" placeholder={'현재 비밀번호'} value={currentPw}
                 onChange={e => setCurrentPw(e.target.value)}
                 style={{ padding: '0.5rem', borderRadius: '0.375rem', background: 'var(--bg-secondary)',
                   border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '0.85rem' }} />
-              <input type="password" placeholder={'\uC0C8 \uBE44\uBC00\uBC88\uD638'} value={newPw}
+              <input type="password" placeholder={'새 비밀번호'} value={newPw}
                 onChange={e => setNewPw(e.target.value)}
                 style={{ padding: '0.5rem', borderRadius: '0.375rem', background: 'var(--bg-secondary)',
                   border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '0.85rem' }} />
-              <input type="password" placeholder={'\uC0C8 \uBE44\uBC00\uBC88\uD638 \uD655\uC778'} value={newPwConfirm}
+              <input type="password" placeholder={'새 비밀번호 확인'} value={newPwConfirm}
                 onChange={e => setNewPwConfirm(e.target.value)}
                 style={{ padding: '0.5rem', borderRadius: '0.375rem', background: 'var(--bg-secondary)',
                   border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '0.85rem' }} />
               <button className="btn btn-primary btn-sm" disabled={pwChanging || !currentPw || !newPw || !newPwConfirm}
                 onClick={async () => {
-                  if (newPw !== newPwConfirm) { toast.error('\uC0C8 \uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4'); return }
-                  if (newPw.length < 4) { toast.error('\uBE44\uBC00\uBC88\uD638\uB294 4\uC790 \uC774\uC0C1\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4'); return }
+                  if (newPw !== newPwConfirm) { toast.error('새 비밀번호가 일치하지 않습니다'); return }
+                  if (newPw.length < 4) { toast.error('비밀번호는 4자 이상이어야 합니다'); return }
                   setPwChanging(true)
                   try {
                     const r = await authChangePassword(currentPw, newPw)
                     localStorage.setItem('vibe_auth_token', r.token)
-                    toast.success('\uBE44\uBC00\uBC88\uD638\uAC00 \uBCC0\uACBD\uB418\uC5C8\uC2B5\uB2C8\uB2E4')
+                    toast.success('비밀번호가 변경되었습니다')
                     setCurrentPw(''); setNewPw(''); setNewPwConfirm(''); setShowPwChange(false)
                   } catch (err) {
-                    toast.error(err.message || '\uBE44\uBC00\uBC88\uD638 \uBCC0\uACBD \uC2E4\uD328')
+                    toast.error(err.message || '비밀번호 변경 실패')
                   } finally { setPwChanging(false) }
                 }}>
-                {pwChanging ? '\uBCC0\uACBD \uC911...' : '\uBE44\uBC00\uBC88\uD638 \uBCC0\uACBD'}
+                {pwChanging ? '변경 중...' : '비밀번호 변경'}
               </button>
             </div>
           </div>
@@ -1137,7 +1137,7 @@ export default function System({ onNavigate, refreshKey }) {
       {/* Watchlist Management */}
       <div className="table-container" style={{ marginTop: '1.5rem' }}>
         <div className="table-header">
-          <h3>{'\uD83D\uDCCB'} Watchlist 관리</h3>
+          <h3>{'📋'} Watchlist 관리</h3>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <select
               value={wlFilter}
@@ -1169,7 +1169,7 @@ export default function System({ onNavigate, refreshKey }) {
             color: wlMessage.type === 'error' ? 'var(--red)' : 'var(--green)',
             fontSize: '0.8rem',
           }}>
-            {wlMessage.type === 'error' ? '\u274C' : '\u2705'} {wlMessage.text}
+            {wlMessage.type === 'error' ? '❌' : '✅'} {wlMessage.text}
           </div>
         )}
 
@@ -1261,7 +1261,7 @@ export default function System({ onNavigate, refreshKey }) {
                     style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
                     title="제거"
                   >
-                    {'\u2716'}
+                    {'✖'}
                   </button>
                 </td>
               </tr>

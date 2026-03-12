@@ -79,14 +79,14 @@ export default function Guru({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83C\uDFAF'} 구루 인사이트</h2>
+          <h2>{'🎯'} 구루 인사이트</h2>
           <p className="subtitle">
             투자 대가들의 현재 시장 분석
             {macro.date && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>({macro.date})</span>}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button className="btn btn-outline" onClick={loadData}>{'\u21BB'} Refresh</button>
+          <button className="btn btn-outline" onClick={loadData}>{'↻'} Refresh</button>
           <HelpButton section="guru" onNavigate={onNavigate} />
         </div>
       </div>
@@ -183,7 +183,7 @@ export default function Guru({ onNavigate, refreshKey }) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginBottom: '0.5rem' }}>
                   {view.key_points_kr.map((pt, i) => (
                     <div key={i} style={{ fontSize: '0.7rem', color: 'var(--text-muted)', padding: '0.15rem 0.3rem', background: 'rgba(255,255,255,0.03)', borderRadius: '3px' }}>
-                      {'\u2022'} {pt}
+                      {'•'} {pt}
                     </div>
                   ))}
                 </div>
@@ -191,7 +191,7 @@ export default function Guru({ onNavigate, refreshKey }) {
 
               {/* Expand indicator */}
               <div style={{ textAlign: 'center', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                {isExpanded ? '\u25B2 Close' : '\u25BC Picks & Holdings'}
+                {isExpanded ? '▲ Close' : '▼ Picks & Holdings'}
               </div>
 
               {/* ── Expanded Section ── */}
@@ -203,7 +203,7 @@ export default function Guru({ onNavigate, refreshKey }) {
                   {guru.picks && guru.picks.length > 0 && (
                     <div style={{ marginBottom: '0.75rem' }}>
                       <h4 style={{ fontSize: '0.8rem', marginBottom: '0.4rem', color: stanceColor }}>
-                        {'\uD83C\uDFAF'} Watchlist Picks
+                        {'🎯'} Watchlist Picks
                       </h4>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                         {guru.picks.map((p, i) => (
@@ -241,7 +241,7 @@ export default function Guru({ onNavigate, refreshKey }) {
                   {guru.portfolio && guru.portfolio.top_holdings && guru.portfolio.top_holdings.length > 0 && (
                     <div style={{ marginBottom: '0.75rem' }}>
                       <h4 style={{ fontSize: '0.8rem', marginBottom: '0.3rem' }}>
-                        {'\uD83D\uDCBC'} Known Holdings
+                        {'💼'} Known Holdings
                         <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
                           {guru.portfolio.source} ({guru.portfolio.as_of})
                         </span>
@@ -265,7 +265,7 @@ export default function Guru({ onNavigate, refreshKey }) {
                       </div>
                       {guru.portfolio.watchlist_overlaps?.length > 0 && (
                         <div style={{ fontSize: '0.6rem', color: '#60a5fa', marginTop: '0.25rem' }}>
-                          {'\u2728'} Watchlist overlap: {guru.portfolio.watchlist_overlaps.join(', ')}
+                          {'✨'} Watchlist overlap: {guru.portfolio.watchlist_overlaps.join(', ')}
                         </div>
                       )}
                       {guru.portfolio.total_value && (
@@ -284,7 +284,7 @@ export default function Guru({ onNavigate, refreshKey }) {
                       disabled={llmLoading[guru.id]}
                       onClick={() => handleLLMAnalysis(guru.id)}
                     >
-                      {llmLoading[guru.id] ? '\u23F3 Analyzing...' : `\uD83E\uDD16 AI Deep Analysis (${guru.name_kr})`}
+                      {llmLoading[guru.id] ? '⏳ Analyzing...' : `🤖 AI Deep Analysis (${guru.name_kr})`}
                     </button>
                   </div>
 
@@ -309,7 +309,7 @@ export default function Guru({ onNavigate, refreshKey }) {
 
       {/* Philosophy Footer */}
       <div className="card" style={{ borderLeft: '3px solid var(--accent)' }}>
-        <h3 style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>{'\uD83D\uDCA1'} Investment Philosophies</h3>
+        <h3 style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>{'💡'} Investment Philosophies</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.4rem' }}>
           {gurus.map(g => (
             <div key={g.id} style={{

@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # Scheduler
     SCHEDULER_ENABLED: bool = True
-    KR_PIPELINE_HOUR_UTC: int = 7  # 16:00 KST
+    KR_PIPELINE_HOUR_UTC: int = 0  # 09:00 KST (한국장 개장 시간)
     KR_PIPELINE_MINUTE: int = 0
     US_PIPELINE_HOUR_UTC: int = 22  # 17:00 EST (winter)
     US_PIPELINE_MINUTE: int = 0

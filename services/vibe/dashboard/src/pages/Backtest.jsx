@@ -101,7 +101,7 @@ export default function Backtest({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83E\uDDEA'} 백테스트</h2>
+          <h2>{'🧪'} 백테스트</h2>
           <p className="subtitle">백테스트 실행 이력 및 성과 분석</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -120,7 +120,7 @@ export default function Backtest({ onNavigate, refreshKey }) {
             {triggering ? '...' : 'Run US'}
           </button>
           <button className="btn btn-outline" onClick={loadResults}>
-            {'\u21BB'} Refresh
+            {'↻'} Refresh
           </button>
           <HelpButton section="backtest" onNavigate={onNavigate} />
         </div>
@@ -173,7 +173,7 @@ export default function Backtest({ onNavigate, refreshKey }) {
         </div>
         {startDate && (
           <p style={{ fontSize: '0.7rem', color: '#eab308', marginTop: '0.4rem' }}>
-            {'\u26A0'} DB에 해당 기간의 가격 데이터가 있어야 합니다. 데이터가 없으면 trade 0건으로 나옵니다.
+            {'⚠'} DB에 해당 기간의 가격 데이터가 있어야 합니다. 데이터가 없으면 trade 0건으로 나옵니다.
           </p>
         )}
       </div>
@@ -185,7 +185,7 @@ export default function Backtest({ onNavigate, refreshKey }) {
           borderColor: triggerResult.type === 'error' ? 'var(--red)' : 'var(--green)',
           padding: '0.75rem 1.25rem',
         }}>
-          {triggerResult.type === 'error' ? '\u274C' : '\u2705'} {triggerResult.text}
+          {triggerResult.type === 'error' ? '❌' : '✅'} {triggerResult.text}
         </div>
       )}
 
@@ -317,7 +317,7 @@ export default function Backtest({ onNavigate, refreshKey }) {
                   <td>
                     {r.total_trades ?? '-'}
                     {r.total_trades != null && r.total_trades < 10 && r.total_trades > 0 && (
-                      <span style={{ fontSize: '0.6rem', color: '#eab308', marginLeft: '0.25rem' }} title="통계적 유의성 부족">{'\u26A0'}</span>
+                      <span style={{ fontSize: '0.6rem', color: '#eab308', marginLeft: '0.25rem' }} title="통계적 유의성 부족">{'⚠'}</span>
                     )}
                   </td>
                   <td style={{ color: (r.hit_rate || 0) >= 0.5 ? 'var(--green)' : 'var(--red)' }}>
@@ -369,7 +369,7 @@ export default function Backtest({ onNavigate, refreshKey }) {
             }}>
               <div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
-                  {'\uD83D\uDCCA'} Scoring Weights
+                  {'📊'} Scoring Weights
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
                   Tech: <strong>{((detail.run?.config_snapshot?.WEIGHT_TECHNICAL || 0) * 100).toFixed(0)}%</strong>
@@ -381,7 +381,7 @@ export default function Backtest({ onNavigate, refreshKey }) {
               </div>
               <div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
-                  {'\uD83D\uDED1'} Hard Limits
+                  {'🛑'} Hard Limits
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
                   RSI Limit: <strong>{detail.run?.config_snapshot?.RSI_HARD_LIMIT}</strong>
@@ -391,7 +391,7 @@ export default function Backtest({ onNavigate, refreshKey }) {
               </div>
               <div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
-                  {'\uD83D\uDED2'} Buy Threshold
+                  {'🛒'} Buy Threshold
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
                   KR RSI: <strong>&gt; {detail.run?.config_snapshot?.RSI_BUY_THRESHOLD_KR}</strong>
@@ -401,10 +401,10 @@ export default function Backtest({ onNavigate, refreshKey }) {
               </div>
               <div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
-                  {'\u23F1'} Trade Rules
+                  {'⏱'} Trade Rules
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
-                  Hold: <strong>{detail.run?.config_snapshot?.BACKTEST_TRADE_EXIT_DAYS}{'\uC77C'}</strong>
+                  Hold: <strong>{detail.run?.config_snapshot?.BACKTEST_TRADE_EXIT_DAYS}{'일'}</strong>
                   <br />
                   Stop Loss: <strong style={{ color: 'var(--red)' }}>{detail.run?.config_snapshot?.BACKTEST_STOP_LOSS_PCT}%</strong>
                 </div>

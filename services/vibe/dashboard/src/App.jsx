@@ -22,6 +22,7 @@ import Soxl from './pages/Soxl'
 import Geopolitical from './pages/Geopolitical'
 import CarryTrade from './pages/CarryTrade'
 import ForexMap from './pages/ForexMap'
+import DataAdmin from './pages/DataAdmin'
 
 // M14: Error Boundary to catch render crashes
 class ErrorBoundary extends Component {
@@ -47,7 +48,7 @@ class ErrorBoundary extends Component {
           color: 'var(--text-secondary)',
         }}>
           <h2 style={{ color: 'var(--red)', marginBottom: '1rem' }}>
-            {'\u26A0'} Something went wrong
+            {'⚠'} Something went wrong
           </h2>
           <p style={{ marginBottom: '1rem' }}>
             {this.state.error?.message || 'An unexpected error occurred.'}
@@ -56,7 +57,7 @@ class ErrorBoundary extends Component {
             className="btn btn-primary"
             onClick={() => this.setState({ hasError: false, error: null })}
           >
-            {'\u21BB'} Retry
+            {'↻'} Retry
           </button>
         </div>
       )
@@ -84,14 +85,14 @@ function GlobalRefreshBar({ onRefresh, refreshing, lastRefreshed }) {
         disabled={refreshing}
         style={{ padding: '0.3rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
       >
-        {refreshing ? '\u23F3 갱신 중...' : '\u21BB 전체 갱신'}
+        {refreshing ? '⏳ 갱신 중...' : '↻ 전체 갱신'}
       </button>
       <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
         가격 + 현재 페이지 데이터 갱신
       </span>
       {timeStr && (
         <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.7rem' }}>
-          {'\u23F0'} {timeStr}
+          {'⏰'} {timeStr}
         </span>
       )}
     </div>
@@ -154,6 +155,7 @@ function App() {
       case 'geopolitical': return <Geopolitical {...props} />
       case 'carry-trade': return <CarryTrade {...props} />
       case 'forex-map': return <ForexMap {...props} />
+      case 'data-admin': return <DataAdmin {...props} />
       case 'guide': return <Guide onNavigate={navigateTo} initialSection={guideSection} />
       default: return <Overview {...props} />
     }
@@ -174,7 +176,7 @@ function App() {
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="메뉴"
           >
-            {'\u2630'}
+            {'☰'}
           </button>
           <GlobalRefreshBar
             onRefresh={handleGlobalRefresh}

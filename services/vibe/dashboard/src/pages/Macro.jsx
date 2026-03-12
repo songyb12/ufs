@@ -110,11 +110,11 @@ export default function Macro({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83C\uDF10'} 매크로 인텔리전스</h2>
+          <h2>{'🌐'} 매크로 인텔리전스</h2>
           <p className="subtitle">시장 레짐, 스태그플레이션 모니터링, 교차시장 분석</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button className="btn btn-outline" onClick={loadData}>{'\u21BB'} Refresh</button>
+          <button className="btn btn-outline" onClick={loadData}>{'↻'} Refresh</button>
           <HelpButton section="macro" onNavigate={onNavigate} />
         </div>
       </div>
@@ -138,14 +138,14 @@ export default function Macro({ onNavigate, refreshKey }) {
           onClick={() => onNavigate('carry-trade')}
           style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem' }}
         >
-          {'\uD83D\uDCB1'} 캐리트레이드 분석
+          {'💱'} 캐리트레이드 분석
         </button>
         <button
           className="btn btn-outline"
           onClick={() => onNavigate('forex-map')}
           style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem' }}
         >
-          {'\uD83D\uDDFA'} 환율 세계지도
+          {'🗺'} 환율 세계지도
         </button>
       </div>
 
@@ -154,7 +154,7 @@ export default function Macro({ onNavigate, refreshKey }) {
         {/* Market Season */}
         <div className="card" style={{ borderLeft: '3px solid #f59e0b', textAlign: 'center' }}>
           <div className="card-label">Market Season</div>
-          <div style={{ fontSize: '2rem', lineHeight: 1.2 }}>{season?.icon || '\u2753'}</div>
+          <div style={{ fontSize: '2rem', lineHeight: 1.2 }}>{season?.icon || '❓'}</div>
           <div className="card-value" style={{ fontSize: '1.1rem', color: '#f59e0b' }}>
             {season?.season_kr || '-'}
           </div>
@@ -169,7 +169,7 @@ export default function Macro({ onNavigate, refreshKey }) {
           )}
           {season?.season_hint && (
             <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: '0.25rem' }}>
-              {'\u2139\uFE0F'} 추정: {season.season_hint_kr || season.season_hint}
+              {'ℹ️'} 추정: {season.season_hint_kr || season.season_hint}
             </div>
           )}
           {season?.data_days != null && season.data_days < 20 && (
@@ -204,7 +204,7 @@ export default function Macro({ onNavigate, refreshKey }) {
             color: YIELD_PHASE_COLORS[yieldPhase?.phase] || 'var(--text-primary)',
           }}>
             {yieldPhase?.phase_kr || '-'}
-            {yieldPhase?.risk_flag && <span style={{ marginLeft: '0.3rem' }}>{'\u26A0\uFE0F'}</span>}
+            {yieldPhase?.risk_flag && <span style={{ marginLeft: '0.3rem' }}>{'⚠️'}</span>}
           </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
             Spread: {yieldPhase?.current_spread ?? '-'}% / {yieldPhase?.trend || '-'}
@@ -244,7 +244,7 @@ export default function Macro({ onNavigate, refreshKey }) {
             <div className="card" style={{ borderLeft: `3px solid ${FEAR_PHASE_COLORS[fearGauge.phase] || '#64748b'}`, textAlign: 'center' }}>
               <div className="card-label">Fear Gauge</div>
               <div style={{ fontSize: '2rem', lineHeight: 1.2 }}>
-                {FEAR_PHASE_ICONS[fearGauge.phase] || '\u2753'}
+                {FEAR_PHASE_ICONS[fearGauge.phase] || '❓'}
               </div>
               <div className="card-value" style={{
                 fontSize: '1.1rem',
@@ -383,7 +383,7 @@ export default function Macro({ onNavigate, refreshKey }) {
           {capitulation?.candidates?.length > 0 && (
             <div className="card" style={{ borderLeft: '3px solid #ef4444' }}>
               <h3 style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: '#ef4444' }}>
-                {'\uD83D\uDCA5'} Capitulation Detected ({capitulation.count})
+                {'💥'} Capitulation Detected ({capitulation.count})
               </h3>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
                 Volume spike + price drop = panic selling candidates
@@ -417,7 +417,7 @@ export default function Macro({ onNavigate, refreshKey }) {
           {crisisHedge?.hedge_candidates?.length > 0 && (
             <div className="card" style={{ borderLeft: '3px solid #3b82f6' }}>
               <h3 style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: '#3b82f6' }}>
-                {'\uD83D\uDEE1\uFE0F'} Crisis Hedge Candidates
+                {'🛡️'} Crisis Hedge Candidates
               </h3>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
                 Defense sectors with RS {'>'} 1.0 during {crisisHedge.risk_regime || 'risk-off'}
@@ -460,10 +460,10 @@ export default function Macro({ onNavigate, refreshKey }) {
               <h3 style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>Investment Clock</h3>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px', maxWidth: '280px', margin: '0 auto' }}>
                 {[
-                  { key: 'recovery', label: 'Recovery', kr: '\uD68C\uBCF5', pos: 'growth\u2191 inflation\u2193', color: '#22c55e' },
-                  { key: 'overheat', label: 'Overheat', kr: '\uACFC\uC5F4', pos: 'growth\u2191 inflation\u2191', color: '#f59e0b' },
-                  { key: 'reflation', label: 'Reflation', kr: '\uD658\uAE30', pos: 'growth\u2193 inflation\u2193', color: '#3b82f6' },
-                  { key: 'stagflation', label: 'Stagflation', kr: '\uCE68\uCCB4', pos: 'growth\u2193 inflation\u2191', color: '#ef4444' },
+                  { key: 'recovery', label: 'Recovery', kr: '회복', pos: 'growth↑ inflation↓', color: '#22c55e' },
+                  { key: 'overheat', label: 'Overheat', kr: '과열', pos: 'growth↑ inflation↑', color: '#f59e0b' },
+                  { key: 'reflation', label: 'Reflation', kr: '환기', pos: 'growth↓ inflation↓', color: '#3b82f6' },
+                  { key: 'stagflation', label: 'Stagflation', kr: '침체', pos: 'growth↓ inflation↑', color: '#ef4444' },
                 ].map(q => {
                   const isActive = clock.quadrant?.toLowerCase() === q.key
                   return (
@@ -551,13 +551,13 @@ export default function Macro({ onNavigate, refreshKey }) {
 
       {/* Market Season Cycle Guide */}
       <div className="card" style={{ marginBottom: '1rem' }}>
-        <h3 style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>{'\uD83D\uDD04'} 시장 사이클 가이드 (우라가미 쿠니오)</h3>
+        <h3 style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>{'🔄'} 시장 사이클 가이드 (우라가미 쿠니오)</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
           {[
-            { key: 'spring', icon: '\uD83C\uDF31', kr: '금융장세', en: 'Spring', desc: '금리 하락 + 경기 회복 초기\n유동성 확대로 주식 강세 시작', strategy: '주식 비중 확대, 성장주 중심', color: '#22c55e', axes: '금리\u2193 성장\u2191' },
-            { key: 'summer', icon: '\u2600\uFE0F', kr: '실적장세', en: 'Summer', desc: '금리 상승 시작이나 실적 개선이 더 강함\n실적 우량주 강세', strategy: '실적 우량주 선별, 섹터 로테이션', color: '#f59e0b', axes: '금리\u2191 성장\u2191' },
-            { key: 'autumn', icon: '\uD83C\uDF42', kr: '역금융장세', en: 'Autumn', desc: '금리 고점/상승 지속 + 성장 둔화\n밸류에이션 부담 증가', strategy: '비중 축소, 방어주 전환, 현금 확대', color: '#ef4444', axes: '금리\u2191 성장\u2193' },
-            { key: 'winter', icon: '\u2744\uFE0F', kr: '역실적장세', en: 'Winter', desc: '금리 하락 시작이나 실적 악화 지속\n본격적 하락장', strategy: '현금/채권 극대화, 역발상 매수 준비', color: '#3b82f6', axes: '금리\u2193 성장\u2193' },
+            { key: 'spring', icon: '🌱', kr: '금융장세', en: 'Spring', desc: '금리 하락 + 경기 회복 초기\n유동성 확대로 주식 강세 시작', strategy: '주식 비중 확대, 성장주 중심', color: '#22c55e', axes: '금리↓ 성장↑' },
+            { key: 'summer', icon: '☀️', kr: '실적장세', en: 'Summer', desc: '금리 상승 시작이나 실적 개선이 더 강함\n실적 우량주 강세', strategy: '실적 우량주 선별, 섹터 로테이션', color: '#f59e0b', axes: '금리↑ 성장↑' },
+            { key: 'autumn', icon: '🍂', kr: '역금융장세', en: 'Autumn', desc: '금리 고점/상승 지속 + 성장 둔화\n밸류에이션 부담 증가', strategy: '비중 축소, 방어주 전환, 현금 확대', color: '#ef4444', axes: '금리↑ 성장↓' },
+            { key: 'winter', icon: '❄️', kr: '역실적장세', en: 'Winter', desc: '금리 하락 시작이나 실적 악화 지속\n본격적 하락장', strategy: '현금/채권 극대화, 역발상 매수 준비', color: '#3b82f6', axes: '금리↓ 성장↓' },
           ].map(s => {
             const isCurrent = season?.season?.toLowerCase() === s.key
             return (
@@ -754,11 +754,11 @@ export default function Macro({ onNavigate, refreshKey }) {
       {/* Action Items */}
       {cm.action_items && cm.action_items.length > 0 && (
         <div className="card" style={{ borderLeft: '3px solid var(--accent)' }}>
-          <h3 style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>{'\uD83D\uDCA1'} Action Items</h3>
+          <h3 style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>{'💡'} Action Items</h3>
           <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
             {cm.action_items.map((item, i) => (
               <li key={i} style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '0.4rem 0.6rem', background: 'rgba(59,130,246,0.06)', borderRadius: '0.25rem' }}>
-                {'\u2022'} {item}
+                {'•'} {item}
               </li>
             ))}
           </ul>

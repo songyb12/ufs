@@ -16,9 +16,9 @@ const SECTOR_COLORS = [
 ]
 
 const EVENT_ICONS = {
-  fomc: '\uD83C\uDFE6', holiday: '\uD83C\uDF89', options_expiry: '\uD83D\uDCC5',
-  earnings: '\uD83D\uDCCA', cpi: '\uD83D\uDCB0', employment: '\uD83D\uDC65',
-  default: '\uD83D\uDD14',
+  fomc: '🏦', holiday: '🎉', options_expiry: '📅',
+  earnings: '📊', cpi: '💰', employment: '👥',
+  default: '🔔',
 }
 
 export default function Risk({ onNavigate, refreshKey }) {
@@ -107,11 +107,11 @@ export default function Risk({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83D\uDEE1'} 리스크 대시보드</h2>
+          <h2>{'🛡'} 리스크 대시보드</h2>
           <p className="subtitle">포트폴리오 리스크 분석 및 이벤트 캘린더</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="btn btn-outline" onClick={loadData}>{'\u21BB'} Refresh</button>
+          <button className="btn btn-outline" onClick={loadData}>{'↻'} Refresh</button>
           <HelpButton section="risk" onNavigate={onNavigate} />
         </div>
       </div>
@@ -173,7 +173,7 @@ export default function Risk({ onNavigate, refreshKey }) {
       <div className="grid-2">
         {/* Sector Exposure Pie */}
         <div className="chart-container">
-          <h3>{'\uD83C\uDFAF'} Sector Exposure</h3>
+          <h3>{'🎯'} Sector Exposure</h3>
           {sectorData.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
@@ -210,7 +210,7 @@ export default function Risk({ onNavigate, refreshKey }) {
 
         {/* Position Concentration Bar */}
         <div className="chart-container">
-          <h3>{'\uD83D\uDCCA'} Top 5 Position Weight</h3>
+          <h3>{'📊'} Top 5 Position Weight</h3>
           {concData.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={concData} layout="vertical" margin={{ left: 10, right: 20 }}>
@@ -245,7 +245,7 @@ export default function Risk({ onNavigate, refreshKey }) {
       {/* Event Calendar Section */}
       <div className="table-container">
         <div className="table-header">
-          <h3>{'\uD83D\uDCC5'} Event Calendar</h3>
+          <h3>{'📅'} Event Calendar</h3>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <select value={eventMarket} onChange={e => setEventMarket(e.target.value)}
               style={{ padding: '0.3rem 0.5rem', borderRadius: '0.25rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '0.8rem' }}>
@@ -260,7 +260,7 @@ export default function Risk({ onNavigate, refreshKey }) {
               <option value={90}>90 Days</option>
             </select>
             <button className="btn btn-outline btn-sm" onClick={handleSeedEvents} disabled={seeding}>
-              {seeding ? '\u23F3...' : '\uD83C\uDF31 Seed Events'}
+              {seeding ? '⏳...' : '🌱 Seed Events'}
             </button>
           </div>
         </div>

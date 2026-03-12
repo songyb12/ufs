@@ -245,7 +245,7 @@ export default function ForexMap({ refreshKey, onNavigate }) {
             onClick={() => onNavigate('carry-trade')}
             style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem' }}
           >
-            {'\uD83D\uDCB1'} 캐리트레이드
+            {'💱'} 캐리트레이드
           </button>
         )}
       </div>

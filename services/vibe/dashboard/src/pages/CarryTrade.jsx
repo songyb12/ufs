@@ -54,7 +54,7 @@ function PairCard({ pair }) {
           </div>
           {ur.trend_kr && (
             <div style={{ fontSize: '0.65rem', color: ur.trend === 'WORSENING' ? '#ef4444' : ur.trend === 'IMPROVING' ? '#22c55e' : 'var(--text-muted)', marginTop: '0.15rem' }}>
-              {ur.trend === 'WORSENING' ? '\u25B2' : ur.trend === 'IMPROVING' ? '\u25BC' : '\u25CF'} {ur.trend_kr}
+              {ur.trend === 'WORSENING' ? '▲' : ur.trend === 'IMPROVING' ? '▼' : '●'} {ur.trend_kr}
             </div>
           )}
         </div>
@@ -64,7 +64,7 @@ function PairCard({ pair }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', fontSize: '0.75rem' }}>
         <span style={{ color: 'var(--text-muted)' }}>{pair.funding}</span>
         <span style={{ fontWeight: 700, color: '#3b82f6' }}>{pair.funding_rate != null ? `${pair.funding_rate}%` : '?'}</span>
-        <span style={{ color: 'var(--text-muted)' }}>{'\u2192'}</span>
+        <span style={{ color: 'var(--text-muted)' }}>{'→'}</span>
         <span style={{ color: 'var(--text-muted)' }}>{pair.investing}</span>
         <span style={{ fontWeight: 700, color: '#a855f7' }}>{pair.investing_rate != null ? `${pair.investing_rate}%` : '?'}</span>
         <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.7rem' }}>
@@ -212,7 +212,7 @@ export default function CarryTrade({ refreshKey, onNavigate }) {
             onClick={() => onNavigate('forex-map')}
             style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem' }}
           >
-            {'\uD83D\uDDFA'} 환율 세계지도
+            {'🗺'} 환율 세계지도
           </button>
         )}
       </div>

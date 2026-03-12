@@ -40,7 +40,7 @@ export default function LoginGate({ children }) {
         } else {
           // Server unreachable — show login with error
           setState('login')
-          setError('\uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uB124\uD2B8\uC6CC\uD06C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.')
+          setError('서버에 연결할 수 없습니다. 네트워크를 확인해주세요.')
         }
       }
     }
@@ -50,11 +50,11 @@ export default function LoginGate({ children }) {
     e.preventDefault()
     if (!username.trim() || !password.trim()) return
     if (password !== passwordConfirm) {
-      setError('\uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4')
+      setError('비밀번호가 일치하지 않습니다')
       return
     }
     if (password.length < 4) {
-      setError('\uBE44\uBC00\uBC88\uD638\uB294 4\uC790 \uC774\uC0C1\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4')
+      setError('비밀번호는 4자 이상이어야 합니다')
       return
     }
     setChecking(true)
@@ -64,7 +64,7 @@ export default function LoginGate({ children }) {
       localStorage.setItem('vibe_auth_token', r.token)
       setState('authenticated')
     } catch (err) {
-      setError(err.message || '\uACC4\uC815 \uC0DD\uC131 \uC2E4\uD328')
+      setError(err.message || '계정 생성 실패')
     } finally {
       setChecking(false)
     }
@@ -81,9 +81,9 @@ export default function LoginGate({ children }) {
       setState('authenticated')
     } catch (err) {
       if (err.message?.includes('401')) {
-        setError('\uC544\uC774\uB514 \uB610\uB294 \uBE44\uBC00\uBC88\uD638\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4')
+        setError('아이디 또는 비밀번호가 올바르지 않습니다')
       } else {
-        setError(err.message || '\uB85C\uADF8\uC778 \uC2E4\uD328')
+        setError(err.message || '로그인 실패')
       }
     } finally {
       setChecking(false)
@@ -102,14 +102,14 @@ export default function LoginGate({ children }) {
         setState('authenticated')
       } else {
         setApiKey(null)
-        setError('API Key \uAC80\uC99D \uC2E4\uD328')
+        setError('API Key 검증 실패')
       }
     } catch (err) {
       setApiKey(null)
       if (err.message?.includes('401')) {
-        setError('\uC798\uBABB\uB41C API Key')
+        setError('잘못된 API Key')
       } else {
-        setError(`\uC5F0\uACB0 \uC624\uB958: ${err.message}`)
+        setError(`연결 오류: ${err.message}`)
       }
     } finally {
       setChecking(false)
@@ -147,23 +147,23 @@ export default function LoginGate({ children }) {
           background: 'var(--bg-secondary)', border: '1px solid var(--border)',
           borderRadius: '1rem', padding: '2.5rem', width: '100%', maxWidth: '400px', textAlign: 'center',
         }}>
-          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>{'\uD83D\uDD11'}</div>
+          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>{'🔑'}</div>
           <h2 style={{ fontSize: '1.25rem', color: 'var(--text-primary)', marginBottom: '1.5rem' }}>API Key Login</h2>
 
           <form onSubmit={handleApiKeyLogin}>
             <input type="password" placeholder="API Key" value={apiKeyInput}
               onChange={e => setApiKeyInput(e.target.value)} autoFocus
               style={inputStyle} />
-            {error && <p style={errorStyle}>{'\u274C'} {error}</p>}
+            {error && <p style={errorStyle}>{'❌'} {error}</p>}
             <button type="submit" className="btn btn-primary" disabled={checking || !apiKeyInput.trim()}
               style={{ width: '100%', padding: '0.75rem', fontSize: '0.9rem' }}>
-              {checking ? 'Verifying...' : '\uD83D\uDD13 Login'}
+              {checking ? 'Verifying...' : '🔓 Login'}
             </button>
           </form>
 
           <button onClick={() => { setError(null); setState('login') }}
             style={{ ...linkStyle, marginTop: '1.5rem' }}>
-            {'\u2190'} ID/PW \uB85C\uADF8\uC778\uC73C\uB85C \uB3CC\uC544\uAC00\uAE30
+            {'←'} ID/PW 로그인으로 돌아가기
           </button>
         </div>
       </div>
@@ -182,7 +182,7 @@ export default function LoginGate({ children }) {
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: '1rem', padding: '2.5rem', width: '100%', maxWidth: '400px', textAlign: 'center',
       }}>
-        <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>{'\uD83D\uDCC8'}</div>
+        <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>{'📈'}</div>
         <h1 style={{ fontSize: '1.5rem', color: 'var(--text-primary)', marginBottom: '0.25rem' }}>VIBE</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
           Investment Intelligence Dashboard
@@ -194,36 +194,36 @@ export default function LoginGate({ children }) {
             borderRadius: '0.5rem', padding: '0.75rem', marginBottom: '1.5rem',
             color: 'var(--green)', fontSize: '0.8rem',
           }}>
-            {'\u2728'} {'\uCCAB \uC811\uC18D\uC785\uB2C8\uB2E4. \uAD00\uB9AC\uC790 \uACC4\uC815\uC744 \uC0DD\uC131\uD574\uC8FC\uC138\uC694.'}
+            {'✨'} {'첫 접속입니다. 관리자 계정을 생성해주세요.'}
           </div>
         )}
 
         <form onSubmit={isSetup ? handleRegister : handleLogin}>
-          <input type="text" placeholder={'\uC544\uC774\uB514'} value={username}
+          <input type="text" placeholder={'아이디'} value={username}
             onChange={e => setUsername(e.target.value)} autoFocus autoComplete="username"
             style={{ ...inputStyle, marginBottom: '0.75rem' }} />
-          <input type="password" placeholder={'\uBE44\uBC00\uBC88\uD638'} value={password}
+          <input type="password" placeholder={'비밀번호'} value={password}
             onChange={e => setPassword(e.target.value)} autoComplete={isSetup ? 'new-password' : 'current-password'}
             style={{ ...inputStyle, marginBottom: isSetup ? '0.75rem' : '1rem' }} />
           {isSetup && (
-            <input type="password" placeholder={'\uBE44\uBC00\uBC88\uD638 \uD655\uC778'} value={passwordConfirm}
+            <input type="password" placeholder={'비밀번호 확인'} value={passwordConfirm}
               onChange={e => setPasswordConfirm(e.target.value)} autoComplete="new-password"
               style={{ ...inputStyle, marginBottom: '1rem' }} />
           )}
-          {error && <p style={errorStyle}>{'\u274C'} {error}</p>}
+          {error && <p style={errorStyle}>{'❌'} {error}</p>}
           <button type="submit" className="btn btn-primary"
             disabled={checking || !username.trim() || !password.trim() || (isSetup && !passwordConfirm.trim())}
             style={{ width: '100%', padding: '0.75rem', fontSize: '0.9rem' }}>
             {checking
-              ? (isSetup ? '\uC0DD\uC131 \uC911...' : '\uB85C\uADF8\uC778 \uC911...')
-              : (isSetup ? '\u2728 \uACC4\uC815 \uC0DD\uC131' : '\uD83D\uDD13 \uB85C\uADF8\uC778')
+              ? (isSetup ? '생성 중...' : '로그인 중...')
+              : (isSetup ? '✨ 계정 생성' : '🔓 로그인')
             }
           </button>
         </form>
 
         <button onClick={() => { setError(null); setState('apikey') }}
           style={{ ...linkStyle, marginTop: '1.5rem' }}>
-          API Key{'\uB85C \uB85C\uADF8\uC778'}
+          API Key{'로 로그인'}
         </button>
       </div>
     </div>

@@ -5,7 +5,7 @@ import PageGuide from '../components/PageGuide'
 import { useToast } from '../components/Toast'
 import Tip from '../components/Tip'
 
-const DIFFICULTY_LABELS = { 1: '\u2B50 \uC785\uBB38', 2: '\u2B50\u2B50 \uC911\uAE09', 3: '\u2B50\u2B50\u2B50 \uC2EC\uD654' }
+const DIFFICULTY_LABELS = { 1: '⭐ 입문', 2: '⭐⭐ 중급', 3: '⭐⭐⭐ 심화' }
 const ZONE_COLORS = { safe: '#22c55e', warning: '#f59e0b', danger: '#ef4444', neutral: '#94a3b8' }
 
 export default function Academy({ onNavigate, refreshKey }) {
@@ -30,7 +30,7 @@ export default function Academy({ onNavigate, refreshKey }) {
         setCategories(cats?.categories || [])
         setPatterns(pats?.patterns || [])
       })
-      .catch(() => toast.error('\uC544\uCE74\uB370\uBBF8 \uB370\uC774\uD130 \uB85C\uB4DC \uC2E4\uD328'))
+      .catch(() => toast.error('아카데미 데이터 로드 실패'))
       .finally(() => setLoading(false))
   }, [])
 
@@ -41,7 +41,7 @@ export default function Academy({ onNavigate, refreshKey }) {
       const detail = await getAcademyConcept(id)
       setConceptDetail(detail)
       setSelectedConcept(id)
-    } catch { toast.error('\uAC1C\uB150 \uB85C\uB4DC \uC2E4\uD328') }
+    } catch { toast.error('개념 로드 실패') }
   }
 
   if (loading) return <div className="loading"><span className="spinner" /> 로딩 중...</div>
@@ -50,11 +50,11 @@ export default function Academy({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83C\uDF93'} 투자 아카데미</h2>
-          <p className="subtitle">{'\uD604\uC7AC \uC2DC\uC7A5\uC744 \uD1B5\uD574 \uBC30\uC6B0\uB294 \uD22C\uC790 \uC9C0\uC2DD'}</p>
+          <h2>{'🎓'} 투자 아카데미</h2>
+          <p className="subtitle">{'현재 시장을 통해 배우는 투자 지식'}</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button className="btn btn-outline" onClick={loadData}>{'\u21BB'} Refresh</button>
+          <button className="btn btn-outline" onClick={loadData}>{'↻'} Refresh</button>
           <HelpButton section="academy" onNavigate={onNavigate} />
         </div>
       </div>
@@ -74,9 +74,9 @@ export default function Academy({ onNavigate, refreshKey }) {
       {/* Tab Navigation */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
         {[
-          ['today', '\uD83D\uDCDA \uC624\uB298\uC758 \uB808\uC2A8', TIPS.tab_today],
-          ['concepts', '\uD83D\uDCD6 \uAC1C\uB150 \uC0AC\uC804', TIPS.tab_concepts],
-          ['patterns', '\uD83D\uDD0D \uC5ED\uC0AC\uC801 \uD328\uD134', TIPS.tab_patterns],
+          ['today', '📚 오늘의 레슨', TIPS.tab_today],
+          ['concepts', '📖 개념 사전', TIPS.tab_concepts],
+          ['patterns', '🔍 역사적 패턴', TIPS.tab_patterns],
         ].map(([key, label, tipText]) => (
           <Tip key={key} text={tipText}>
             <button className={`btn ${tab === key ? 'btn-primary' : 'btn-outline'}`}
@@ -98,7 +98,7 @@ export default function Academy({ onNavigate, refreshKey }) {
             }}>
               <div style={{ fontSize: '0.8rem', color: 'var(--blue)', fontWeight: 600, marginBottom: '0.5rem' }}>
                 <Tip text={TIPS.why_now} indicator>
-                  {'\uD83D\uDCA1'} {'\uC624\uB298 \uC774 \uAC1C\uB150\uC744 \uBC30\uC6B0\uB294 \uC774\uC720'}
+                  {'💡'} {'오늘 이 개념을 배우는 이유'}
                 </Tip>
               </div>
               <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.6 }}>
@@ -114,8 +114,8 @@ export default function Academy({ onNavigate, refreshKey }) {
           {todayLesson.historical_patterns?.length > 0 && (
             <div className="card" style={{ marginTop: '1.5rem' }}>
               <h3 style={{ marginBottom: '1rem' }}>
-                {'\uD83D\uDD0D'}{' '}
-                <Tip text={TIPS.similar_patterns} indicator>{'\uD604\uC7AC\uC640 \uC720\uC0AC\uD55C \uC5ED\uC0AC\uC801 \uC0AC\uB840'}</Tip>
+                {'🔍'}{' '}
+                <Tip text={TIPS.similar_patterns} indicator>{'현재와 유사한 역사적 사례'}</Tip>
               </h3>
               {todayLesson.historical_patterns.map((p, i) => renderPatternCard(p, i))}
             </div>
@@ -129,7 +129,7 @@ export default function Academy({ onNavigate, refreshKey }) {
           {categories.map((cat, ci) => (
             <div key={ci} className="card" style={{ marginBottom: '1rem' }}>
               <h3 style={{ marginBottom: '0.75rem' }}>
-                <Tip text={TIPS.category_desc[cat.category] || '\uD574\uB2F9 \uCE74\uD14C\uACE0\uB9AC\uC758 \uD22C\uC790 \uAC1C\uB150\uB4E4.'} indicator>
+                <Tip text={TIPS.category_desc[cat.category] || '해당 카테고리의 투자 개념들.'} indicator>
                   {cat.category_kr}
                 </Tip>
               </h3>
@@ -158,7 +158,7 @@ export default function Academy({ onNavigate, refreshKey }) {
       {tab === 'concepts' && selectedConcept && conceptDetail && (
         <div>
           <button className="btn btn-outline" onClick={() => setSelectedConcept(null)} style={{ marginBottom: '1rem' }}>
-            {'\u2190'} {'\uBAA9\uB85D\uC73C\uB85C'}
+            {'←'} {'목록으로'}
           </button>
           {renderConceptCard(conceptDetail, conceptDetail.current_value, conceptDetail.current_label)}
         </div>
@@ -169,7 +169,7 @@ export default function Academy({ onNavigate, refreshKey }) {
         <div>
           {patterns.length === 0 ? (
             <div className="card" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-              {'\uD604\uC7AC \uC2DC\uC7A5 \uC870\uAC74\uACFC \uC720\uC0AC\uD55C \uC5ED\uC0AC\uC801 \uD328\uD134\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uC2DC\uC7A5\uC774 \uC548\uC815\uC801\uC778 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.'}
+              {'현재 시장 조건과 유사한 역사적 패턴이 없습니다. 시장이 안정적인 상태입니다.'}
             </div>
           ) : (
             patterns.map((p, i) => renderPatternCard(p, i))
@@ -207,11 +207,11 @@ function renderConceptCard(concept, currentValue, currentLabel) {
         }}>
           <Tip text={TIPS.current_value}>
             <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-              {'\uD604\uC7AC \uAC12'}: {typeof currentValue === 'number' ? currentValue.toLocaleString() : currentValue}
+              {'현재 값'}: {typeof currentValue === 'number' ? currentValue.toLocaleString() : currentValue}
             </span>
           </Tip>
           <Tip text={TIPS.current_status}>
-            <span className={`badge badge-${currentLabel === '\uC815\uC0C1' || currentLabel === '\uC644\uB9CC\uD55C \uC815\uC0C1' ? 'completed' : currentLabel?.includes('\uACF5\uD3EC') || currentLabel?.includes('\uC5ED\uC804') ? 'sell' : 'hold'}`}>
+            <span className={`badge badge-${currentLabel === '정상' || currentLabel === '완만한 정상' ? 'completed' : currentLabel?.includes('공포') || currentLabel?.includes('역전') ? 'sell' : 'hold'}`}>
               {currentLabel || '-'}
             </span>
           </Tip>
@@ -227,15 +227,15 @@ function renderConceptCard(concept, currentValue, currentLabel) {
       {concept.ranges?.length > 0 && (
         <div style={{ marginBottom: '1rem' }}>
           <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
-            <Tip text={TIPS.ranges_table} indicator>{'\uD574\uC11D \uAE30\uC900'}</Tip>
+            <Tip text={TIPS.ranges_table} indicator>{'해석 기준'}</Tip>
           </div>
           <div className="table-responsive">
             <table>
               <thead>
                 <tr>
-                  <th><Tip text={TIPS.range_col} indicator>{'\uBC94\uC704'}</Tip></th>
-                  <th>{'\uB808\uC774\uBE14'}</th>
-                  <th>{'\uC758\uBBF8'}</th>
+                  <th><Tip text={TIPS.range_col} indicator>{'범위'}</Tip></th>
+                  <th>{'레이블'}</th>
+                  <th>{'의미'}</th>
                 </tr>
               </thead>
               <tbody>
@@ -260,7 +260,7 @@ function renderConceptCard(concept, currentValue, currentLabel) {
         }}>
           <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#f59e0b', marginBottom: '0.4rem' }}>
             <Tip text={TIPS.key_insight} indicator>
-              {'\uD83D\uDCA1'} Key Insight
+              {'💡'} Key Insight
             </Tip>
           </div>
           <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.7 }}>
@@ -291,7 +291,7 @@ function renderPatternCard(pattern, index) {
         {pattern.match_score && (
           <Tip text={TIPS.match_score}>
             <span className={`badge ${pattern.match_score >= 60 ? 'badge-sell' : 'badge-hold'}`}>
-              {'\uC720\uC0AC\uB3C4'} {pattern.match_score}%
+              {'유사도'} {pattern.match_score}%
             </span>
           </Tip>
         )}
@@ -318,8 +318,8 @@ function renderPatternCard(pattern, index) {
         </Tip>
         <Tip text={TIPS.recovery}>
           <div style={{ fontSize: '0.8rem' }}>
-            <span style={{ color: 'var(--text-muted)' }}>{'\uD68C\uBCF5'}: </span>
-            <span style={{ fontWeight: 600 }}>{pattern.recovery_months}{'\uAC1C\uC6D4'}</span>
+            <span style={{ color: 'var(--text-muted)' }}>{'회복'}: </span>
+            <span style={{ fontWeight: 600 }}>{pattern.recovery_months}{'개월'}</span>
           </div>
         </Tip>
       </div>
@@ -327,7 +327,7 @@ function renderPatternCard(pattern, index) {
       {pattern.match_reasons?.length > 0 && (
         <Tip text={TIPS.match_reasons}>
           <div style={{ fontSize: '0.8rem', color: 'var(--blue)', marginBottom: '0.5rem' }}>
-            {'\uC720\uC0AC \uC870\uAC74'}: {pattern.match_reasons.join(', ')}
+            {'유사 조건'}: {pattern.match_reasons.join(', ')}
           </div>
         </Tip>
       )}
@@ -337,7 +337,7 @@ function renderPatternCard(pattern, index) {
         padding: '0.75rem', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6,
       }}>
         <Tip text={TIPS.lesson}>
-          <span>{'\uD83D\uDCDD'}</span>
+          <span>{'📝'}</span>
         </Tip>{' '}
         {pattern.lesson_kr}
       </div>
@@ -347,33 +347,33 @@ function renderPatternCard(pattern, index) {
 
 // ── Tooltip text definitions ──────────────────────────────────────────────
 const TIPS = {
-  tab_today: '\uC624\uB298 \uC2DC\uC7A5 \uC0C1\uD669\uC5D0 \uAC00\uC7A5 \uAD00\uB828 \uB192\uC740 \uD22C\uC790 \uAC1C\uB150\uC744\n\uC790\uB3D9\uC73C\uB85C \uC120\uC815\uD558\uC5EC \uD559\uC2B5 \uCF58\uD150\uCE20\uB97C \uC81C\uACF5\uD569\uB2C8\uB2E4.',
-  tab_concepts: '\uD22C\uC790\uC5D0 \uD544\uC694\uD55C 12\uAC1C \uD575\uC2EC \uAC1C\uB150\uC744\n\uCE74\uD14C\uACE0\uB9AC\uBCC4\uB85C \uBD84\uB958\uD55C \uC0AC\uC804.\n\uAC01 \uAC1C\uB150\uC744 \uD074\uB9AD\uD558\uBA74 \uC0C1\uC138 \uC124\uBA85\uACFC \uD604\uC7AC \uC2DC\uC7A5\uAC12\uC744 \uD568\uAED8 \uD655\uC778.',
-  tab_patterns: '\uD604\uC7AC \uC2DC\uC7A5 \uC870\uAC74(VIX, F&G \uB4F1)\uC774 \uACFC\uAC70 \uC5B4\uB5A4 \uC2DC\uAE30\uC640\n\uC720\uC0AC\uD55C\uC9C0 \uBE44\uAD50 \uBD84\uC11D.\n\uACFC\uAC70 \uC0AC\uB840\uC5D0\uC11C \uD22C\uC790 \uAD50\uD6C8\uC744 \uC5BB\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
-  why_now: 'AI\uAC00 \uD604\uC7AC \uC2DC\uC7A5 \uB370\uC774\uD130\uB97C \uBD84\uC11D\uD558\uC5EC\n\uC624\uB298 \uAC00\uC7A5 \uBC30\uC6CC\uC57C \uD560 \uAC1C\uB150\uC744 \uC120\uC815\uD55C \uC774\uC720.\n\uC608: VIX \uAE09\uB4F1 \u2192 VIX \uAC1C\uB150 \uD559\uC2B5, F&G \uADF9\uB2E8 \u2192 \uACF5\uD3EC/\uD0D0\uC695 \uD559\uC2B5.',
-  similar_patterns: '\uD604\uC7AC \uC2DC\uC7A5 \uC870\uAC74\uC774 \uACFC\uAC70 \uC704\uAE30/\uC870\uC815 \uC2DC\uAE30\uC640\n\uC5BC\uB9C8\uB098 \uC720\uC0AC\uD55C\uC9C0 \uBE44\uAD50\uD55C \uACB0\uACFC.\n\uACFC\uAC70 \uD68C\uBCF5 \uAE30\uAC04\uACFC \uD22C\uC790 \uAD50\uD6C8\uC744 \uD568\uAED8 \uC81C\uACF5.',
-  match_score: '\uC720\uC0AC\uB3C4 \uC810\uC218 (0~100%).\n\uD604\uC7AC VIX, F&G \uC9C0\uC218, \uAE08\uB9AC \uB4F1\uC774\n\uACFC\uAC70 \uD574\uB2F9 \uC2DC\uAE30\uC758 \uC870\uAC74\uACFC \uC5BC\uB9C8\uB098 \uC77C\uCE58\uD558\uB294\uC9C0 \uBCF4\uC5EC\uC90D\uB2C8\uB2E4.\n60% \uC774\uC0C1\uC774\uBA74 \uB9E4\uC6B0 \uC720\uC0AC\uD55C \uC0C1\uD669.',
-  vix_peak: 'VIX Peak: \uD574\uB2F9 \uC2DC\uAE30 VIX \uCD5C\uACE0\uCE58.\nVIX\uB294 \uC2DC\uC7A5 \uACF5\uD3EC/\uBCC0\uB3D9\uC131 \uC9C0\uC218.\n20 \uBBF8\uB9CC \uC815\uC0C1, 30+ \uBD88\uC548, 40+ \uACF5\uD3EC, 80+ \uADF9\uB2E8\uC801 \uACF5\uD3EC.',
-  fg_low: 'F&G Low: \uD574\uB2F9 \uC2DC\uAE30 Fear & Greed \uC9C0\uC218 \uCD5C\uC800\uCE58.\n0~100 \uBC94\uC704.\n20 \uBBF8\uB9CC\uC774\uBA74 \uADF9\uB2E8\uC801 \uACF5\uD3EC, \uC5ED\uC0AC\uC801\uC73C\uB85C \uB9E4\uC218 \uAE30\uD68C.',
-  sp500_drop: 'S&P 500 \uCD5C\uB300 \uD558\uB77D\uD3ED.\n\uD574\uB2F9 \uC2DC\uAE30 \uACE0\uC810 \uB300\uBE44 \uC5BC\uB9C8\uB098 \uD558\uB77D\uD588\uB294\uC9C0 \uBCF4\uC5EC\uC90D\uB2C8\uB2E4.\n\uD558\uB77D\uD3ED\uC774 \uD074\uC218\uB85D \uD68C\uBCF5 \uD6C4 \uC218\uC775\uB960\uB3C4 \uB192\uC558\uC2B5\uB2C8\uB2E4.',
-  recovery: '\uD68C\uBCF5 \uAE30\uAC04.\n\uC800\uC810\uC5D0\uC11C \uC774\uC804 \uACE0\uC810\uC744 \uD68C\uBCF5\uD558\uAE30\uAE4C\uC9C0 \uAC78\uB9B0 \uAC1C\uC6D4 \uC218.\n\uBD84\uD560 \uB9E4\uC218 \uC2DC \uD68C\uBCF5 \uAE30\uAC04\uC744 \uCC38\uACE0\uD558\uC5EC \uC778\uB0B4\uC2EC\uC744 \uAC00\uC9C8 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
-  match_reasons: '\uC720\uC0AC\uD558\uB2E4\uACE0 \uD310\uB2E8\uD55C \uAD6C\uCCB4\uC801 \uADFC\uAC70.\n\uC608: "F&G 12 \u2264 15" = \uD604\uC7AC F&G\uAC00 12\uC774\uACE0, \uD574\uB2F9 \uD328\uD134\uC758\n\uACBD\uACC4\uAC12 15 \uC774\uD558\uC774\uBBC0\uB85C \uC720\uC0AC \uC870\uAC74 \uCDA9\uC871.',
-  lesson: '\uD574\uB2F9 \uC2DC\uAE30\uC5D0\uC11C \uC5BB\uC744 \uC218 \uC788\uB294 \uD22C\uC790 \uAD50\uD6C8.\n\uACFC\uAC70 \uC704\uAE30/\uC870\uC815 \uAE30\uAC04\uC758 \uD22C\uC790 \uACB0\uACFC\uB97C \uBC14\uD0D5\uC73C\uB85C\n\uD604\uC7AC \uC801\uC6A9\uD560 \uC218 \uC788\uB294 \uC804\uB7B5\uC744 \uC81C\uC2DC\uD569\uB2C8\uB2E4.',
-  current_value: '\uD604\uC7AC \uC2E4\uC2DC\uAC04 \uC2DC\uC7A5\uC5D0\uC11C\uC758 \uD574\uB2F9 \uC9C0\uD45C \uAC12.\n\uC704\uC758 \uD574\uC11D \uAE30\uC900 \uD45C\uC640 \uBE44\uAD50\uD558\uC5EC\n\uD604\uC7AC \uC5B4\uB5A4 \uAD6C\uAC04\uC5D0 \uC788\uB294\uC9C0 \uD655\uC778\uD558\uC138\uC694.',
-  current_status: '\uD604\uC7AC \uAC12\uC774 \uC5B4\uB5A4 \uAD6C\uAC04\uC5D0 \uD574\uB2F9\uD558\uB294\uC9C0 \uD45C\uC2DC.\n\uD45C\uC758 \uBC94\uC704/\uB808\uC774\uBE14\uACFC \uB9E4\uCE6D\uB41C \uC0C1\uD0DC \uBC30\uC9C0.',
-  ranges_table: '\uD574\uB2F9 \uC9C0\uD45C\uC758 \uC218\uCE58 \uBC94\uC704\uBCC4 \uD574\uC11D \uAE30\uC900.\n\uAC01 \uAD6C\uAC04\uC774 \uC758\uBBF8\uD558\uB294 \uC2DC\uC7A5 \uC0C1\uD0DC\uC640\n\uAD8C\uC7A5 \uD22C\uC790 \uD589\uB3D9\uC744 \uD568\uAED8 \uBCF4\uC5EC\uC90D\uB2C8\uB2E4.',
-  range_col: '\uC9C0\uD45C\uC758 \uC218\uCE58 \uBC94\uC704.\n\uD604\uC7AC \uAC12\uC774 \uC5B4\uB290 \uBC94\uC704\uC5D0 \uC18D\uD558\uB294\uC9C0 \uD655\uC778\uD558\uC5EC\n\uC758\uBBF8\uC640 \uD22C\uC790 \uBC29\uD5A5\uC744 \uD310\uB2E8\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
-  key_insight: '\uD575\uC2EC \uD22C\uC790 \uC778\uC0AC\uC774\uD2B8.\n\uD574\uB2F9 \uAC1C\uB150\uC744 \uC2E4\uC804\uC5D0 \uC801\uC6A9\uD560 \uB54C\n\uBC18\uB4DC\uC2DC \uAE30\uC5B5\uD574\uC57C \uD560 \uD575\uC2EC \uD3EC\uC778\uD2B8.',
+  tab_today: '오늘 시장 상황에 가장 관련 높은 투자 개념을\n자동으로 선정하여 학습 콘텐츠를 제공합니다.',
+  tab_concepts: '투자에 필요한 12개 핵심 개념을\n카테고리별로 분류한 사전.\n각 개념을 클릭하면 상세 설명과 현재 시장값을 함께 확인.',
+  tab_patterns: '현재 시장 조건(VIX, F&G 등)이 과거 어떤 시기와\n유사한지 비교 분석.\n과거 사례에서 투자 교훈을 얻을 수 있습니다.',
+  why_now: 'AI가 현재 시장 데이터를 분석하여\n오늘 가장 배워야 할 개념을 선정한 이유.\n예: VIX 급등 → VIX 개념 학습, F&G 극단 → 공포/탐욕 학습.',
+  similar_patterns: '현재 시장 조건이 과거 위기/조정 시기와\n얼마나 유사한지 비교한 결과.\n과거 회복 기간과 투자 교훈을 함께 제공.',
+  match_score: '유사도 점수 (0~100%).\n현재 VIX, F&G 지수, 금리 등이\n과거 해당 시기의 조건과 얼마나 일치하는지 보여줍니다.\n60% 이상이면 매우 유사한 상황.',
+  vix_peak: 'VIX Peak: 해당 시기 VIX 최고치.\nVIX는 시장 공포/변동성 지수.\n20 미만 정상, 30+ 불안, 40+ 공포, 80+ 극단적 공포.',
+  fg_low: 'F&G Low: 해당 시기 Fear & Greed 지수 최저치.\n0~100 범위.\n20 미만이면 극단적 공포, 역사적으로 매수 기회.',
+  sp500_drop: 'S&P 500 최대 하락폭.\n해당 시기 고점 대비 얼마나 하락했는지 보여줍니다.\n하락폭이 클수록 회복 후 수익률도 높았습니다.',
+  recovery: '회복 기간.\n저점에서 이전 고점을 회복하기까지 걸린 개월 수.\n분할 매수 시 회복 기간을 참고하여 인내심을 가질 수 있습니다.',
+  match_reasons: '유사하다고 판단한 구체적 근거.\n예: "F&G 12 ≤ 15" = 현재 F&G가 12이고, 해당 패턴의\n경계값 15 이하이므로 유사 조건 충족.',
+  lesson: '해당 시기에서 얻을 수 있는 투자 교훈.\n과거 위기/조정 기간의 투자 결과를 바탕으로\n현재 적용할 수 있는 전략을 제시합니다.',
+  current_value: '현재 실시간 시장에서의 해당 지표 값.\n위의 해석 기준 표와 비교하여\n현재 어떤 구간에 있는지 확인하세요.',
+  current_status: '현재 값이 어떤 구간에 해당하는지 표시.\n표의 범위/레이블과 매칭된 상태 배지.',
+  ranges_table: '해당 지표의 수치 범위별 해석 기준.\n각 구간이 의미하는 시장 상태와\n권장 투자 행동을 함께 보여줍니다.',
+  range_col: '지표의 수치 범위.\n현재 값이 어느 범위에 속하는지 확인하여\n의미와 투자 방향을 판단할 수 있습니다.',
+  key_insight: '핵심 투자 인사이트.\n해당 개념을 실전에 적용할 때\n반드시 기억해야 할 핵심 포인트.',
   difficulty: {
-    1: '\uC785\uBB38 \uB09C\uC774\uB3C4.\n\uD22C\uC790 \uCD08\uBCF4\uC790\uB3C4 \uC27D\uAC8C \uC774\uD574\uD560 \uC218 \uC788\uB294 \uAE30\uBCF8 \uAC1C\uB150.',
-    2: '\uC911\uAE09 \uB09C\uC774\uB3C4.\n\uAE30\uBCF8 \uAC1C\uB150\uC744 \uC774\uD574\uD55C \uD6C4 \uD559\uC2B5\uD558\uBA74 \uC88B\uC740 \uAC1C\uB150.',
-    3: '\uC2EC\uD654 \uB09C\uC774\uB3C4.\n\uD22C\uC790 \uACBD\uD5D8\uC774 \uC5B4\uB290 \uC815\uB3C4 \uC788\uB294 \uBD84\uC5D0\uAC8C \uC801\uD569\uD55C \uAC1C\uB150.',
+    1: '입문 난이도.\n투자 초보자도 쉽게 이해할 수 있는 기본 개념.',
+    2: '중급 난이도.\n기본 개념을 이해한 후 학습하면 좋은 개념.',
+    3: '심화 난이도.\n투자 경험이 어느 정도 있는 분에게 적합한 개념.',
   },
   category_desc: {
-    macro: '\uAC70\uC2DC\uACBD\uC81C \uC9C0\uD45C\uB4E4.\n\uAE08\uB9AC, \uC218\uC775\uB960 \uACE1\uC120 \uB4F1 \uACBD\uC81C \uC804\uCCB4\uC758 \uBC29\uD5A5\uC744 \uBCF4\uC5EC\uC8FC\uB294 \uC9C0\uD45C.',
-    sentiment: '\uC2DC\uC7A5 \uC2EC\uB9AC \uC9C0\uD45C\uB4E4.\nVIX, F&G \uB4F1 \uD22C\uC790\uC790\uB4E4\uC758 \uACF5\uD3EC\uC640 \uD0D0\uC695\uC744 \uCE21\uC815\uD558\uB294 \uC9C0\uD45C.',
-    technical: '\uAE30\uC220\uC801 \uBD84\uC11D \uC9C0\uD45C\uB4E4.\nRSI, MACD, \uC774\uACA9\uB3C4 \uB4F1 \uCC28\uD2B8 \uAE30\uBC18 \uB9E4\uB9E4 \uD0C0\uC774\uBC0D \uC9C0\uD45C.',
-    risk_management: '\uB9AC\uC2A4\uD06C \uAD00\uB9AC \uAC1C\uB150\uB4E4.\n\uC190\uC808, \uD3EC\uC9C0\uC158 \uC0AC\uC774\uC9D5, R:R \uBE44\uC728 \uB4F1 \uC790\uBCF8 \uBCF4\uC804 \uC804\uB7B5.',
-    strategy: '\uD22C\uC790 \uC804\uB7B5 \uAC1C\uB150\uB4E4.\nDCA, \uC139\uD130 \uB85C\uD14C\uC774\uC158, \uC5ED\uBC1C\uC0C1 \uD22C\uC790 \uB4F1 \uC2E4\uC804 \uC804\uB7B5.',
+    macro: '거시경제 지표들.\n금리, 수익률 곡선 등 경제 전체의 방향을 보여주는 지표.',
+    sentiment: '시장 심리 지표들.\nVIX, F&G 등 투자자들의 공포와 탐욕을 측정하는 지표.',
+    technical: '기술적 분석 지표들.\nRSI, MACD, 이격도 등 차트 기반 매매 타이밍 지표.',
+    risk_management: '리스크 관리 개념들.\n손절, 포지션 사이징, R:R 비율 등 자본 보전 전략.',
+    strategy: '투자 전략 개념들.\nDCA, 섹터 로테이션, 역발상 투자 등 실전 전략.',
   },
 }

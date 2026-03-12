@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+ENV VITE_BASE_PATH=/svc/bocchi/
 RUN npm run build
 
 # Stage 2: Serve

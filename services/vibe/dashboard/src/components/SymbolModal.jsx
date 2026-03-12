@@ -135,7 +135,7 @@ export default function SymbolModal({ symbol, market, onClose }) {
               <div className="card" style={{ padding: '0.75rem' }}>
                 <div className="card-label">Latest Close</div>
                 <div className="card-value blue" style={{ fontSize: '1.25rem' }}>
-                  {market === 'KR' ? '\u20A9' : '$'}{formatPrice(latest?.close)}
+                  {market === 'KR' ? '₩' : '$'}{formatPrice(latest?.close)}
                 </div>
                 <div className="card-sub">{latest?.trade_date}</div>
               </div>

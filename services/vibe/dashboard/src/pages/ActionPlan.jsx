@@ -26,14 +26,14 @@ function getStanceRules(strategy) {
   else activeIdx = 7
 
   return [
-    { label: '\u2460 Peak Fear → 역발상 분할 매수', value: `Fear: ${fp}`, active: activeIdx === 0, skipped: activeIdx < 0 },
-    { label: '\u2461 Initial Panic → 방어 태세', value: `Fear: ${fp}`, active: activeIdx === 1, skipped: activeIdx < 1 },
-    { label: '\u2462 Risk ≥ 75 → 매우 보수적', value: `Risk: ${rs}`, active: activeIdx === 2, skipped: activeIdx < 2 },
-    { label: '\u2463 Risk ≥ 60 → 신중 접근', value: `Risk: ${rs}`, active: activeIdx === 3, skipped: activeIdx < 3 },
-    { label: '\u2464 가을/겨울장세 → 신중 접근', value: `Season: ${SEASON_KR[sn] || sn}`, active: activeIdx === 4, skipped: activeIdx < 4 },
-    { label: '\u2465 Risk ≤ 30 + 봄/여름 → 적극 매수', value: `Risk: ${rs}, ${SEASON_KR[sn] || sn}`, active: activeIdx === 5, skipped: activeIdx < 5 },
-    { label: '\u2466 Risk ≤ 45 → 완만한 매수', value: `Risk: ${rs}`, active: activeIdx === 6, skipped: activeIdx < 6 },
-    { label: '\u2467 기본값 → 중립 관망', value: '', active: activeIdx === 7, skipped: activeIdx < 7 },
+    { label: '① Peak Fear → 역발상 분할 매수', value: `Fear: ${fp}`, active: activeIdx === 0, skipped: activeIdx < 0 },
+    { label: '② Initial Panic → 방어 태세', value: `Fear: ${fp}`, active: activeIdx === 1, skipped: activeIdx < 1 },
+    { label: '③ Risk ≥ 75 → 매우 보수적', value: `Risk: ${rs}`, active: activeIdx === 2, skipped: activeIdx < 2 },
+    { label: '④ Risk ≥ 60 → 신중 접근', value: `Risk: ${rs}`, active: activeIdx === 3, skipped: activeIdx < 3 },
+    { label: '⑤ 가을/겨울장세 → 신중 접근', value: `Season: ${SEASON_KR[sn] || sn}`, active: activeIdx === 4, skipped: activeIdx < 4 },
+    { label: '⑥ Risk ≤ 30 + 봄/여름 → 적극 매수', value: `Risk: ${rs}, ${SEASON_KR[sn] || sn}`, active: activeIdx === 5, skipped: activeIdx < 5 },
+    { label: '⑦ Risk ≤ 45 → 완만한 매수', value: `Risk: ${rs}`, active: activeIdx === 6, skipped: activeIdx < 6 },
+    { label: '⑧ 기본값 → 중립 관망', value: '', active: activeIdx === 7, skipped: activeIdx < 7 },
   ]
 }
 
@@ -48,7 +48,7 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
     setLoading(true)
     getActionPlan()
       .then(d => { setData(d); setError(null) })
-      .catch(err => { setError(err.message); toast.error('\uC561\uC158 \uD50C\uB79C \uB85C\uB4DC \uC2E4\uD328') })
+      .catch(err => { setError(err.message); toast.error('액션 플랜 로드 실패') })
       .finally(() => setLoading(false))
   }, [])
 
@@ -69,11 +69,11 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83C\uDFAF'} 액션 플랜</h2>
-          <p className="subtitle">{data.date} — {'\uD558\uB77C\uB294\uB300\uB85C\uB9CC \uD574\uB3C4 \uC218\uC775\uC744 \uB0B4\uB294 \uC2DC\uC2A4\uD15C'}</p>
+          <h2>{'🎯'} 액션 플랜</h2>
+          <p className="subtitle">{data.date} — {'하라는대로만 해도 수익을 내는 시스템'}</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button className="btn btn-outline" onClick={loadData}>{'\u21BB'} Refresh</button>
+          <button className="btn btn-outline" onClick={loadData}>{'↻'} Refresh</button>
           <HelpButton section="action-plan" onNavigate={onNavigate} />
         </div>
       </div>
@@ -104,7 +104,7 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
             </Tip>
             {strategy.stance_reason && (
               <div style={{ fontSize: '0.8rem', color: stanceColors[strategy.stance] || '#3b82f6', marginTop: '0.2rem', opacity: 0.85 }}>
-                {'\u25B8'} {strategy.stance_reason}
+                {'▸'} {strategy.stance_reason}
               </div>
             )}
             <div style={{ color: 'var(--text-muted)', marginTop: '0.25rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -175,7 +175,7 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
       {/* Stance Decision Logic */}
       <div className="card" style={{ marginBottom: '1.5rem', borderLeft: `3px solid ${stanceColors[strategy.stance] || '#3b82f6'}` }}>
         <h3 style={{ marginBottom: '0.5rem', fontSize: '0.9rem' }}>
-          {'\uD83E\uDDE0'}{' '}
+          {'🧠'}{' '}
           <Tip text={TIPS.stance_logic} indicator>스탠스 결정 로직</Tip>
         </h3>
         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
@@ -191,7 +191,7 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
               opacity: rule.skipped ? 0.35 : 1,
             }}>
               <span style={{ width: '16px', textAlign: 'center', fontSize: '0.7rem', flexShrink: 0 }}>
-                {rule.active ? '\u25B6' : rule.skipped ? '\u2500' : '\u2502'}
+                {rule.active ? '▶' : rule.skipped ? '─' : '│'}
               </span>
               <span style={{ color: rule.active ? stanceColors[strategy.stance] || '#3b82f6' : 'var(--text-muted)', fontWeight: rule.active ? 600 : 400 }}>
                 {rule.label}
@@ -207,8 +207,8 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
       {/* Strategic Actions */}
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         <h3 style={{ marginBottom: '1rem' }}>
-          {'\u26A1'}{' '}
-          <Tip text={TIPS.action_items} indicator>{'\uC624\uB298\uC758 \uC804\uB7B5 \uC561\uC158'}</Tip>
+          {'⚡'}{' '}
+          <Tip text={TIPS.action_items} indicator>{'오늘의 전략 액션'}</Tip>
         </h3>
         {strategy.action_items?.map((item, i) => (
           <div key={i} style={{
@@ -219,7 +219,7 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
           }}>
             <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               <Tip text={TIPS.priority[item.priority] || TIPS.priority[3]}>
-                <span>{item.priority === 1 ? '\uD83D\uDD34' : item.priority === 2 ? '\uD83D\uDFE1' : '\u26AA'}</span>
+                <span>{item.priority === 1 ? '🔴' : item.priority === 2 ? '🟡' : '⚪'}</span>
               </Tip>
               {' '}{item.title}
             </div>
@@ -234,8 +234,8 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
       {strategy.sector_bias?.length > 0 && (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <h3 style={{ marginBottom: '0.75rem' }}>
-            {'\uD83D\uDD04'}{' '}
-            <Tip text={TIPS.sector_bias} indicator>{'\uC139\uD130 \uBC30\uBD84 \uC804\uB7B5'}</Tip>
+            {'🔄'}{' '}
+            <Tip text={TIPS.sector_bias} indicator>{'섹터 배분 전략'}</Tip>
           </h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
             {strategy.sector_bias.map((s, i) => (
@@ -263,8 +263,8 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
       {top_picks?.length > 0 && (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <h3 style={{ marginBottom: '0.75rem' }}>
-            {'\uD83C\uDFC6'}{' '}
-            <Tip text={TIPS.top_picks} indicator>{'\uCD94\uCC9C \uB9E4\uC218 TOP'} {top_picks.length}</Tip>
+            {'🏆'}{' '}
+            <Tip text={TIPS.top_picks} indicator>{'추천 매수 TOP'} {top_picks.length}</Tip>
           </h3>
           <div className="table-responsive">
             <table>
@@ -274,11 +274,11 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
                   <th>SYMBOL</th>
                   <th><Tip text={TIPS.col_score} indicator>SCORE</Tip></th>
                   <th><Tip text={TIPS.col_rsi} indicator>RSI</Tip></th>
-                  <th><Tip text={TIPS.col_current} indicator>{'\uD604\uC7AC\uAC00'}</Tip></th>
-                  <th><Tip text={TIPS.col_target} indicator>{'\uBAA9\uD45C\uAC00'}</Tip></th>
-                  <th><Tip text={TIPS.col_stoploss} indicator>{'\uC190\uC808\uAC00'}</Tip></th>
+                  <th><Tip text={TIPS.col_current} indicator>{'현재가'}</Tip></th>
+                  <th><Tip text={TIPS.col_target} indicator>{'목표가'}</Tip></th>
+                  <th><Tip text={TIPS.col_stoploss} indicator>{'손절가'}</Tip></th>
                   <th><Tip text={TIPS.col_rr} indicator>R:R</Tip></th>
-                  <th><Tip text={TIPS.col_amount} indicator>{'\uCD94\uCC9C \uAE08\uC561'}</Tip></th>
+                  <th><Tip text={TIPS.col_amount} indicator>{'추천 금액'}</Tip></th>
                 </tr>
               </thead>
               <tbody>
@@ -315,8 +315,8 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
                 {top_picks[expandedPick].rationale || top_picks[expandedPick].size_rationale_kr}
               </div>
               <div style={{ marginTop: '0.5rem', color: 'var(--text-muted)' }}>
-                <Tip text={TIPS.target_return} indicator>{'\uBAA9\uD45C \uC218\uC775\uB960'}</Tip>: +{top_picks[expandedPick].target_return_pct}% |{' '}
-                <Tip text={TIPS.confidence} indicator>{'\uD655\uC2E0\uB3C4'}</Tip>: {top_picks[expandedPick].confidence}%
+                <Tip text={TIPS.target_return} indicator>{'목표 수익률'}</Tip>: +{top_picks[expandedPick].target_return_pct}% |{' '}
+                <Tip text={TIPS.confidence} indicator>{'확신도'}</Tip>: {top_picks[expandedPick].confidence}%
               </div>
             </div>
           )}
@@ -327,8 +327,8 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
       {portfolio_actions?.length > 0 && (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <h3 style={{ marginBottom: '0.75rem' }}>
-            {'\uD83D\uDCBC'}{' '}
-            <Tip text={TIPS.portfolio_actions} indicator>{'\uBCF4\uC720 \uC885\uBAA9 \uC561\uC158'}</Tip>
+            {'💼'}{' '}
+            <Tip text={TIPS.portfolio_actions} indicator>{'보유 종목 액션'}</Tip>
             {' '}({portfolio_actions.length})
           </h3>
           {portfolio_actions.map((a, i) => (
@@ -369,8 +369,8 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
       {strategy.weekly_outlook && (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <h3 style={{ marginBottom: '0.75rem' }}>
-            {'\uD83D\uDCC5'}{' '}
-            <Tip text={TIPS.weekly_outlook} indicator>{'\uC8FC\uAC04 \uC804\uB9DD'}</Tip>
+            {'📅'}{' '}
+            <Tip text={TIPS.weekly_outlook} indicator>{'주간 전망'}</Tip>
           </h3>
           <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7, fontSize: '0.9rem' }}>
             {strategy.weekly_outlook.summary_kr}
@@ -379,12 +379,12 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
             <div style={{ marginTop: '0.75rem' }}>
               <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
                 <Tip text={TIPS.watch_list} indicator>
-                  {'\uD83D\uDC41\uFE0F'} Watch List
+                  {'👁️'} Watch List
                 </Tip>
               </div>
               {strategy.weekly_outlook.watch_items.map((w, i) => (
                 <div key={i} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', padding: '0.2rem 0' }}>
-                  {'\u2022'} {w}
+                  {'•'} {w}
                 </div>
               ))}
             </div>
@@ -396,16 +396,16 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
       {strategy.guru_summary && (
         <div className="card">
           <h3 style={{ marginBottom: '0.75rem' }}>
-            {'\uD83C\uDFAF'}{' '}
-            <Tip text={TIPS.guru_consensus} indicator>{'\uAD6C\uB8E8 \uCEE8\uC13C\uC11C\uC2A4'}</Tip>
+            {'🎯'}{' '}
+            <Tip text={TIPS.guru_consensus} indicator>{'구루 컨센서스'}</Tip>
           </h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary)' }}>
               {strategy.guru_summary.consensus_kr}
             </div>
             <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              ({strategy.guru_summary.guru_count}{'\uBA85'}{' '}
-              <Tip text={TIPS.guru_conviction} indicator>{'\uD3C9\uADE0 \uD655\uC2E0\uB3C4'}</Tip> {strategy.guru_summary.avg_conviction}%)
+              ({strategy.guru_summary.guru_count}{'명'}{' '}
+              <Tip text={TIPS.guru_conviction} indicator>{'평균 확신도'}</Tip> {strategy.guru_summary.avg_conviction}%)
             </div>
           </div>
         </div>
@@ -416,52 +416,52 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
 
 // ── Tooltip text definitions ──────────────────────────────────────────────
 const TIPS = {
-  stance: '\uD604\uC7AC \uC2DC\uC7A5 \uC0C1\uD669\uC744 \uC885\uD569 \uBD84\uC11D\uD558\uC5EC \uACB0\uC815\uB41C \uD22C\uC790 \uC804\uB7B5 \uBC29\uD5A5.\n\u2022 \uC5ED\uBC1C\uC0C1 \uB9E4\uC218: \uC2DC\uC7A5 \uACF5\uD3EC \uAD6C\uAC04\uC5D0\uC11C \uBD84\uD560 \uB9E4\uC218 \uAE30\uD68C\n\u2022 \uACF5\uACA9\uC801: \uC0C1\uC2B9 \uCD94\uC138 \uAC15\uD654, \uC801\uADF9 \uB9E4\uC218\n\u2022 \uC911\uB9BD: \uBC29\uD5A5\uC131 \uD0D0\uC0C9 \uC911, \uAD00\uB9DD\n\u2022 \uBC29\uC5B4\uC801: \uD558\uB77D \uC704\uD5D8 \uB192\uC74C, \uD604\uAE08 \uBE44\uC911 \uD655\uB300',
-  stance_logic: '\uC2A4\uD0E0\uC2A4 \uACB0\uC815 \uC6B0\uC120\uC21C\uC704.\n\u2460 \uACF5\uD3EC \uAD6D\uBA74 → \u2461 \uD328\uB2C9 \uCD08\uAE30 → \u2462~\u2463 \uB9AC\uC2A4\uD06C \uC810\uC218 → \u2464 \uC2DC\uC7A5 \uACC4\uC808 → \u2465~\u2467 \uAE30\uBCF8\uAC12.\n\uC704\uCABD \uADDC\uCE59\uC774 \uD2B8\uB9AC\uAC70\uB418\uBA74 \uC544\uB798 \uADDC\uCE59\uC740 \uBB34\uC2DC\uB429\uB2C8\uB2E4.\n\uC608: \uACF5\uD3EC \uCD08\uAE30\uBA74 \uB9AC\uC2A4\uD06C \uC810\uC218\uAC00 \uB0AE\uC544\uB3C4 \uBC29\uC5B4 \uD0DC\uC138.',
-  risk_score: '\uB9E4\uD06C\uB85C \uC704\uD5D8 \uC810\uC218 (0~100).\n\uC2A4\uD0DC\uADF8\uD50C\uB808\uC774\uC158 \uC9C0\uC218(40%) + \uC704\uD5D8 \uB808\uC9D0(30%) + \uD22C\uC790\uC2DC\uACC4(30%)\uB97C \uC885\uD569\uD55C \uAC12.\n\uB0AE\uC744\uC218\uB85D \uC548\uC804, \uB192\uC744\uC218\uB85D \uC704\uD5D8.',
-  fear_phase: '\uACF5\uD3EC \uAD6D\uBA74 \uBD84\uC11D (Fear Gauge).\nVIX \uBCC0\uD654\uC728, F&G \uBAA8\uBA58\uD140, Put/Call \uBE44\uC728\uC744 \uC885\uD569.\n\u2022 Calm: \uD3C9\uC628\uD55C \uC2DC\uC7A5\n\u2022 Initial Panic: \uACF5\uD3EC \uC2DC\uC791\n\u2022 Peak Fear: \uACF5\uD3EC \uADF9\uC810 (\uC5ED\uBC1C\uC0C1 \uB9E4\uC218 \uAE30\uD68C)\n\u2022 Post-Peak: \uACF5\uD3EC \uD6C4\uD1F4 (\uD68C\uBCF5 \uC2DC\uC791)',
-  season: '\uC2DC\uC7A5 \uACC4\uC808 \uBD84\uC11D.\n\uACBD\uAE30 \uC21C\uD658\uACFC \uD1B5\uD654 \uC815\uCC45\uC5D0 \uB530\uB77C \uD22C\uC790 \uC2DC\uACC4\uC758 4\uC0AC\uBD84\uBA74\uC744 \uBD84\uC11D.\nRecovery / Reflation / Overheat / Stagflation',
-  cash_ratio: '\uD604\uC7AC \uC2DC\uC7A5 \uC704\uD5D8\uB3C4\uC5D0 \uB530\uB978 \uAD8C\uC7A5 \uD604\uAE08 \uBE44\uC911.\n\uC704\uD5D8\uC774 \uB192\uC744\uC218\uB85D \uD604\uAE08 \uBE44\uC911\uC744 \uB192\uC5EC \uBC29\uC5B4,\n\uB0AE\uC744\uC218\uB85D \uD22C\uC790 \uBE44\uC911 \uD655\uB300 \uAD8C\uC7A5.',
-  signal_summary: 'VIBE \uD30C\uC774\uD504\uB77C\uC778\uC774 \uBD84\uC11D\uD55C \uC804\uCCB4 \uC885\uBAA9 \uC2DC\uADF8\uB110 \uC694\uC57D.\nBUY: \uB9E4\uC218 \uC2DC\uADF8\uB110 \uC885\uBAA9 \uC218\nSELL: \uB9E4\uB3C4 \uC2DC\uADF8\uB110 \uC885\uBAA9 \uC218\nHOLD: \uAD00\uB9DD/\uC720\uC9C0 \uC885\uBAA9 \uC218',
-  action_items: '\uC624\uB298 \uC218\uD589\uD574\uC57C \uD560 \uD22C\uC790 \uC561\uC158 \uBAA9\uB85D.\n\uC6B0\uC120\uC21C\uC704 \uC21C\uC73C\uB85C \uC815\uB82C\uB418\uC5B4 \uC788\uC73C\uBA70,\n\uAC01 \uD56D\uBAA9\uC5D0\uB294 \uAD6C\uCCB4\uC801\uC778 \uC2E4\uD589 \uBC29\uBC95\uC774 \uD3EC\uD568.',
+  stance: '현재 시장 상황을 종합 분석하여 결정된 투자 전략 방향.\n• 역발상 매수: 시장 공포 구간에서 분할 매수 기회\n• 공격적: 상승 추세 강화, 적극 매수\n• 중립: 방향성 탐색 중, 관망\n• 방어적: 하락 위험 높음, 현금 비중 확대',
+  stance_logic: '스탠스 결정 우선순위.\n① 공포 국면 → ② 패닉 초기 → ③~④ 리스크 점수 → ⑤ 시장 계절 → ⑥~⑧ 기본값.\n위쪽 규칙이 트리거되면 아래 규칙은 무시됩니다.\n예: 공포 초기면 리스크 점수가 낮아도 방어 태세.',
+  risk_score: '매크로 위험 점수 (0~100).\n스태그플레이션 지수(40%) + 위험 레짐(30%) + 투자시계(30%)를 종합한 값.\n낮을수록 안전, 높을수록 위험.',
+  fear_phase: '공포 국면 분석 (Fear Gauge).\nVIX 변화율, F&G 모멘텀, Put/Call 비율을 종합.\n• Calm: 평온한 시장\n• Initial Panic: 공포 시작\n• Peak Fear: 공포 극점 (역발상 매수 기회)\n• Post-Peak: 공포 후퇴 (회복 시작)',
+  season: '시장 계절 분석.\n경기 순환과 통화 정책에 따라 투자 시계의 4사분면을 분석.\nRecovery / Reflation / Overheat / Stagflation',
+  cash_ratio: '현재 시장 위험도에 따른 권장 현금 비중.\n위험이 높을수록 현금 비중을 높여 방어,\n낮을수록 투자 비중 확대 권장.',
+  signal_summary: 'VIBE 파이프라인이 분석한 전체 종목 시그널 요약.\nBUY: 매수 시그널 종목 수\nSELL: 매도 시그널 종목 수\nHOLD: 관망/유지 종목 수',
+  action_items: '오늘 수행해야 할 투자 액션 목록.\n우선순위 순으로 정렬되어 있으며,\n각 항목에는 구체적인 실행 방법이 포함.',
   priority: {
-    1: '\uD83D\uDD34 \uCD5C\uC6B0\uC120 (Priority 1)\n\uAC00\uC7A5 \uBA3C\uC800 \uC2E4\uD589\uD574\uC57C \uD560 \uD575\uC2EC \uC804\uB7B5.',
-    2: '\uD83D\uDFE1 \uC911\uC694 (Priority 2)\n\uD575\uC2EC \uC804\uB7B5 \uB2E4\uC74C\uC73C\uB85C \uC2E4\uD589\uD560 \uBCF4\uC870 \uC804\uB7B5.',
-    3: '\u26AA \uCC38\uACE0 (Priority 3)\n\uC5EC\uC720\uAC00 \uB420 \uB54C \uCC38\uACE0\uD560 \uBD80\uAC00 \uC815\uBCF4.',
+    1: '🔴 최우선 (Priority 1)\n가장 먼저 실행해야 할 핵심 전략.',
+    2: '🟡 중요 (Priority 2)\n핵심 전략 다음으로 실행할 보조 전략.',
+    3: '⚪ 참고 (Priority 3)\n여유가 될 때 참고할 부가 정보.',
   },
-  sector_bias: '\uD604\uC7AC \uC2DC\uC7A5 \uD658\uACBD\uC5D0 \uB530\uB77C \uC139\uD130\uBCC4 \uBE44\uC911 \uC870\uC808 \uAD8C\uC7A5.\nVIX, \uAE08\uB9AC, \uC720\uAC00, \uD658\uC728 \uB4F1 \uB9E4\uD06C\uB85C \uC9C0\uD45C\uB97C \uBD84\uC11D\uD558\uC5EC\n\uAC01 \uC139\uD130\uC758 \uD22C\uC790 \uBE44\uC911\uC744 \uC81C\uC548\uD569\uB2C8\uB2E4.',
+  sector_bias: '현재 시장 환경에 따라 섹터별 비중 조절 권장.\nVIX, 금리, 유가, 환율 등 매크로 지표를 분석하여\n각 섹터의 투자 비중을 제안합니다.',
   bias_label: {
-    overweight: 'Overweight (\uBE44\uC911 \uD655\uB300)\n\uD604\uC7AC \uC2DC\uC7A5 \uD658\uACBD\uC5D0\uC11C \uC774 \uC139\uD130\uAC00 \uC720\uB9AC\uD569\uB2C8\uB2E4.\n\uD3EC\uD2B8\uD3F4\uB9AC\uC624\uC5D0\uC11C \uBE44\uC911\uC744 \uB2E4\uC18C \uB192\uC774\uB294 \uAC83\uC774 \uC88B\uC2B5\uB2C8\uB2E4.',
-    neutral: 'Neutral (\uC911\uB9BD)\n\uD2B9\uBCC4\uD55C \uBE44\uC911 \uC870\uC808 \uD544\uC694 \uC5C6\uC74C.\n\uAE30\uC874 \uBE44\uC911\uC744 \uADE0\uD615\uC801\uC73C\uB85C \uC720\uC9C0\uD558\uC138\uC694.',
-    underweight: 'Underweight (\uBE44\uC911 \uCD95\uC18C)\n\uD604\uC7AC \uD658\uACBD\uC5D0\uC11C \uC774 \uC139\uD130\uAC00 \uBD88\uB9AC\uD569\uB2C8\uB2E4.\n\uD3EC\uD2B8\uD3F4\uB9AC\uC624\uC5D0\uC11C \uBE44\uC911\uC744 \uC904\uC774\uB294 \uAC83\uC774 \uC88B\uC2B5\uB2C8\uB2E4.',
+    overweight: 'Overweight (비중 확대)\n현재 시장 환경에서 이 섹터가 유리합니다.\n포트폴리오에서 비중을 다소 높이는 것이 좋습니다.',
+    neutral: 'Neutral (중립)\n특별한 비중 조절 필요 없음.\n기존 비중을 균형적으로 유지하세요.',
+    underweight: 'Underweight (비중 축소)\n현재 환경에서 이 섹터가 불리합니다.\n포트폴리오에서 비중을 줄이는 것이 좋습니다.',
   },
-  top_picks: 'BUY \uC2DC\uADF8\uB110 \uC885\uBAA9 \uC911 \uC810\uC218\uAC00 \uAC00\uC7A5 \uB192\uC740 \uC0C1\uC704 \uC885\uBAA9.\n\uAE30\uC220\uC801 \uBD84\uC11D + \uB9E4\uD06C\uB85C + \uC218\uAE09 + \uB274\uC2A4 \uC810\uC218\uB97C \uC885\uD569\uD558\uC5EC\n\uC21C\uC704\uB97C \uC0B0\uCD9C\uD558\uACE0, \uD074\uB9AD\uD558\uBA74 \uC0C1\uC138\uD55C \uADFC\uAC70\uB97C \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
-  col_score: '\uC885\uD569 \uD22C\uC790 \uC810\uC218.\n\uAE30\uC220\uC801 \uBD84\uC11D(RSI/MACD/\uC774\uACA9\uB3C4 \uB4F1), \uB9E4\uD06C\uB85C \uC870\uAC74,\n\uC218\uAE09 \uB3D9\uD5A5, \uB274\uC2A4 \uBD84\uC11D\uC744 \uAC00\uC911 \uD569\uC0B0\uD55C \uAC12.\n\uB192\uC744\uC218\uB85D \uB9E4\uC218 \uADFC\uAC70\uAC00 \uAC15\uD568.',
-  col_rsi: 'RSI (\uC0C1\uB300\uAC15\uB3C4\uC9C0\uC218, 0~100).\n30 \uC774\uD558: \uACFC\uB9E4\uB3C4 (\uBC18\uB4F1 \uAC00\uB2A5\uC131 \uB192\uC74C)\n30~50: \uC57D\uC138\n50~70: \uC815\uC0C1~\uAC15\uC138\n70 \uC774\uC0C1: \uACFC\uB9E4\uC218 (\uC870\uC815 \uC8FC\uC758)',
-  col_current: '\uD574\uB2F9 \uC885\uBAA9\uC758 \uD604\uC7AC \uC2DC\uC7A5\uAC00 (\uCD5C\uC2E0 \uC885\uAC00 \uAE30\uC900).',
-  col_target: '\uBAA9\uD45C \uB9E4\uB3C4\uAC00.\nRSI\uC640 \uC2DC\uADF8\uB110 \uAC15\uB3C4\uC5D0 \uB530\uB77C \uC0B0\uCD9C.\nRSI \uB0AE\uC744\uC218\uB85D \uD0C0\uAC9F \uB192\uC74C (+8~15%).',
-  col_stoploss: '\uC190\uC808 \uAE30\uC900\uAC00.\n\uC774 \uAC00\uACA9 \uC774\uD558\uB85C \uD558\uB77D \uC2DC \uC190\uC808 \uB9E4\uB3C4 \uAD8C\uC7A5.\n\uAE30\uBCF8\uAC12: \uD604\uC7AC\uAC00 \uB300\uBE44 -7%.',
-  col_rr: 'R:R (\uBCF4\uC0C1/\uC704\uD5D8 \uBE44\uC728).\n(\uBAA9\uD45C\uAC00 - \uD604\uC7AC\uAC00) / (\uD604\uC7AC\uAC00 - \uC190\uC808\uAC00).\n1.5 \uC774\uC0C1\uC774\uBA74 \uB9E4\uB825\uC801, 2 \uC774\uC0C1 \uC6B0\uC218.\n\uAC12\uC774 \uB192\uC744\uC218\uB85D \uAE30\uB300 \uC218\uC775 \uB300\uBE44 \uC704\uD5D8\uC774 \uC791\uC74C.',
-  col_amount: '\uCF08\uB9AC \uACF5\uC2DD \uAE30\uBC18 \uAD8C\uC7A5 \uD22C\uC790 \uAE08\uC561.\n\uC2DC\uADF8\uB110 \uC810\uC218\uC640 \uD655\uC2E0\uB3C4\uC5D0 \uB530\uB77C \uD55C \uBC88\uC5D0 \uD22C\uC790\uD560\n\uCD5C\uC801 \uAE08\uC561\uACFC \uBE44\uC911(%).\n\uC804\uCCB4 \uC790\uBCF8 \uB300\uBE44 \uBE44\uC728\uC744 \uD568\uAED8 \uD45C\uC2DC.',
-  target_return: '\uBAA9\uD45C \uC218\uC775\uB960.\n\uD604\uC7AC\uAC00 \uB300\uBE44 \uBAA9\uD45C\uAC00\uAE4C\uC9C0\uC758 \uAE30\uB300 \uC218\uC775\uB960(%).\nRSI\uAC00 \uB0AE\uC744\uC218\uB85D(30 \uBBF8\uB9CC) \uB354 \uB192\uC740 \uBAA9\uD45C \uC124\uC815.',
-  confidence: '\uD22C\uC790 \uD655\uC2E0\uB3C4.\n\uC2DC\uADF8\uB110\uC758 \uB2E4\uC591\uD55C \uC9C0\uD45C\uAC00 \uC5BC\uB9C8\uB098 \uC77C\uCE58\uD558\uB294\uC9C0 \uBCF4\uC5EC\uC8FC\uB294 \uAC12.\n\uB192\uC744\uC218\uB85D \uC5EC\uB7EC \uC9C0\uD45C\uAC00 \uAC19\uC740 \uBC29\uD5A5\uC744 \uAC00\uB9AC\uD0B4.',
-  portfolio_actions: '\uD604\uC7AC \uBCF4\uC720 \uC911\uC778 \uC885\uBAA9\uB4E4\uC758 \uC218\uC775\uB960, \uC2DC\uADF8\uB110\uC744 \uBD84\uC11D\uD558\uC5EC\n\uC790\uB3D9 \uC0DD\uC131\uB41C \uC561\uC158 \uC81C\uC548.\n\uC190\uC808(-7%), \uC775\uC808(+15%), \uBD80\uBD84\uC775\uC808(+10%) \uB4F1\n\uADDC\uCE59 \uAE30\uBC18\uC73C\uB85C \uD310\uB2E8\uD569\uB2C8\uB2E4.',
+  top_picks: 'BUY 시그널 종목 중 점수가 가장 높은 상위 종목.\n기술적 분석 + 매크로 + 수급 + 뉴스 점수를 종합하여\n순위를 산출하고, 클릭하면 상세한 근거를 확인할 수 있습니다.',
+  col_score: '종합 투자 점수.\n기술적 분석(RSI/MACD/이격도 등), 매크로 조건,\n수급 동향, 뉴스 분석을 가중 합산한 값.\n높을수록 매수 근거가 강함.',
+  col_rsi: 'RSI (상대강도지수, 0~100).\n30 이하: 과매도 (반등 가능성 높음)\n30~50: 약세\n50~70: 정상~강세\n70 이상: 과매수 (조정 주의)',
+  col_current: '해당 종목의 현재 시장가 (최신 종가 기준).',
+  col_target: '목표 매도가.\nRSI와 시그널 강도에 따라 산출.\nRSI 낮을수록 타겟 높음 (+8~15%).',
+  col_stoploss: '손절 기준가.\n이 가격 이하로 하락 시 손절 매도 권장.\n기본값: 현재가 대비 -7%.',
+  col_rr: 'R:R (보상/위험 비율).\n(목표가 - 현재가) / (현재가 - 손절가).\n1.5 이상이면 매력적, 2 이상 우수.\n값이 높을수록 기대 수익 대비 위험이 작음.',
+  col_amount: '켈리 공식 기반 권장 투자 금액.\n시그널 점수와 확신도에 따라 한 번에 투자할\n최적 금액과 비중(%).\n전체 자본 대비 비율을 함께 표시.',
+  target_return: '목표 수익률.\n현재가 대비 목표가까지의 기대 수익률(%).\nRSI가 낮을수록(30 미만) 더 높은 목표 설정.',
+  confidence: '투자 확신도.\n시그널의 다양한 지표가 얼마나 일치하는지 보여주는 값.\n높을수록 여러 지표가 같은 방향을 가리킴.',
+  portfolio_actions: '현재 보유 중인 종목들의 수익률, 시그널을 분석하여\n자동 생성된 액션 제안.\n손절(-7%), 익절(+15%), 부분익절(+10%) 등\n규칙 기반으로 판단합니다.',
   action_type: {
-    CUT_LOSS: '\uC190\uC808 \uB9E4\uB3C4\n\uC190\uC2E4\uC774 -7% \uC774\uC0C1. \uC989\uC2DC \uC815\uB9AC \uAD8C\uC7A5.\n\uCD94\uAC00 \uD558\uB77D \uBCF4\uB2E4 \uC190\uC2E4 \uD655\uC815\uC744 \uD1B5\uD574 \uC790\uBCF8 \uBCF4\uC804.',
-    TAKE_PROFIT: '\uC775\uC808 \uB9E4\uB3C4\n\uC218\uC775\uC774 +15% \uC774\uC0C1. \uCC28\uC775 \uC2E4\uD604 \uAD8C\uC7A5.\n\uBAA9\uD45C \uC218\uC775 \uB2EC\uC131, \uCD5C\uC18C 50% \uC774\uC0C1 \uCC28\uC775 \uC2E4\uD604.',
-    PARTIAL_PROFIT: '\uBD80\uBD84 \uC775\uC808\n\uC218\uC775 +10~15% \uAD6C\uAC04. \uC804\uCCB4\uAC00 \uC544\uB2CC \uC77C\uBD80 \uB9E4\uB3C4\uB85C\n\uC218\uC775\uC744 \uD655\uBCF4\uD558\uBA74\uC11C \uC0C1\uC2B9 \uC5EC\uB825\uB3C4 \uB0A8\uAE40.',
-    ADD_MORE: '\uCD94\uAC00 \uB9E4\uC218\n\uD604\uC7AC BUY \uC2DC\uADF8\uB110 \uC9C0\uC18D. \uAE30\uC874 \uD3EC\uC9C0\uC158\uC5D0\n\uCD94\uAC00 \uB9E4\uC218\uB85C \uD3C9\uADE0 \uB2E8\uAC00\uB97C \uC870\uC815\uD558\uAC70\uB098 \uBE44\uC911 \uD655\uB300.',
-    REDUCE: '\uBE44\uC911 \uCD95\uC18C\nSELL \uC2DC\uADF8\uB110 \uBC1C\uC0DD. \uC804\uCCB4 \uB9E4\uB3C4\uBCF4\uB2E4\uB294\n\uC77C\uBD80 \uBE44\uC911\uC744 \uC904\uC5EC \uC704\uD5D8 \uAD00\uB9AC.',
-    WATCH_CLOSELY: '\uC8FC\uC758 \uAD00\uCC30\n\uC190\uC808\uC120(-7%) \uC811\uADFC \uC911. \uCD94\uAC00 \uD558\uB77D \uC2DC\n\uC989\uC2DC \uB300\uC751\uD560 \uC900\uBE44 \uD544\uC694.',
-    HOLD: '\uBCF4\uC720 \uC720\uC9C0\n\uD2B9\uBCC4\uD55C \uC561\uC158 \uD544\uC694 \uC5C6\uC74C.\n\uD604\uC7AC \uC2DC\uADF8\uB110 HOLD, \uAE30\uC874 \uD3EC\uC9C0\uC158 \uC720\uC9C0.',
+    CUT_LOSS: '손절 매도\n손실이 -7% 이상. 즉시 정리 권장.\n추가 하락 보다 손실 확정을 통해 자본 보전.',
+    TAKE_PROFIT: '익절 매도\n수익이 +15% 이상. 차익 실현 권장.\n목표 수익 달성, 최소 50% 이상 차익 실현.',
+    PARTIAL_PROFIT: '부분 익절\n수익 +10~15% 구간. 전체가 아닌 일부 매도로\n수익을 확보하면서 상승 여력도 남김.',
+    ADD_MORE: '추가 매수\n현재 BUY 시그널 지속. 기존 포지션에\n추가 매수로 평균 단가를 조정하거나 비중 확대.',
+    REDUCE: '비중 축소\nSELL 시그널 발생. 전체 매도보다는\n일부 비중을 줄여 위험 관리.',
+    WATCH_CLOSELY: '주의 관찰\n손절선(-7%) 접근 중. 추가 하락 시\n즉시 대응할 준비 필요.',
+    HOLD: '보유 유지\n특별한 액션 필요 없음.\n현재 시그널 HOLD, 기존 포지션 유지.',
   },
   signal_badge: {
-    BUY: 'BUY \uC2DC\uADF8\uB110: VIBE \uD30C\uC774\uD504\uB77C\uC778\uC774 \uB9E4\uC218 \uAD8C\uC7A5\uC73C\uB85C \uD310\uB2E8\uD55C \uC885\uBAA9.',
-    SELL: 'SELL \uC2DC\uADF8\uB110: VIBE \uD30C\uC774\uD504\uB77C\uC778\uC774 \uB9E4\uB3C4/\uC815\uB9AC \uAD8C\uC7A5\uC73C\uB85C \uD310\uB2E8\uD55C \uC885\uBAA9.',
-    HOLD: 'HOLD \uC2DC\uADF8\uB110: \uD604\uC7AC \uAD00\uB9DD, \uB9E4\uC218/\uB9E4\uB3C4 \uADFC\uAC70 \uBD80\uC871.',
+    BUY: 'BUY 시그널: VIBE 파이프라인이 매수 권장으로 판단한 종목.',
+    SELL: 'SELL 시그널: VIBE 파이프라인이 매도/정리 권장으로 판단한 종목.',
+    HOLD: 'HOLD 시그널: 현재 관망, 매수/매도 근거 부족.',
   },
-  weekly_outlook: '\uC774\uBC88 \uC8FC \uC2DC\uC7A5 \uC804\uB9DD \uC694\uC57D.\n\uB9E4\uD06C\uB85C \uD658\uACBD, \uACF5\uD3EC/\uD0D0\uC695 \uC9C0\uC218, \uD22C\uC790 \uC2DC\uACC4\uB97C \uC885\uD569\uD558\uC5EC\n\uD5A5\uD6C4 1\uC8FC\uAC04 \uC804\uB9DD\uACFC \uC8FC\uC758\uC0AC\uD56D\uC744 \uC815\uB9AC\uD569\uB2C8\uB2E4.',
-  watch_list: '\uC774\uBC88 \uC8FC \uD2B9\uBCC4\uD788 \uBAA8\uB2C8\uD130\uB9C1\uD574\uC57C \uD560 \uC9C0\uD45C\uC640 \uC774\uBCA4\uD2B8.\n\uD574\uB2F9 \uD56D\uBAA9\uC758 \uBCC0\uD654\uC5D0 \uB530\uB77C \uC804\uB7B5 \uC870\uC815\uC774 \uD544\uC694\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
-  guru_consensus: '8\uBA85\uC758 \uD22C\uC790 \uB300\uAC00(Buffett, Soros, Dalio \uB4F1)\uC758\n\uD22C\uC790 \uD504\uB808\uC784\uC6CC\uD06C\uB85C \uD604\uC7AC \uC2DC\uC7A5\uC744 \uBD84\uC11D\uD55C \uACB0\uACFC.\n\uAC01 \uAD6C\uB8E8\uC758 \uC804\uB7B5\uC774 \uAC15\uC138/\uC57C\uC138/\uAD00\uB9DD \uC911\n\uC5B4\uB290 \uCABD\uC5D0 \uD3B8\uD5A5\uB418\uC5B4 \uC788\uB294\uC9C0 \uBCF4\uC5EC\uC90D\uB2C8\uB2E4.',
-  guru_conviction: '\uAD6C\uB8E8\uB4E4\uC758 \uD3C9\uADE0 \uD655\uC2E0\uB3C4.\n0%: \uD310\uB2E8 \uBD88\uD655\uC2E4, 100%: \uB9E4\uC6B0 \uAC15\uD55C \uD655\uC2E0.\n50% \uBBF8\uB9CC\uC774\uBA74 \uC758\uACAC\uC774 \uBD84\uC0B0, 70% \uC774\uC0C1\uC774\uBA74 \uAC15\uD55C \uD569\uC758.',
+  weekly_outlook: '이번 주 시장 전망 요약.\n매크로 환경, 공포/탐욕 지수, 투자 시계를 종합하여\n향후 1주간 전망과 주의사항을 정리합니다.',
+  watch_list: '이번 주 특별히 모니터링해야 할 지표와 이벤트.\n해당 항목의 변화에 따라 전략 조정이 필요할 수 있습니다.',
+  guru_consensus: '8명의 투자 대가(Buffett, Soros, Dalio 등)의\n투자 프레임워크로 현재 시장을 분석한 결과.\n각 구루의 전략이 강세/야세/관망 중\n어느 쪽에 편향되어 있는지 보여줍니다.',
+  guru_conviction: '구루들의 평균 확신도.\n0%: 판단 불확실, 100%: 매우 강한 확신.\n50% 미만이면 의견이 분산, 70% 이상이면 강한 합의.',
 }

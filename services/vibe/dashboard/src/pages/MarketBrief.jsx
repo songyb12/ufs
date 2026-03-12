@@ -122,7 +122,7 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83D\uDCCA'} 시황 브리핑</h2>
+          <h2>{'📊'} 시황 브리핑</h2>
           <p className="subtitle">
             {briefing?.briefing_date || '데이터 없음'} 기준 시장 현황
           </p>
@@ -133,16 +133,16 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
             onClick={() => setShowAIPanel(!showAIPanel)}
             style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
           >
-            {showAIPanel ? '\u2716 \uB2EB\uAE30' : '\uD83E\uDD16 AI \uBD84\uC11D'}
+            {showAIPanel ? '✖ 닫기' : '🤖 AI 분석'}
           </button>
           <button
             className="btn btn-primary"
             onClick={handleGenerate}
             disabled={generating}
           >
-            {generating ? '생성 중...' : '\uD83D\uDD04 브리핑 생성'}
+            {generating ? '생성 중...' : '🔄 브리핑 생성'}
           </button>
-          <button className="btn btn-outline" onClick={loadData}>{'\u21BB'} Refresh</button>
+          <button className="btn btn-outline" onClick={loadData}>{'↻'} Refresh</button>
           <HelpButton section="quickstart" onNavigate={onNavigate} />
         </div>
       </div>
@@ -161,7 +161,7 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
 
       {error && (
         <div className="card" style={{ borderColor: 'var(--red)', padding: '0.75rem 1.25rem', marginBottom: '1rem' }}>
-          {'\u274C'} {error}
+          {'❌'} {error}
         </div>
       )}
 
@@ -169,10 +169,10 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
       {showAIPanel && (
         <div className="card" style={{ marginBottom: '1.5rem', borderColor: 'var(--accent)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-            <span style={{ fontSize: '1.1rem' }}>{'\uD83E\uDD16'}</span>
-            <strong style={{ color: 'var(--accent)' }}>AI {'\uC2DC\uD669'} {'\uBD84\uC11D'}</strong>
+            <span style={{ fontSize: '1.1rem' }}>{'🤖'}</span>
+            <strong style={{ color: 'var(--accent)' }}>AI {'시황'} {'분석'}</strong>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              VIBE DB {'\uB370\uC774\uD130'} {'\uAE30\uBC18'} LLM {'\uBD84\uC11D'}
+              VIBE DB {'데이터'} {'기반'} LLM {'분석'}
             </span>
           </div>
 
@@ -195,7 +195,7 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <input
               type="text"
-              placeholder={'\uC9C8\uBB38\uC744 \uC785\uB825\uD558\uC138\uC694... (ex: \uBC18\uB3C4\uCCB4 \uC139\uD130 \uC804\uB9DD\uC740?)'}
+              placeholder={'질문을 입력하세요... (ex: 반도체 섹터 전망은?)'}
               value={aiQuestion}
               onChange={e => setAIQuestion(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !aiLoading && handleAIAnalyze()}
@@ -212,9 +212,9 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
               style={{ whiteSpace: 'nowrap' }}
             >
               {aiLoading ? (
-                <><span className="spinner" style={{ width: 14, height: 14 }} /> {'\uBD84\uC11D \uC911'}...</>
+                <><span className="spinner" style={{ width: 14, height: 14 }} /> {'분석 중'}...</>
               ) : (
-                '\u27A4 \uBD84\uC11D'
+                '➤ 분석'
               )}
             </button>
           </div>
@@ -232,13 +232,13 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
                 }}>
                   {item.status === 'error' ? (
                     <div style={{ color: 'var(--red)' }}>
-                      {'\u274C'} {item.message}
+                      {'❌'} {item.message}
                     </div>
                   ) : (
                     <>
                       <div style={{ marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>
-                          {'\u2728'} {item.question}
+                          {'✨'} {item.question}
                         </span>
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
                           {item.metadata?.model || 'N/A'} | {item.metadata?.generated_at ? new Date(item.metadata.generated_at).toLocaleTimeString('ko-KR') : '-'}
@@ -284,7 +284,7 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
           {llmSummary && (
             <div className="card" style={{ marginBottom: '1.5rem', borderColor: 'var(--accent)', borderWidth: '2px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                <span style={{ fontSize: '1.1rem' }}>{'\uD83E\uDD16'}</span>
+                <span style={{ fontSize: '1.1rem' }}>{'🤖'}</span>
                 <strong style={{ color: 'var(--accent)' }}>AI 시황 해설</strong>
                 <span className="badge" style={{ background: 'var(--accent)', color: '#fff', fontSize: '0.65rem' }}>LLM</span>
               </div>
@@ -477,7 +477,7 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
           {movers.length > 0 && (
             <div className="table-container">
               <div className="table-header">
-                <h3>{'\uD83D\uDD25'} 주요 종목 시그널</h3>
+                <h3>{'🔥'} 주요 종목 시그널</h3>
               </div>
               <table>
                 <thead>
@@ -525,7 +525,7 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
           {news.length > 0 && (
             <div className="table-container">
               <div className="table-header">
-                <h3>{'\uD83D\uDCF0'} 최근 뉴스</h3>
+                <h3>{'📰'} 최근 뉴스</h3>
               </div>
               <table>
                 <thead>
@@ -563,7 +563,7 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
           {/* Briefing History */}
           {history.length > 1 && (
             <div className="card" style={{ marginTop: '1.5rem' }}>
-              <h3 style={{ marginBottom: '0.75rem' }}>{'\uD83D\uDCC5'} 이전 브리핑</h3>
+              <h3 style={{ marginBottom: '0.75rem' }}>{'📅'} 이전 브리핑</h3>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 {history.map((h) => (
                   <button

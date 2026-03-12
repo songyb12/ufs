@@ -499,7 +499,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83D\uDCBC'} 포트폴리오</h2>
+          <h2>{'💼'} 포트폴리오</h2>
           <p className="subtitle">
             {activeGroup?.name || '기본 포트폴리오'} — {positions.length}개 보유 종목
           </p>
@@ -523,7 +523,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
             disabled={refreshing}
             title="pykrx/yfinance에서 최신 현재가를 가져옵니다"
           >
-            {refreshing ? '\u23F3 갱신 중...' : '🔄 현재가 갱신'}
+            {refreshing ? '⏳ 갱신 중...' : '🔄 현재가 갱신'}
           </button>
           {positions.length > 0 && (
             <button
@@ -531,7 +531,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
               onClick={() => { exportPortfolioCSV(positions); toast.success(`${positions.length}개 종목 CSV 다운로드 완료`) }}
               title="CSV 내보내기"
             >
-              {'\u2B07'} CSV
+              {'⬇'} CSV
             </button>
           )}
           <div className={`card-value ${pnlPct >= 0 ? 'green' : 'red'}`} style={{ fontSize: '1.5rem' }}>
@@ -576,7 +576,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                   style={{ color: 'var(--red)', borderColor: 'var(--red)', padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
                   title="그룹 삭제"
                 >
-                  {'\u2716'}
+                  {'✖'}
                 </button>
               )}
             </div>
@@ -671,7 +671,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                 }}
               />
               <button className="btn btn-outline btn-sm" onClick={handleTextImport} disabled={importLoading} style={{ marginTop: '0.5rem' }}>
-                {'\u27A4'} 텍스트 파싱
+                {'➤'} 텍스트 파싱
               </button>
             </div>
           </div>
@@ -682,7 +682,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <h4>{importPreview.length}개 종목 감지됨</h4>
                 <button className="btn btn-primary btn-sm" onClick={handleConfirmImport} disabled={submitting}>
-                  {submitting ? '등록 중...' : `\u2705 ${importPreview.length}개 종목 등록`}
+                  {submitting ? '등록 중...' : `✅ ${importPreview.length}개 종목 등록`}
                 </button>
               </div>
               <table>
@@ -928,7 +928,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
       {positions.length > 0 && (
         <div className="table-container" style={{ marginBottom: '1.5rem' }}>
           <div className="table-header">
-            <h3>{'\uD83E\uDD16'} AI 포트폴리오 분석</h3>
+            <h3>{'🤖'} AI 포트폴리오 분석</h3>
             <button
               className={`btn btn-sm ${showAiPanel ? 'btn-primary' : 'btn-outline'}`}
               onClick={() => setShowAiPanel(!showAiPanel)}
@@ -972,7 +972,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                   onClick={() => handleAiAnalyze()}
                   disabled={aiAnalyzing || !aiQuestion.trim()}
                 >
-                  {aiAnalyzing ? '\u23F3' : '\u27A4'}
+                  {aiAnalyzing ? '⏳' : '➤'}
                 </button>
               </div>
 
@@ -1042,7 +1042,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
             onClick={handleToggleShowHidden}
             style={{ fontSize: '0.75rem' }}
           >
-            {showHidden ? '\uD83D\uDC41 숨긴 종목 포함' : '\uD83D\uDC41\u200D\uD83D\uDDE8 숨긴 종목 보기'}
+            {showHidden ? '👁 숨긴 종목 포함' : '👁‍🗨 숨긴 종목 보기'}
           </button>
           {positions.some(p => p.pnl_pct != null && p.pnl_pct <= STOP_LOSS_PCT) && (
             <button
@@ -1114,13 +1114,13 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                         }}
                       />
                     ) : (
-                      p.market === 'KR' ? `\u20A9${p.entry_price?.toLocaleString() || '-'}` : `$${p.entry_price?.toFixed(2) || '-'}`
+                      p.market === 'KR' ? `₩${p.entry_price?.toLocaleString() || '-'}` : `$${p.entry_price?.toFixed(2) || '-'}`
                     )}
                   </td>
                   <td>
                     {p.current_price != null ? (
                       <div>
-                        {p.market === 'KR' ? `\u20A9${Math.round(p.current_price).toLocaleString()}` : `$${p.current_price.toFixed(2)}`}
+                        {p.market === 'KR' ? `₩${Math.round(p.current_price).toLocaleString()}` : `$${p.current_price.toFixed(2)}`}
                         {p.price_date && (() => {
                           const daysDiff = (Date.now() - new Date(p.price_date).getTime()) / (1000*60*60*24)
                           // Business-day aware: weekends add 2 extra days tolerance
@@ -1130,7 +1130,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                           return (
                             <div style={{ fontSize: '0.6rem', color: isStale ? '#f59e0b' : 'var(--text-muted)' }}
                                  title={isStale ? `${Math.floor(daysDiff)}일 전 데이터 — 현재가 갱신 필요` : ''}>
-                              {isStale ? '\u26A0 ' : ''}{p.price_date}
+                              {isStale ? '⚠ ' : ''}{p.price_date}
                             </div>
                           )
                         })()}
@@ -1233,7 +1233,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                           onClick={() => startEdit(p)}
                           title="수정"
                         >
-                          {'\u270F'}
+                          {'✏'}
                         </button>
                         <button
                           className="btn btn-outline btn-sm"
@@ -1242,7 +1242,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                           title={p.is_hidden ? '종목 표시' : '종목 숨기기'}
                           style={{ opacity: p.is_hidden ? 0.5 : 1 }}
                         >
-                          {p.is_hidden ? '\uD83D\uDC41' : '\uD83D\uDE48'}
+                          {p.is_hidden ? '👁' : '🙈'}
                         </button>
                         <button
                           className="btn btn-outline btn-sm"
@@ -1251,7 +1251,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                           title={pnl <= STOP_LOSS_PCT ? '손절 퇴출' : pnl >= 10 ? '익절 퇴출' : '퇴출'}
                           style={{ color: pnl <= STOP_LOSS_PCT ? 'var(--red)' : '#eab308' }}
                         >
-                          {'\u21AA'}
+                          {'↪'}
                         </button>
                         <button
                           className="btn btn-outline btn-sm"
@@ -1260,7 +1260,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                           title="삭제"
                           style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
                         >
-                          {'\u2716'}
+                          {'✖'}
                         </button>
                       </div>
                     )}
@@ -1283,7 +1283,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
       {Object.keys(entryMap).length > 0 && (
         <div className="table-container">
           <div className="table-header">
-            <h3>{'\uD83C\uDD95'} 신규 진입 기회 (BUY 시그널, 미보유)</h3>
+            <h3>{'🆕'} 신규 진입 기회 (BUY 시그널, 미보유)</h3>
           </div>
           <table>
             <thead>
@@ -1357,8 +1357,8 @@ export default function Portfolio({ onNavigate, refreshKey }) {
                   <tr key={e.id || i}>
                     <td><strong>{e.name || e.symbol}</strong></td>
                     <td>{e.market}</td>
-                    <td>{e.market === 'KR' ? `\u20A9${e.entry_price?.toLocaleString() || '-'}` : `$${e.entry_price?.toFixed(2) || '-'}`}</td>
-                    <td>{e.market === 'KR' ? `\u20A9${e.exit_price?.toLocaleString() || '-'}` : `$${e.exit_price?.toFixed(2) || '-'}`}</td>
+                    <td>{e.market === 'KR' ? `₩${e.entry_price?.toLocaleString() || '-'}` : `$${e.entry_price?.toFixed(2) || '-'}`}</td>
+                    <td>{e.market === 'KR' ? `₩${e.exit_price?.toLocaleString() || '-'}` : `$${e.exit_price?.toFixed(2) || '-'}`}</td>
                     <td>
                       <span style={{ color: (e.pnl_pct ?? 0) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
                         {(e.pnl_pct ?? 0) >= 0 ? '+' : ''}{(e.pnl_pct ?? 0).toFixed(2)}%

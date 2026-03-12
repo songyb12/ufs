@@ -108,7 +108,7 @@ export default function FundFlow({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\uD83D\uDCB0'} 자금 흐름</h2>
+          <h2>{'💰'} 자금 흐름</h2>
           <p className="subtitle">자금 흐름 추적, 섹터 순환, 투자 테마 분석</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -118,7 +118,7 @@ export default function FundFlow({ onNavigate, refreshKey }) {
               {d}d
             </button>
           ))}
-          <button className="btn btn-outline" onClick={loadData}>{'\u21BB'}</button>
+          <button className="btn btn-outline" onClick={loadData}>{'↻'}</button>
           <HelpButton section="fund-flow" onNavigate={onNavigate} />
         </div>
       </div>
@@ -147,7 +147,7 @@ export default function FundFlow({ onNavigate, refreshKey }) {
               borderLeft: `3px solid ${w.level === 'warning' ? '#ef4444' : w.level === 'opportunity' ? '#22c55e' : '#3b82f6'}`,
               color: 'var(--text-secondary)',
             }}>
-              {w.level === 'warning' ? '\u26A0\uFE0F' : w.level === 'opportunity' ? '\uD83D\uDCA1' : '\u2139\uFE0F'} {w.message}
+              {w.level === 'warning' ? '⚠️' : w.level === 'opportunity' ? '💡' : 'ℹ️'} {w.message}
               {i === 0 && strategyMatch.season && (
                 <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                   ({strategyMatch.season} / {strategyMatch.clock_quadrant ?? '-'})
@@ -274,7 +274,7 @@ export default function FundFlow({ onNavigate, refreshKey }) {
                   <td style={{ fontWeight: 600 }}>{r.sector}</td>
                   <td>{r.current_rank}</td>
                   <td style={{ color: r.rank_change > 0 ? 'var(--green)' : r.rank_change < 0 ? 'var(--red)' : 'var(--text-muted)', fontWeight: 600 }}>
-                    {r.rank_change > 0 ? `\u2191+${r.rank_change}` : r.rank_change < 0 ? `\u2193${r.rank_change}` : '-'}
+                    {r.rank_change > 0 ? `↑+${r.rank_change}` : r.rank_change < 0 ? `↓${r.rank_change}` : '-'}
                   </td>
                   <td style={{ fontSize: '0.8rem' }}>
                     {r.current_net ? formatKRW(r.current_net) : r.avg_score != null ? r.avg_score.toFixed(1) : '-'}

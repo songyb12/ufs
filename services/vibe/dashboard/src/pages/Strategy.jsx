@@ -70,11 +70,11 @@ export default function Strategy({ onNavigate, refreshKey }) {
     <div>
       <div className="page-header">
         <div>
-          <h2>{'\u2699\uFE0F'} 전략 설정</h2>
+          <h2>{'⚙️'} 전략 설정</h2>
           <p className="subtitle">VIBE 판단 기준값 조정 및 변경 이력</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button className="btn btn-outline" onClick={loadData}>{'\u21BB'} Refresh</button>
+          <button className="btn btn-outline" onClick={loadData}>{'↻'} Refresh</button>
           <HelpButton section="strategy" onNavigate={onNavigate} />
         </div>
       </div>
@@ -107,7 +107,7 @@ export default function Strategy({ onNavigate, refreshKey }) {
       {/* Change Log */}
       {showLog ? (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
-          <h3 style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>{'\uD83D\uDCDD'} 변경 이력</h3>
+          <h3 style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>{'📝'} 변경 이력</h3>
           {change_log.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>변경 이력이 없습니다.</div>
           ) : (
@@ -124,7 +124,7 @@ export default function Strategy({ onNavigate, refreshKey }) {
                   </span>
                   <span style={{ fontWeight: 600 }}>{c.label}</span>
                   <span style={{ color: 'var(--text-muted)' }}>{c.old_value}</span>
-                  <span style={{ color: '#a855f7' }}>{'\u2192'}</span>
+                  <span style={{ color: '#a855f7' }}>{'→'}</span>
                   <span style={{ fontWeight: 600, color: c.reset ? '#a855f7' : 'var(--text-primary)' }}>
                     {c.new_value}{c.reset ? ' (초기화)' : ''}
                   </span>
@@ -221,7 +221,7 @@ export default function Strategy({ onNavigate, refreshKey }) {
 
       {/* Footer note */}
       <div className="card" style={{ borderLeft: '3px solid var(--accent)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-        <strong>{'\u2139\uFE0F'} 참고</strong>
+        <strong>{'ℹ️'} 참고</strong>
         <div style={{ marginTop: '0.25rem' }}>
           변경된 파라미터는 다음 파이프라인 실행부터 적용됩니다.
           현재는 표시 전용이며, 실제 파이프라인 코드에 반영하려면 별도 연동이 필요합니다.

@@ -762,7 +762,7 @@ export function exportPortfolioCSV(positions) {
     escapeCSV(p.position_size || ''), escapeCSV(p.entry_date || ''), escapeCSV(p.sector || '')
   ])
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -780,7 +780,7 @@ export function exportSignalsCSV(signals) {
     escapeCSV(s.hard_limit_triggered ? 'YES' : 'NO'), escapeCSV(s.rationale || '')
   ])
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

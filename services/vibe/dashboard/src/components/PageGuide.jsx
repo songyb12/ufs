@@ -44,7 +44,7 @@ export default function PageGuide({ pageId, title, steps, color = 'var(--accent)
       alignItems: 'flex-start',
       gap: '1rem',
     }}>
-      <span style={{ fontSize: '1.1rem', marginTop: '0.1rem' }}>{'\uD83D\uDCA1'}</span>
+      <span style={{ fontSize: '1.1rem', marginTop: '0.1rem' }}>{'💡'}</span>
       <div style={{ flex: 1 }}>
         {title && (
           <div style={{ fontWeight: 600, fontSize: '0.82rem', marginBottom: '0.35rem', color: 'var(--text-primary)' }}>
@@ -69,7 +69,7 @@ export default function PageGuide({ pageId, title, steps, color = 'var(--accent)
         }}
         title="닫기 (다시 보려면 가이드 페이지 참고)"
       >
-        {'\u2715'}
+        {'✕'}
       </button>
     </div>
   )
