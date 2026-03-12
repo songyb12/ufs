@@ -18,6 +18,7 @@ from app.config import settings
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.database.seed import seed_watchlist
+from app.polaris.router import router as polaris_router
 from app.routers import academy, action_plan, alerts, auth, backtest, briefing, dashboard, data, geopolitical, guru, llm_settings, macro_intel, notification_settings, pipeline, portfolio, portfolio_import, risk, screening, sentiment, signals, soxl, strategy_settings, watchlist
 from app.scheduler.jobs import register_jobs
 from app.scheduler.runner import create_scheduler
@@ -59,6 +60,8 @@ async def lifespan(app: FastAPI):
     # ── Startup ──
     set_db_path(settings.DB_PATH)
     await init_db()
+    from app.polaris.repository import init_polaris_schema
+    await init_polaris_schema()
     logger.info("Database initialized: %s", settings.DB_PATH)
 
     seeded = await seed_watchlist()
@@ -77,6 +80,8 @@ async def lifespan(app: FastAPI):
     if settings.SCHEDULER_ENABLED:
         scheduler = create_scheduler(settings)
         register_jobs(scheduler, settings, collector_registry)
+        from app.polaris.scheduler import register_polaris_jobs
+        register_polaris_jobs(scheduler, settings)
         scheduler.start()
         app.state.scheduler = scheduler
         logger.info("Scheduler started with %d jobs", len(scheduler.get_jobs()))
@@ -165,6 +170,7 @@ app.include_router(notification_settings.router)
 app.include_router(strategy_settings.router)
 app.include_router(soxl.router)
 app.include_router(geopolitical.router)
+app.include_router(polaris_router)
 
 
 @app.get("/health")
