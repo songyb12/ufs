@@ -152,6 +152,10 @@ services:
       retries: 3
       start_period: 10s
 
+  # session-manager: 호스트에서 직접 실행 (Claude CLI + 호스트 파일시스템 접근 필요)
+  # 시작: cd services/session-manager && python -m app.main
+  # nginx는 host.docker.internal:8006으로 프록시
+
   # ============================================
   # Frontends
   # ============================================

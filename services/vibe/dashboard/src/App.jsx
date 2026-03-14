@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, Component } from 'react'
 import LoginGate from './components/LoginGate'
 import { ToastProvider, useToast } from './components/Toast'
 import Sidebar from './components/Sidebar'
+import DataFreshness from './components/DataFreshness'
 import { refreshPrices } from './api'
 import Overview from './pages/Overview'
 import Signals from './pages/Signals'
@@ -23,6 +24,7 @@ import Geopolitical from './pages/Geopolitical'
 import CarryTrade from './pages/CarryTrade'
 import ForexMap from './pages/ForexMap'
 import DataAdmin from './pages/DataAdmin'
+import SoxlLive from './pages/SoxlLive'
 
 // M14: Error Boundary to catch render crashes
 class ErrorBoundary extends Component {
@@ -68,10 +70,6 @@ class ErrorBoundary extends Component {
 
 // ── Global Refresh Bar ──
 function GlobalRefreshBar({ onRefresh, refreshing, lastRefreshed }) {
-  const timeStr = lastRefreshed
-    ? lastRefreshed.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-    : null
-
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: '0.5rem',
@@ -90,11 +88,9 @@ function GlobalRefreshBar({ onRefresh, refreshing, lastRefreshed }) {
       <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
         가격 + 현재 페이지 데이터 갱신
       </span>
-      {timeStr && (
-        <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.7rem' }}>
-          {'⏰'} {timeStr}
-        </span>
-      )}
+      <span style={{ marginLeft: 'auto' }}>
+        <DataFreshness updatedAt={lastRefreshed} compact />
+      </span>
     </div>
   )
 }
@@ -152,6 +148,7 @@ function App() {
       case 'strategy': return <Strategy {...props} />
       case 'system': return <System {...props} />
       case 'soxl': return <Soxl {...props} />
+      case 'soxl-live': return <SoxlLive {...props} />
       case 'geopolitical': return <Geopolitical {...props} />
       case 'carry-trade': return <CarryTrade {...props} />
       case 'forex-map': return <ForexMap {...props} />

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Tooltip, Polyline } from 'react-leaflet'
 import { getForexMap, backfillForex } from '../api'
+import DataFreshness from '../components/DataFreshness'
 import { useToast } from '../components/Toast'
 import 'leaflet/dist/leaflet.css'
 
@@ -76,6 +77,7 @@ function CountryTable({ countries }) {
               <th style={thStyle}>통화</th>
               <th style={thStyle}>국가</th>
               <th style={thStyle}>금리</th>
+              <th style={thStyle}>출처</th>
               <th style={thStyle}>환율</th>
               <th style={thStyle}>1D</th>
               <th style={thStyle}>1W</th>
@@ -92,6 +94,16 @@ function CountryTable({ countries }) {
                   <td style={tdStyle}>{c.country}</td>
                   <td style={{ ...tdStyle, color: '#3b82f6', fontWeight: 600 }}>
                     {c.interest_rate != null ? `${c.interest_rate.toFixed(2)}%` : 'N/A'}
+                  </td>
+                  <td style={tdStyle}>
+                    <span style={{
+                      fontSize: '0.6rem', padding: '1px 4px', borderRadius: 3,
+                      background: c.rate_source === 'db' ? '#22c55e22' : '#64748b22',
+                      color: c.rate_source === 'db' ? '#22c55e' : '#94a3b8',
+                      fontWeight: 600,
+                    }}>
+                      {c.rate_source === 'db' ? '실시간' : '기본값'}
+                    </span>
                   </td>
                   <td style={tdStyle}>{c.fx_current ? c.fx_current.toLocaleString() : '-'}</td>
                   <td style={{ ...tdStyle, ...changeStyle(c.fx_change_1d) }}>{fmtChange(c.fx_change_1d)}</td>
@@ -170,12 +182,14 @@ function ForexWorldMap({ countries, flows }) {
               }}
             >
               <Tooltip direction="top" offset={[0, -8]}>
-                <div style={{ fontSize: '0.8rem', lineHeight: 1.4 }}>
+                <div style={{ fontSize: '0.8rem', lineHeight: 1.5 }}>
                   <strong>{c.flag} {c.currency} ({c.name})</strong><br />
-                  {c.interest_rate != null && <>금리: {c.interest_rate.toFixed(2)}%<br /></>}
+                  {c.interest_rate != null && <>금리: {c.interest_rate.toFixed(2)}% <span style={{ fontSize: '0.7rem', color: c.rate_source === 'db' ? '#22c55e' : '#999' }}>({c.rate_source === 'db' ? '실시간' : '기본값'})</span><br /></>}
                   {c.fx_pair && <>환율: {c.fx_current?.toLocaleString()} ({c.fx_pair})<br /></>}
                   강도: <span style={{ color }}>{c.strength?.label}</span><br />
-                  {c.fx_change_1d ? <>1D: {fmtChange(c.fx_change_1d)}</> : null}
+                  {c.fx_change_1d != null && <>1D: {fmtChange(c.fx_change_1d)} </>}
+                  {c.fx_change_1w != null && <>1W: {fmtChange(c.fx_change_1w)} </>}
+                  {c.fx_change_1m != null && <>1M: {fmtChange(c.fx_change_1m)}</>}
                 </div>
               </Tooltip>
             </CircleMarker>
@@ -192,13 +206,15 @@ export default function ForexMap({ refreshKey, onNavigate }) {
   const [loading, setLoading] = useState(true)
   const [backfilling, setBackfilling] = useState(false)
 
+  const [updatedAt, setUpdatedAt] = useState(null)
+
   const loadData = useCallback(() => {
     setLoading(true)
     getForexMap()
-      .then(d => setData(d))
+      .then(d => { setData(d); setUpdatedAt(d?.updated_at || new Date().toISOString()) })
       .catch(err => toast.error('Load failed: ' + err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
 
@@ -226,14 +242,17 @@ export default function ForexMap({ refreshKey, onNavigate }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
         <h2>Global Forex Map</h2>
-        <button
-          className="btn btn-primary"
-          onClick={handleBackfill}
-          disabled={backfilling}
-          style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem' }}
-        >
-          {backfilling ? 'Collecting...' : 'Backfill Forex Data'}
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <DataFreshness updatedAt={updatedAt} onRefresh={loadData} compact />
+          <button
+            className="btn btn-primary"
+            onClick={handleBackfill}
+            disabled={backfilling}
+            style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem' }}
+          >
+            {backfilling ? 'Collecting...' : 'Backfill Forex Data'}
+          </button>
+        </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: 0 }}>

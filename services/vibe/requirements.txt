@@ -28,6 +28,9 @@ python-multipart>=0.0.9
 bcrypt>=4.0.0
 PyJWT>=2.8.0
 
+# Server-Sent Events (real-time streaming)
+sse-starlette>=1.6.0
+
 # LLM Providers (optional, required when LLM features enabled)
 anthropic>=0.40.0
 openai>=1.40.0

@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     JWT_SECRET: str = ""  # Empty = auto-generate at startup (uuid4)
     JWT_EXPIRE_HOURS: int = 168  # 7 days (personal server)
 
+    # Finnhub Live Data (SOXL real-time)
+    FINNHUB_API_KEY: str = ""           # Set via .env
+    FINNHUB_POLL_INTERVAL: int = 15     # SOXL quote poll interval (seconds)
+    FINNHUB_SECTOR_INTERVAL: int = 60   # Sector ETF poll interval (seconds)
+    FINNHUB_RATE_LIMIT: int = 55        # Effective limit (5 buffer from 60/min)
+
     # CORS (comma-separated extra origins for external access)
     CORS_EXTRA_ORIGINS: str = ""  # e.g. "https://vibe.example.com"
 

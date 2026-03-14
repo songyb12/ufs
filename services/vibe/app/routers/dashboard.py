@@ -340,3 +340,37 @@ async def generate_monthly_report_endpoint(
 
     content = await generate_monthly_report(report_month, market)
     return {"status": "ok", "report": content}
+
+
+@router.get("/reports/weekly")
+async def get_weekly_reports(limit: int = Query(12, ge=1, le=52)):
+    """Get recent weekly reports."""
+    from app.database.connection import get_db
+    import json as _json
+
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT * FROM weekly_reports ORDER BY week_start DESC LIMIT ?", (limit,)
+    )
+    rows = await cursor.fetchall()
+    reports = []
+    for row in rows:
+        r = dict(row)
+        try:
+            r["content"] = _json.loads(r.get("report_json", "{}"))
+        except Exception:
+            r["content"] = {}
+        reports.append(r)
+    return {"reports": reports, "count": len(reports)}
+
+
+@router.post("/reports/weekly/generate")
+async def generate_weekly_report_endpoint(
+    week_start: str | None = Query(None),
+    market: str = Query("ALL"),
+):
+    """Generate a weekly report for the given week (Monday date)."""
+    from app.reports.weekly_report import generate_weekly_report
+
+    content = await generate_weekly_report(week_start, market)
+    return {"status": "ok", "report": content}

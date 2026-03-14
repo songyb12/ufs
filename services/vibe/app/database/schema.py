@@ -5,7 +5,7 @@ import aiosqlite
 from app.database.connection import get_db
 
 # Schema version — increment when adding new migrations
-SCHEMA_VERSION = 6  # v1: initial, v2: portfolio_groups, v3: is_hidden, v4: copper_price, v5: signal_dedup, v6: users
+SCHEMA_VERSION = 7  # v1: initial, v2: portfolio_groups, v3: is_hidden, v4: copper_price, v5: signal_dedup, v6: users, v7: soxl_backtest
 
 TABLES = [
     # ── Watchlist ──
@@ -476,6 +476,18 @@ TABLES = [
         last_login TEXT
     )
     """,
+    # ── SOXL Price Alerts (Real-time) ──
+    """
+    CREATE TABLE IF NOT EXISTS soxl_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        alert_type TEXT NOT NULL,
+        threshold REAL NOT NULL,
+        label TEXT,
+        triggered_at TEXT,
+        active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now'))
+    )
+    """,
     # ── Runtime Config (Phase G+) ──
     """
     CREATE TABLE IF NOT EXISTS runtime_config (
@@ -520,6 +532,81 @@ TABLES = [
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    # ── Geopolitical Events ──
+    """
+    CREATE TABLE IF NOT EXISTS geopolitical_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL DEFAULT 'iran-us-2026',
+        event_date TEXT NOT NULL,
+        event_text TEXT NOT NULL,
+        detail TEXT,
+        impact TEXT DEFAULT 'neutral',
+        category TEXT DEFAULT 'timeline',
+        data_json TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )
+    """,
+    # ── Weekly Reports ──
+    """
+    CREATE TABLE IF NOT EXISTS weekly_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        week_start TEXT NOT NULL,
+        week_end TEXT NOT NULL,
+        market TEXT DEFAULT 'ALL',
+        report_json TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(week_start, market)
+    )
+    """,
+    # ── SOXL Backtest Runs ──
+    """
+    CREATE TABLE IF NOT EXISTS soxl_backtest_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        backtest_id TEXT NOT NULL UNIQUE,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        params_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        total_trades INTEGER DEFAULT 0,
+        hit_rate REAL,
+        avg_return REAL,
+        sharpe_ratio REAL,
+        max_drawdown REAL,
+        profit_factor REAL,
+        total_return REAL,
+        leverage_decay_total REAL,
+        equity_curve_json TEXT,
+        results_json TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    # ── SOXL Backtest Trades ──
+    """
+    CREATE TABLE IF NOT EXISTS soxl_backtest_trades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        backtest_id TEXT NOT NULL,
+        entry_date TEXT NOT NULL,
+        entry_price REAL NOT NULL,
+        entry_signal TEXT NOT NULL,
+        entry_score REAL,
+        entry_rsi REAL,
+        entry_vix REAL,
+        entry_macro_score REAL,
+        entry_geo_score REAL,
+        exit_date TEXT,
+        exit_price REAL,
+        exit_reason TEXT,
+        return_pct REAL,
+        return_pct_with_decay REAL,
+        holding_days INTEGER,
+        position_size_mult REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES = [
@@ -556,6 +643,8 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_news_data_run ON news_data(run_id)",
     "CREATE INDEX IF NOT EXISTS idx_portfolio_scenarios_run ON portfolio_scenarios(market, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_forex_history_lookup ON forex_history(pair, trade_date)",
+    "CREATE INDEX IF NOT EXISTS idx_soxl_bt_runs ON soxl_backtest_runs(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_soxl_bt_trades ON soxl_backtest_trades(backtest_id)",
 ]
 
 

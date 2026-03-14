@@ -1,0 +1,12 @@
+[
+  {
+    "name": "UFS (Master Core)",
+    "path": "D:\\Claude\\01_UFS",
+    "added_at": "2026-03-15T00:30:00"
+  },
+  {
+    "name": "Claude Session Manager",
+    "path": "D:\\Claude\\01_UFS\\services\\session-manager",
+    "added_at": "2026-03-15T00:30:00"
+  }
+]

@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
-import { getScreeningCandidates, runScreeningScan, updateScreeningStatus } from '../api'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { getScreeningCandidates, runScreeningScan, updateScreeningStatus, addWatchlistItem } from '../api'
 import SymbolModal from '../components/SymbolModal'
 import HelpButton from '../components/HelpButton'
 import PageGuide from '../components/PageGuide'
+import DataFreshness from '../components/DataFreshness'
 import { useToast } from '../components/Toast'
 
 const TRIGGER_INFO = {
@@ -14,29 +15,79 @@ const TRIGGER_INFO = {
 
 export default function Screening({ onNavigate, refreshKey }) {
   const toast = useToast()
+
+  // Restore preferences from localStorage
+  const saved = (() => {
+    try { return JSON.parse(localStorage.getItem('vibe_screening_prefs') || '{}') } catch { return {} }
+  })()
+
   const [candidates, setCandidates] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [market, setMarket] = useState('KR')
+  const [market, setMarket] = useState(saved.market || 'KR')
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState(null)
   const [selectedSymbol, setSelectedSymbol] = useState(null)
-  const [sortKey, setSortKey] = useState('score')
-  const [sortDir, setSortDir] = useState('desc')
-  const [daysBack, setDaysBack] = useState(5)
-  const [triggerFilter, setTriggerFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [viewMode, setViewMode] = useState('card') // 'card' or 'table'
+  const [sortKey, setSortKey] = useState(saved.sortKey || 'score')
+  const [sortDir, setSortDir] = useState(saved.sortDir || 'desc')
+  const [daysBack, setDaysBack] = useState(saved.daysBack || 5)
+  const [triggerFilter, setTriggerFilter] = useState(saved.triggerFilter || 'all')
+  const [statusFilter, setStatusFilter] = useState(saved.statusFilter || 'all')
+  const [viewMode, setViewMode] = useState(saved.viewMode || 'card')
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [lastLoadedAt, setLastLoadedAt] = useState(null)
+  const prevCountRef = useRef(0)
+  const autoRefreshRef = useRef(null)
 
-  const loadCandidates = useCallback(() => {
-    setLoading(true)
+  // Persist preferences
+  useEffect(() => {
+    localStorage.setItem('vibe_screening_prefs', JSON.stringify({
+      market, sortKey, sortDir, daysBack, triggerFilter, statusFilter, viewMode,
+    }))
+  }, [market, sortKey, sortDir, daysBack, triggerFilter, statusFilter, viewMode])
+
+  const loadCandidates = useCallback((silent) => {
+    if (!silent) setLoading(true)
     getScreeningCandidates(market)
-      .then(data => { setCandidates(data.candidates || []); setError(null) })
-      .catch(err => { console.error(err); setError(err.message); toast.error('스크리닝 로드 실패: ' + err.message) })
-      .finally(() => setLoading(false))
-  }, [market])
+      .then(data => {
+        const newCandidates = data.candidates || []
+        setCandidates(newCandidates)
+        setError(null)
+        setLastLoadedAt(new Date())
+
+        // Notify on new high-confidence candidates (auto-refresh only)
+        if (silent && prevCountRef.current > 0) {
+          const newHigh = newCandidates.filter(c => (c.score || c.composite_score || 0) >= 7).length
+          const oldHigh = prevCountRef.current
+          if (newHigh > oldHigh) {
+            toast.info(`새 고확신 후보 ${newHigh - oldHigh}개 발견`)
+          }
+        }
+        prevCountRef.current = newCandidates.filter(c => (c.score || c.composite_score || 0) >= 7).length
+      })
+      .catch(err => { if (!silent) { console.error(err); setError(err.message); toast.error('스크리닝 로드 실패: ' + err.message) } })
+      .finally(() => { if (!silent) setLoading(false) })
+  }, [market, toast])
 
   useEffect(() => { loadCandidates() }, [loadCandidates, refreshKey])
+
+  // Auto-refresh every 60s
+  useEffect(() => {
+    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current)
+    if (autoRefresh) {
+      autoRefreshRef.current = setInterval(() => loadCandidates(true), 60000)
+    }
+    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current) }
+  }, [autoRefresh, loadCandidates])
+
+  const handleAddToWatchlist = async (symbol, mkt) => {
+    try {
+      await addWatchlistItem({ symbol, market: mkt })
+      toast.success(`${symbol} 워치리스트 추가`)
+    } catch (e) {
+      toast.error('워치리스트 추가 실패: ' + e.message)
+    }
+  }
 
   const handleScan = async () => {
     setScanning(true)
@@ -134,6 +185,20 @@ export default function Screening({ onNavigate, refreshKey }) {
           <p className="subtitle">매수 후보 종목 자동 발굴</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <DataFreshness updatedAt={lastLoadedAt} onRefresh={() => loadCandidates()} compact />
+          <button
+            onClick={() => setAutoRefresh(v => !v)}
+            style={{
+              fontSize: '0.65rem', padding: '2px 6px', borderRadius: 4,
+              background: autoRefresh ? '#22c55e22' : '#64748b22',
+              color: autoRefresh ? '#22c55e' : '#94a3b8',
+              border: `1px solid ${autoRefresh ? '#22c55e44' : '#64748b44'}`,
+              cursor: 'pointer', fontWeight: 600,
+            }}
+            title={autoRefresh ? '자동 갱신 끄기' : '자동 갱신 켜기'}
+          >
+            {autoRefresh ? '● 자동' : '○ 수동'}
+          </button>
           <select value={daysBack} onChange={e => setDaysBack(Number(e.target.value))}
             style={{ padding: '0.4rem 0.5rem', borderRadius: '0.375rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '0.8rem' }}>
             <option value={3}>3일</option>
@@ -144,7 +209,6 @@ export default function Screening({ onNavigate, refreshKey }) {
           <button className="btn btn-primary" onClick={handleScan} disabled={scanning}>
             {scanning ? '⏳ 스캔 중...' : `🔍 ${market} 스캔`}
           </button>
-          <button className="btn btn-outline" onClick={loadCandidates}>↻</button>
           <HelpButton section="screening" onNavigate={onNavigate} />
         </div>
       </div>
@@ -412,11 +476,20 @@ export default function Screening({ onNavigate, refreshKey }) {
                   </div>
                 </div>
 
-                {/* Bottom: Date + Status Actions */}
+                {/* Bottom: Date + Quick Actions + Status */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                    {c.detected_date || c.scan_date || c.created_at?.slice(0, 10) || '-'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      {c.detected_date || c.scan_date || c.created_at?.slice(0, 10) || '-'}
+                    </span>
+                    <button
+                      onClick={() => handleAddToWatchlist(c.symbol, c.market || market)}
+                      style={{ padding: '0.15rem 0.4rem', borderRadius: '0.25rem', fontSize: '0.6rem', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+                      title="워치리스트 추가"
+                    >
+                      + 관심
+                    </button>
+                  </div>
                   <div style={{ display: 'flex', gap: '0.3rem' }}>
                     {isApproved ? (
                       <button onClick={() => handleStatusChange(c.ids || [c.id], 'new')}

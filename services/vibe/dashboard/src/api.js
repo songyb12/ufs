@@ -1,4 +1,6 @@
-const BASE = ''
+// Auto-detect API base: direct access (port 8001) uses root,
+// shell iframe (port 3000) uses /api/vibe proxy prefix
+const BASE = window.location.port === '8001' ? '' : '/api/vibe'
 
 // ── User-Friendly Error Messages ──
 
@@ -409,6 +411,20 @@ export async function generateMonthlyReport(reportMonth = null) {
   return res.json()
 }
 
+export async function getWeeklyReports(limit = 12) {
+  return fetchJSON(`/dashboard/reports/weekly?limit=${limit}`)
+}
+
+export async function generateWeeklyReport(weekStart = null) {
+  const params = weekStart ? `?week_start=${encodeURIComponent(weekStart)}` : ''
+  const res = await fetch(`${BASE}/dashboard/reports/weekly/generate${params}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
 export async function triggerPipeline(market = 'ALL') {
   const res = await fetch(`${BASE}/pipeline/run`, {
     method: 'POST',
@@ -688,10 +704,173 @@ export async function getSoxlLevels() {
   return fetchJSON('/soxl/levels')
 }
 
+// ── SOXL Live (Real-time) ──
+
+export async function getSoxlLiveQuote() {
+  return fetchJSON('/soxl/live/quote')
+}
+
+export async function getSoxlIntraday(resolution = '1', count = 390) {
+  return fetchJSON(`/soxl/live/intraday?resolution=${resolution}&count=${count}`)
+}
+
+export async function getSoxlLiveIndicators() {
+  return fetchJSON('/soxl/live/indicators')
+}
+
+export async function getSoxlSectorCorrelation() {
+  return fetchJSON('/soxl/live/sector')
+}
+
+export async function getSoxlAlerts() {
+  return fetchJSON('/soxl/live/alerts')
+}
+
+export async function createSoxlAlert(alertData) {
+  const res = await fetch(`${BASE}/soxl/live/alerts`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(alertData),
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
+export async function deleteSoxlAlert(alertId) {
+  const res = await fetch(`${BASE}/soxl/live/alerts/${alertId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
+export async function getSoxlAiAnalysis() {
+  const res = await fetch(`${BASE}/soxl/live/ai-analysis`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
+// ── SOXL Backtest ──
+
+export async function runSoxlBacktest(data = {}, opts = {}) {
+  const res = await fetch(`${BASE}/soxl/backtest/run`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data),
+    signal: opts.signal,
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
+export async function compareSoxlModes(data = {}, opts = {}) {
+  const res = await fetch(`${BASE}/soxl/backtest/compare`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data),
+    signal: opts.signal,
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
+export async function generateSoxlStrategy(data = {}, opts = {}) {
+  const res = await fetch(`${BASE}/soxl/backtest/ai-strategy`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data),
+    signal: opts.signal,
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
+export async function getSoxlBacktestResults(limit = 10, mode = null, status = null) {
+  let q = `?limit=${limit}`
+  if (mode) q += `&mode=${mode}`
+  if (status) q += `&status=${status}`
+  return fetchJSON(`/soxl/backtest/results${q}`)
+}
+
+export async function getSoxlBacktestDetail(backtestId) {
+  return fetchJSON(`/soxl/backtest/results/${backtestId}`)
+}
+
+export async function getSoxlBacktestStats(backtestId) {
+  return fetchJSON(`/soxl/backtest/stats/${backtestId}`)
+}
+
+export async function getSoxlBacktestPresets() {
+  return fetchJSON('/soxl/backtest/presets')
+}
+
+export async function exportSoxlBacktestCSV(backtestId) {
+  const hdrs = authHeaders()
+  const res = await fetch(`${BASE}/soxl/backtest/export/${backtestId}`, { headers: hdrs })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `soxl_backtest_${backtestId.slice(0, 8)}.csv`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 100)
+}
+
+export async function cleanupSoxlBacktests(keep = 20) {
+  const res = await fetch(`${BASE}/soxl/backtest/results?keep=${keep}`, {
+    method: 'DELETE', headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
+// ── SOXL Backtest Trade Export ──
+
+export function exportSoxlTradesCSV(trades, mode = '', period = '') {
+  const headers = [
+    'Entry Date', 'Entry Price', 'RSI', 'VIX', 'Geo Score',
+    'Exit Date', 'Exit Price', 'Exit Reason',
+    'Return %', 'Return w/Decay %', 'Holding Days', 'Position Mult',
+  ]
+  const rows = trades.map(t => [
+    escapeCSV(t.entry_date), escapeCSV(t.entry_price), escapeCSV(t.entry_rsi),
+    escapeCSV(t.entry_vix), escapeCSV(t.entry_geo_score),
+    escapeCSV(t.exit_date), escapeCSV(t.exit_price), escapeCSV(t.exit_reason),
+    escapeCSV(t.return_pct?.toFixed(2) ?? ''), escapeCSV(t.return_pct_with_decay?.toFixed(2) ?? ''),
+    escapeCSV(t.holding_days), escapeCSV(t.position_size_mult),
+  ])
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `soxl_trades_${mode}_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 100)
+}
+
 // ── Geopolitical ──
 
 export async function getIranUsDashboard() {
   return fetchJSON('/geopolitical/iran-us')
+}
+
+export async function addGeopoliticalEvent(event) {
+  const res = await fetch(`${BASE}/geopolitical/events`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(event),
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, await res.text()))
+  return res.json()
+}
+
+export async function aiRefreshGeopolitical() {
+  const res = await fetch(`${BASE}/geopolitical/events/ai-refresh`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, await res.text()))
+  return res.json()
 }
 
 // ── Watchlist ──

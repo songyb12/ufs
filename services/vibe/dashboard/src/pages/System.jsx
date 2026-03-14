@@ -4,6 +4,7 @@ import {
   getWatchlist, addWatchlistItem, removeWatchlistItem,
   getAlertConfig, updateAlertConfig, getAlertHistory,
   getMonthlyReports, generateMonthlyReport,
+  getWeeklyReports, generateWeeklyReport,
   getDataStatus, getLLMSettings, updateLLMSettings,
   getStoredApiKey, setApiKey,
   getNotificationSchedule, updateNotificationSchedule, testNotificationCheck,
@@ -50,6 +51,10 @@ export default function System({ onNavigate, refreshKey }) {
   const [monthlyReports, setMonthlyReports] = useState([])
   const [generatingReport, setGeneratingReport] = useState(false)
 
+  // Weekly report state
+  const [weeklyReports, setWeeklyReports] = useState([])
+  const [generatingWeekly, setGeneratingWeekly] = useState(false)
+
   // Data status state
   const [dataStatus, setDataStatus] = useState(null)
 
@@ -90,12 +95,14 @@ export default function System({ onNavigate, refreshKey }) {
       getNotificationSchedule().catch(() => null),
       getRuntimeSettings().catch(() => null),
       authStatus().catch(() => null),
+      getWeeklyReports(12).catch(() => ({ reports: [] })),
     ])
-      .then(([h, r, wl, ac, ah, mr, ds, llm, ns, rt, as_]) => {
+      .then(([h, r, wl, ac, ah, mr, ds, llm, ns, rt, as_, wr]) => {
         setHealth(h); setRuns(r); setWatchlist(wl || [])
         setAlertConfig(ac.config || [])
         setAlertHistory(ah.history || [])
         setMonthlyReports(mr.reports || [])
+        setWeeklyReports(wr.reports || [])
         setDataStatus(ds?.tables || null)
         setLlmSettings(llm)
         setNotifSchedule(ns)
@@ -242,6 +249,22 @@ export default function System({ onNavigate, refreshKey }) {
       toast.error('월간 리포트 생성 실패')
     } finally {
       setGeneratingReport(false)
+    }
+  }
+
+  // Weekly report handler
+  const handleGenerateWeekly = async () => {
+    setGeneratingWeekly(true)
+    try {
+      await generateWeeklyReport()
+      const wr = await getWeeklyReports(12)
+      setWeeklyReports(wr.reports || [])
+      toast.success('주간 리포트가 생성되었습니다')
+    } catch (err) {
+      console.error('Weekly report generation failed:', err)
+      toast.error('주간 리포트 생성 실패')
+    } finally {
+      setGeneratingWeekly(false)
     }
   }
 
@@ -994,6 +1017,74 @@ export default function System({ onNavigate, refreshKey }) {
           </table>
         </div>
       )}
+
+      {/* Weekly Reports */}
+      <div className="table-container" style={{ marginTop: '1.5rem' }}>
+        <div className="table-header">
+          <h3>{'📆'} 주간 리포트</h3>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleGenerateWeekly}
+            disabled={generatingWeekly}
+          >
+            {generatingWeekly ? '생성 중...' : '+ 주간 리포트 생성'}
+          </button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>주간</th>
+              <th>총 시그널</th>
+              <th>BUY / SELL</th>
+              <th>Hit Rate T+5</th>
+              <th>포지션</th>
+              <th>Top Mover</th>
+              <th>생성일</th>
+            </tr>
+          </thead>
+          <tbody>
+            {weeklyReports.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-muted)' }}>
+                  주간 리포트가 없습니다. "주간 리포트 생성" 버튼으로 생성하세요.
+                </td>
+              </tr>
+            ) : weeklyReports.map((r) => {
+              const c = r.content || {}
+              const sig = c.signals || {}
+              const topMover = c.top_movers?.[0]
+              return (
+                <tr key={`${r.week_start}-${r.market}`}>
+                  <td style={{ fontWeight: 600 }}>{r.week_start} ~ {r.week_end?.slice(5)}</td>
+                  <td>{c.total_signals ?? '-'}</td>
+                  <td>
+                    <span style={{ color: 'var(--green)' }}>{sig.BUY ?? 0}</span>
+                    {' / '}
+                    <span style={{ color: 'var(--red)' }}>{sig.SELL ?? 0}</span>
+                  </td>
+                  <td style={{ color: (c.hit_rate_t5 ?? 0) >= 50 ? 'var(--green)' : 'var(--yellow)' }}>
+                    {c.hit_rate_t5 != null ? `${c.hit_rate_t5}%` : '-'}
+                  </td>
+                  <td>{c.portfolio?.position_count ?? '-'}</td>
+                  <td style={{ fontSize: '0.75rem' }}>
+                    {topMover ? (
+                      <span>
+                        {topMover.symbol}{' '}
+                        <span style={{ color: (topMover.change_pct || 0) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                          {topMover.change_pct != null ? `${topMover.change_pct > 0 ? '+' : ''}${topMover.change_pct}%` : ''}
+                        </span>
+                      </span>
+                    ) : '-'}
+                  </td>
+                  <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {r.created_at ? new Date(r.created_at).toLocaleDateString('ko-KR') : '-'}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
 
       {/* Monthly Reports */}
       <div className="table-container" style={{ marginTop: '1.5rem' }}>

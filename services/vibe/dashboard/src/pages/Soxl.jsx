@@ -39,7 +39,7 @@ export default function Soxl({ onNavigate, refreshKey }) {
       .then(([dd, l]) => { setData(dd); setLevels(l) })
       .catch(err => toast.error('SOXL 데이터 로드 실패: ' + err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { fetchData(days) }, [refreshKey, days])
 
@@ -110,6 +110,10 @@ export default function Soxl({ onNavigate, refreshKey }) {
               </button>
             ))}
           </div>
+          <button className="btn btn-primary" onClick={() => onNavigate('soxl-live')}
+            style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}>
+            ⚡ 실시간 →
+          </button>
           <button className="btn btn-primary" onClick={() => onNavigate('geopolitical')}
             style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}>
             🌍 이란 이슈 →

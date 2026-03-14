@@ -20,6 +20,7 @@ PUBLIC_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}
 PUBLIC_PREFIXES = (
     "/ui/", "/static/", "/ui",
     "/auth/status", "/auth/login", "/auth/register",
+    "/soxl/live/stream",  # SSE — EventSource can't send auth headers
 )
 
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getCarryTrade, getGlobalRiskFactors } from '../api'
+import { getCarryTrade, getGlobalRiskFactors, analyzeWithAI } from '../api'
+import DataFreshness from '../components/DataFreshness'
 import { useToast } from '../components/Toast'
 
 const RISK_COLORS = {
@@ -167,11 +168,21 @@ function RiskFactorCard({ factor }) {
   )
 }
 
+const AI_PRESETS = [
+  { label: '현황 분석', question: '현재 캐리 트레이드 현황과 엔캐리 청산 위험을 한국 투자자 관점에서 설명해주세요. 핵심만 간결하게.' },
+  { label: '위험 페어', question: '현재 가장 위험한 캐리 트레이드 페어는 무엇이고, 포트폴리오에 어떤 영향을 줄 수 있나요?' },
+  { label: '환헷지 전략', question: '캐리 트레이드 관점에서 한국 투자자의 환헷지 전략을 추천해주세요.' },
+]
+
 export default function CarryTrade({ refreshKey, onNavigate }) {
   const toast = useToast()
   const [carry, setCarry] = useState(null)
   const [riskFactors, setRiskFactors] = useState([])
   const [loading, setLoading] = useState(true)
+  const [updatedAt, setUpdatedAt] = useState(null)
+  const [aiResult, setAiResult] = useState(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiQuestion, setAiQuestion] = useState('')
 
   const loadData = useCallback(() => {
     setLoading(true)
@@ -182,12 +193,27 @@ export default function CarryTrade({ refreshKey, onNavigate }) {
       .then(([c, rf]) => {
         setCarry(c)
         setRiskFactors(rf?.factors || (Array.isArray(rf) ? rf : []))
+        setUpdatedAt(new Date())
       })
       .catch(err => toast.error('Load failed: ' + err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
+
+  const handleAIAnalysis = async (question) => {
+    setAiLoading(true)
+    setAiQuestion(question)
+    try {
+      const result = await analyzeWithAI(question, { markets: 'ALL' })
+      setAiResult(result)
+    } catch (err) {
+      setAiResult({ status: 'error', message: err.message })
+      toast.error('AI 분석 실패: ' + err.message)
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   if (loading) {
     return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading carry trade data...</div>
@@ -200,7 +226,10 @@ export default function CarryTrade({ refreshKey, onNavigate }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
         <h2>Carry Trade & Global Risk</h2>
-        {carry?.date && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Data: {carry.date}</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <DataFreshness updatedAt={updatedAt} onRefresh={loadData} compact />
+          {carry?.date && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Data: {carry.date}</span>}
+        </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: 0 }}>
@@ -247,6 +276,52 @@ export default function CarryTrade({ refreshKey, onNavigate }) {
             )}
           </div>
         </div>
+      </div>
+
+      {/* AI Analysis Section */}
+      <div className="card" style={{ padding: '1rem', marginBottom: '1.25rem' }}>
+        <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>AI 분석</h3>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          {AI_PRESETS.map((p, i) => (
+            <button
+              key={i}
+              onClick={() => handleAIAnalysis(p.question)}
+              disabled={aiLoading}
+              className="btn btn-outline"
+              style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {aiLoading && (
+          <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+            <span className="spinner" style={{ marginRight: '0.5rem' }} />
+            AI 분석 중... (최대 30초)
+          </div>
+        )}
+        {aiResult && !aiLoading && (
+          <div style={{
+            padding: '0.75rem 1rem', borderRadius: '0.5rem',
+            background: aiResult.status === 'error' ? 'rgba(239,68,68,0.08)' : 'var(--bg-secondary)',
+            border: `1px solid ${aiResult.status === 'error' ? 'rgba(239,68,68,0.3)' : 'var(--border)'}`,
+          }}>
+            {aiQuestion && (
+              <div style={{ fontSize: '0.7rem', color: 'var(--accent)', fontWeight: 600, marginBottom: '0.5rem' }}>
+                Q: {aiQuestion}
+              </div>
+            )}
+            <div style={{
+              fontSize: '0.8rem', color: aiResult.status === 'error' ? '#ef4444' : 'var(--text-secondary)',
+              lineHeight: 1.6, whiteSpace: 'pre-wrap',
+            }}>
+              {aiResult.status === 'error'
+                ? `분석 실패: ${aiResult.message}`
+                : (aiResult.analysis || aiResult.answer || aiResult.message || JSON.stringify(aiResult))
+              }
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Risk Comparison */}

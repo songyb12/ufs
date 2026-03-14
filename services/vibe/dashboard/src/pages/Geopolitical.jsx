@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../components/Toast'
-import { getIranUsDashboard } from '../api'
+import DataFreshness from '../components/DataFreshness'
+import { getIranUsDashboard, addGeopoliticalEvent, aiRefreshGeopolitical } from '../api'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
@@ -11,6 +12,13 @@ const IMPACT_COLOR = {
   neutral: '#ffeb3b',
   positive: '#00e676',
 }
+
+const IMPACT_OPTIONS = [
+  { value: 'severe_negative', label: '매우 부정적' },
+  { value: 'negative', label: '부정적' },
+  { value: 'neutral', label: '중립' },
+  { value: 'positive', label: '긍정적' },
+]
 
 const DIR_STYLE = {
   up: { bg: 'rgba(0,230,118,0.1)', color: '#00e676', icon: '⬆' },
@@ -23,15 +31,48 @@ export default function Geopolitical({ onNavigate, refreshKey }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
+  const [updatedAt, setUpdatedAt] = useState(null)
+  const [aiRefreshing, setAiRefreshing] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(false)
   const toast = useToast()
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     setLoading(true)
     getIranUsDashboard()
-      .then(d => setData(d))
+      .then(d => { setData(d); setUpdatedAt(d?.updated_at || new Date().toISOString()) })
       .catch(err => toast.error('지정학 데이터 로드 실패: ' + err.message))
       .finally(() => setLoading(false))
-  }, [refreshKey])
+  }, [toast])
+
+  useEffect(() => { loadData() }, [loadData, refreshKey])
+
+  const handleAiRefresh = async () => {
+    setAiRefreshing(true)
+    try {
+      const res = await aiRefreshGeopolitical()
+      if (res.status === 'ok') {
+        toast.success(`AI가 ${res.added}개 이벤트를 생성했습니다`)
+        loadData()
+      } else {
+        toast.error('AI 갱신 실패: ' + (res.message || '알 수 없는 오류'))
+      }
+    } catch (err) {
+      toast.error('AI 갱신 실패: ' + err.message)
+    } finally {
+      setAiRefreshing(false)
+    }
+  }
+
+  const handleAddEvent = async (event) => {
+    try {
+      await addGeopoliticalEvent(event)
+      toast.success('이벤트가 추가되었습니다')
+      setShowAddForm(false)
+      loadData()
+    } catch (err) {
+      toast.error('이벤트 추가 실패: ' + err.message)
+    }
+  }
 
   if (loading) return <div className="loading">⏳ 지정학 데이터 로딩...</div>
   if (!data) return <div className="loading">⚠ 데이터를 불러올 수 없습니다</div>
@@ -46,7 +87,7 @@ export default function Geopolitical({ onNavigate, refreshKey }) {
   return (
     <div>
       {/* Header */}
-      <div className="page-header">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
         <div>
           <h2>🌍 {data.event_name}</h2>
           <p style={{ color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
@@ -54,10 +95,32 @@ export default function Geopolitical({ onNavigate, refreshKey }) {
             개전 {data.start_date} &middot; {data.days_elapsed}일차
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => onNavigate('soxl')}>
-          💹 SOXL 페이지 →
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <DataFreshness updatedAt={updatedAt} onRefresh={loadData} compact />
+          <button
+            className="btn btn-primary"
+            onClick={handleAiRefresh}
+            disabled={aiRefreshing}
+            style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem' }}
+          >
+            {aiRefreshing ? '분석 중...' : '🔄 AI 갱신'}
+          </button>
+          <button
+            className="btn btn-outline"
+            onClick={() => setShowAddForm(!showAddForm)}
+            style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem' }}
+          >
+            + 이벤트 추가
+          </button>
+          <button className="btn btn-outline" onClick={() => onNavigate('soxl')}
+            style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem' }}>
+            💹 SOXL →
+          </button>
+        </div>
       </div>
+
+      {/* Add Event Form */}
+      {showAddForm && <AddEventForm onSubmit={handleAddEvent} onCancel={() => setShowAddForm(false)} />}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
@@ -76,6 +139,70 @@ export default function Geopolitical({ onNavigate, refreshKey }) {
       {activeTab === 'strategy' && <StrategyTab data={data} />}
     </div>
   )
+}
+
+/* ── Add Event Form ── */
+function AddEventForm({ onSubmit, onCancel }) {
+  const [form, setForm] = useState({
+    event_date: new Date().toISOString().slice(0, 10),
+    event_text: '',
+    detail: '',
+    impact: 'neutral',
+  })
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (!form.event_text.trim()) return
+    onSubmit(form)
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
+      <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>이벤트 수동 추가</h4>
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+        <div>
+          <label style={labelStyle}>날짜</label>
+          <input type="date" value={form.event_date}
+            onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))}
+            style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>영향도</label>
+          <select value={form.impact}
+            onChange={e => setForm(f => ({ ...f, impact: e.target.value }))}
+            style={inputStyle}>
+            {IMPACT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={labelStyle}>이벤트</label>
+          <input type="text" value={form.event_text}
+            onChange={e => setForm(f => ({ ...f, event_text: e.target.value }))}
+            placeholder="이벤트 제목"
+            style={inputStyle} />
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={labelStyle}>상세 설명</label>
+          <textarea value={form.detail}
+            onChange={e => setForm(f => ({ ...f, detail: e.target.value }))}
+            placeholder="상세 설명 (선택)"
+            rows={2}
+            style={{ ...inputStyle, resize: 'vertical' }} />
+        </div>
+        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onCancel}>취소</button>
+          <button type="submit" className="btn btn-primary">추가</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+const labelStyle = { fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }
+const inputStyle = {
+  width: '100%', padding: '0.4rem 0.5rem', fontSize: '0.8rem',
+  background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+  borderRadius: '0.25rem', color: 'var(--text-primary)',
 }
 
 /* ── Overview Tab (Timeline + Macro + Market Impact) ── */
@@ -100,7 +227,7 @@ function OverviewTab({ data }) {
         <h3>📅 분쟁 타임라인</h3>
         <div style={{ marginTop: '0.75rem' }}>
           {timeline?.map((t, i) => (
-            <div key={i} style={{
+            <div key={t.id || i} style={{
               display: 'flex', gap: '0.75rem', padding: '0.6rem 0',
               borderBottom: i < timeline.length - 1 ? '1px solid var(--border)' : 'none',
             }}>
@@ -112,7 +239,16 @@ function OverviewTab({ data }) {
                 background: IMPACT_COLOR[t.impact] || 'var(--text-muted)',
               }} />
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{t.event}</div>
+                <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                  {t.is_new && (
+                    <span style={{
+                      fontSize: '0.6rem', padding: '1px 5px', borderRadius: '3px',
+                      background: '#ff174422', color: '#ff1744', fontWeight: 700,
+                      marginRight: '0.4rem', verticalAlign: 'middle',
+                    }}>NEW</span>
+                  )}
+                  {t.event}
+                </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{t.detail}</div>
               </div>
             </div>

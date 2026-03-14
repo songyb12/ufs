@@ -5,12 +5,23 @@ Provides structured geopolitical event analysis with market impact data.
 Currently focused on the 2026 Iran-US conflict.
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter(prefix="/geopolitical", tags=["geopolitical"])
 logger = logging.getLogger("vibe.geopolitical")
+
+
+class EventCreate(BaseModel):
+    event_date: str
+    event_text: str
+    detail: str = ""
+    impact: str = "neutral"
+    category: str = "iran-us"
 
 
 # ── Iran-US Conflict Timeline & Analysis (2026.02.28 ~) ──
@@ -122,12 +133,71 @@ HEDGING_STRATEGIES = [
 ]
 
 
+async def _seed_events_if_empty(db):
+    """Insert hardcoded IRAN_US_TIMELINE into DB if no events exist."""
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM geopolitical_events WHERE category='iran-us'"
+    )
+    count = (await cursor.fetchone())[0]
+    if count > 0:
+        return
+    logger.info("Seeding %d hardcoded iran-us events into DB", len(IRAN_US_TIMELINE))
+    for i, evt in enumerate(IRAN_US_TIMELINE):
+        await db.execute(
+            """INSERT INTO geopolitical_events
+               (event_id, event_date, event_text, detail, impact, category, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'iran-us', ?, ?)""",
+            (
+                f"seed-{i}",
+                evt["date"],
+                evt["event"],
+                evt.get("detail", ""),
+                evt.get("impact", "neutral"),
+                datetime.now(timezone.utc).isoformat(),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+    await db.commit()
+
+
+async def _get_timeline_from_db(db):
+    """Read timeline events from DB, fallback to hardcoded if table empty."""
+    try:
+        await _seed_events_if_empty(db)
+        cursor = await db.execute(
+            """SELECT id, event_date, event_text, detail, impact, category, created_at
+               FROM geopolitical_events
+               WHERE category='iran-us'
+               ORDER BY event_date ASC, id ASC"""
+        )
+        rows = await cursor.fetchall()
+        if rows:
+            return [
+                {
+                    "id": r[0],
+                    "date": r[1],
+                    "event": r[2],
+                    "detail": r[3],
+                    "impact": r[4],
+                    "category": r[5],
+                    "is_new": (datetime.now(timezone.utc) - datetime.fromisoformat(r[6].replace("Z", "+00:00") if r[6].endswith("Z") else r[6])).days < 3 if r[6] else False,
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        logger.warning("DB timeline read failed, using hardcoded: %s", e)
+    return IRAN_US_TIMELINE
+
+
 @router.get("/iran-us")
 async def iran_us_dashboard():
     """Iran-US conflict dashboard with timeline, market impact, and strategy."""
     from app.database.connection import get_db
 
     db = await get_db()
+
+    # Get timeline from DB
+    timeline = await _get_timeline_from_db(db)
 
     # Fetch live data for affected tickers
     affected_symbols = ["SOXL", "SPY", "QQQ"]
@@ -168,7 +238,7 @@ async def iran_us_dashboard():
         "status": "진행 중",
         "start_date": "2026-02-28",
         "days_elapsed": (datetime.now(timezone.utc).date() - datetime(2026, 2, 28).date()).days,
-        "timeline": IRAN_US_TIMELINE,
+        "timeline": timeline,
         "market_impact": MARKET_IMPACT,
         "sector_impact": SECTOR_IMPACT,
         "semiconductor_risks": SEMICONDUCTOR_RISKS,
@@ -184,3 +254,93 @@ async def iran_us_dashboard():
             "recovery_condition": "분쟁 4주 내 종결 + 유가 $80 복귀 시 역사적 패턴상 급반등 가능",
         },
     }
+
+
+@router.post("/events")
+async def add_event(event: EventCreate):
+    """Manually add a geopolitical event."""
+    from app.database.connection import get_db
+    import uuid
+
+    db = await get_db()
+    event_id = f"manual-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    await db.execute(
+        """INSERT INTO geopolitical_events
+           (event_id, event_date, event_text, detail, impact, category, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (event_id, event.event_date, event.event_text, event.detail, event.impact, event.category, now, now),
+    )
+    await db.commit()
+    logger.info("Added geopolitical event: %s on %s", event.event_text[:50], event.event_date)
+    return {"status": "ok", "event_id": event_id}
+
+
+@router.post("/events/ai-refresh")
+async def ai_refresh_events():
+    """Use LLM to analyze current situation and generate new timeline events."""
+    from app.database.connection import get_db
+    import uuid
+
+    db = await get_db()
+
+    # Get existing timeline for context
+    timeline = await _get_timeline_from_db(db)
+    latest_date = timeline[-1]["date"] if timeline else "2026-02-28"
+    timeline_summary = "\n".join(
+        f"- {e['date']}: {e['event']}" for e in timeline[-6:]
+    )
+
+    prompt = f"""당신은 지정학 분석 전문가입니다. 아래는 2026년 이란-미국 분쟁의 최근 타임라인입니다:
+
+{timeline_summary}
+
+마지막 기록 날짜: {latest_date}
+현재 날짜: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}
+
+위 타임라인 이후 발생했을 수 있는 최신 이벤트를 1~3개 생성해주세요.
+각 이벤트는 다음 JSON 배열 형식으로 응답해주세요:
+[{{"date": "YYYY-MM-DD", "event": "이벤트 제목 (한국어)", "detail": "상세 설명 (한국어)", "impact": "severe_negative|negative|neutral|positive"}}]
+
+중요: JSON 배열만 응답하세요. 다른 텍스트 없이."""
+
+    try:
+        import anthropic
+        import re
+        from app.config import settings
+
+        client = anthropic.AsyncAnthropic(api_key=settings.LLM_API_KEY)
+        msg = await client.messages.create(
+            model=settings.LLM_MODEL or "claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        response = msg.content[0].text
+
+        # Parse JSON from response
+        json_match = re.search(r'\[.*\]', response, re.DOTALL)
+        if not json_match:
+            return {"status": "error", "message": "AI 응답에서 이벤트를 파싱할 수 없습니다", "raw": response[:500]}
+
+        events = json.loads(json_match.group())
+        added = 0
+        now = datetime.now(timezone.utc).isoformat()
+
+        for evt in events:
+            event_id = f"ai-{uuid.uuid4().hex[:8]}"
+            await db.execute(
+                """INSERT INTO geopolitical_events
+                   (event_id, event_date, event_text, detail, impact, category, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, 'iran-us', ?, ?)""",
+                (event_id, evt["date"], evt["event"], evt.get("detail", ""), evt.get("impact", "neutral"), now, now),
+            )
+            added += 1
+
+        await db.commit()
+        logger.info("AI generated %d new geopolitical events", added)
+        return {"status": "ok", "added": added, "events": events}
+
+    except Exception as e:
+        logger.error("AI refresh failed: %s", e)
+        return {"status": "error", "message": str(e)}

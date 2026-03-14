@@ -7,6 +7,7 @@ All computation uses existing collected data — no new data collection required
 """
 
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -830,6 +831,26 @@ async def _get_interest_rates() -> dict[str, float]:
     return {**_DEFAULT_RATES}
 
 
+async def _get_interest_rates_with_source() -> dict[str, dict]:
+    """Get interest rates with source info (db vs fallback) per currency."""
+    db_rates = {}
+    try:
+        db_rates = await repo.get_interest_rates() or {}
+    except Exception as e:
+        logger.warning("Failed to load interest rates from DB: %s", e)
+
+    result = {}
+    for cur, rate in _DEFAULT_RATES.items():
+        if cur in db_rates:
+            result[cur] = {"rate": db_rates[cur], "source": "db"}
+        else:
+            result[cur] = {"rate": rate, "source": "fallback"}
+    for cur, rate in db_rates.items():
+        if cur not in result:
+            result[cur] = {"rate": rate, "source": "db"}
+    return result
+
+
 async def _get_forex_data() -> dict[str, dict]:
     """Get forex rate data from macro indicators and supplementary sources."""
     macro = await repo.get_latest_macro()
@@ -955,6 +976,7 @@ async def get_forex_map():
     try:
         macro = await repo.get_latest_macro()
         interest_rates = await _get_interest_rates()
+        rates_with_source = await _get_interest_rates_with_source()
         fx_data = await _get_forex_data()
 
         vix = macro.get("vix") if macro else None
@@ -967,6 +989,16 @@ async def get_forex_map():
             vix=vix,
         )
         result["date"] = macro.get("indicator_date") if macro else None
+        result["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        # Enrich countries with rate_source info
+        for country in result.get("countries", []):
+            cur = country.get("currency")
+            if cur and cur in rates_with_source:
+                country["rate_source"] = rates_with_source[cur]["source"]
+            else:
+                country["rate_source"] = "fallback"
+
         return result
     except Exception as e:
         logger.error("Forex map failed: %s", e, exc_info=True)

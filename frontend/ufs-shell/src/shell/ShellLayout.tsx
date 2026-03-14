@@ -1,10 +1,12 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar.tsx'
 import { ShellHeader } from './ShellHeader.tsx'
 import { MobileNav } from './MobileNav.tsx'
 import { TVLayout } from './TVLayout.tsx'
+import { SearchOverlay } from './SearchOverlay.tsx'
 import { usePlatform } from '../shared/usePlatform.ts'
+import { useKeyboardShortcuts } from '../shared/useKeyboardShortcuts.ts'
 
 const SIDEBAR_KEY = 'ufs-sidebar-open'
 
@@ -16,6 +18,8 @@ export function ShellLayout() {
     return saved !== null ? saved === 'true' : true
   })
 
+  const [searchOpen, setSearchOpen] = useState(false)
+
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => {
       const next = !prev
@@ -24,20 +28,31 @@ export function ShellLayout() {
     })
   }, [])
 
+  const openSearch = useCallback(() => setSearchOpen(true), [])
+  const closeSearch = useCallback(() => setSearchOpen(false), [])
+
+  // Global keyboard shortcuts (memoize to avoid re-renders)
+  const shortcutOptions = useMemo(() => ({
+    onSearch: openSearch,
+    onToggleSidebar: toggleSidebar,
+  }), [openSearch, toggleSidebar])
+  useKeyboardShortcuts(shortcutOptions)
+
   // TV mode — full-screen layout with keyboard navigation
   if (platform === 'tv') {
     return <TVLayout onExitTv={exitTvMode} />
   }
 
-  // Mobile — no sidebar, bottom nav
-  if (platform === 'mobile') {
+  // Mobile / Tablet — no sidebar, bottom nav
+  if (platform === 'mobile' || platform === 'tablet') {
     return (
       <div className="min-h-screen flex flex-col bg-ufs-900">
-        <ShellHeader sidebarOpen={false} onToggleSidebar={() => {}} />
-        <main className="flex-1 p-4 pb-16 overflow-auto">
+        <ShellHeader sidebarOpen={false} onToggleSidebar={() => {}} onSearch={openSearch} />
+        <main className="flex-1 p-4 pb-20 overflow-auto">
           <Outlet />
         </main>
         <MobileNav />
+        <SearchOverlay open={searchOpen} onClose={closeSearch} />
       </div>
     )
   }
@@ -51,12 +66,15 @@ export function ShellLayout() {
         <ShellHeader
           sidebarOpen={sidebarOpen}
           onToggleSidebar={toggleSidebar}
+          onSearch={openSearch}
         />
 
         <main className="flex-1 p-6 overflow-auto">
           <Outlet />
         </main>
       </div>
+
+      <SearchOverlay open={searchOpen} onClose={closeSearch} />
     </div>
   )
 }

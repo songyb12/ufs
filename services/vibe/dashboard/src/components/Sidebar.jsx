@@ -3,23 +3,35 @@ import { getHealth } from '../api'
 
 const NAV_GROUPS = [
   {
-    label: '핵심',
+    label: '데일리',
     items: [
       { id: 'overview', icon: '⌂', label: '오버뷰' },
       { id: 'action-plan', icon: '📋', label: '액션 플랜', accent: true },
-      { id: 'soxl', icon: '💹', label: 'SOXL', accent: true },
+      { id: 'signals', icon: '📡', label: '시그널' },
+      { id: 'market-brief', icon: '📊', label: '시황 브리핑' },
+    ],
+  },
+  {
+    label: 'SOXL',
+    items: [
+      { id: 'soxl', icon: '💹', label: 'SOXL 분석', accent: true },
+      { id: 'soxl-live', icon: '⚡', label: 'SOXL 실시간', accent: true },
+    ],
+  },
+  {
+    label: '시장 분석',
+    items: [
+      { id: 'macro', icon: '🌐', label: '매크로' },
+      { id: 'screening', icon: '🔍', label: '스크리닝' },
+      { id: 'fund-flow', icon: '💰', label: '자금흐름' },
       { id: 'geopolitical', icon: '🌍', label: '이란-미국 이슈' },
     ],
   },
   {
-    label: '분석',
+    label: '글로벌',
     items: [
-      { id: 'signals', icon: '⚡', label: '시그널' },
-      { id: 'macro', icon: '🌐', label: '매크로' },
       { id: 'carry-trade', icon: '💱', label: '캐리트레이드' },
       { id: 'forex-map', icon: '🗺', label: '환율 세계지도' },
-      { id: 'fund-flow', icon: '💰', label: '자금흐름' },
-      { id: 'screening', icon: '🔍', label: '스크리닝' },
       { id: 'guru', icon: '🎯', label: '구루 인사이트' },
     ],
   },
@@ -32,17 +44,12 @@ const NAV_GROUPS = [
     ],
   },
   {
-    label: '학습·리포트',
+    label: '설정',
+    defaultCollapsed: true,
     items: [
-      { id: 'market-brief', icon: '📊', label: '시황 브리핑' },
       { id: 'academy', icon: '🎓', label: '투자 아카데미' },
-    ],
-  },
-  {
-    label: '관리',
-    items: [
-      { id: 'data-admin', icon: '📋', label: '데이터 관리', accent: true },
       { id: 'strategy', icon: '🔧', label: '전략 설정' },
+      { id: 'data-admin', icon: '📋', label: '데이터 관리' },
       { id: 'system', icon: '⚙', label: '시스템' },
       { id: 'guide', icon: '📖', label: '사용 가이드' },
     ],
@@ -51,7 +58,11 @@ const NAV_GROUPS = [
 
 export default function Sidebar({ activePage, onNavigate, mobileOpen, onMobileToggle }) {
   const [health, setHealth] = useState(null)
-  const [collapsed, setCollapsed] = useState({})
+  const [collapsed, setCollapsed] = useState(() => {
+    const init = {}
+    NAV_GROUPS.forEach(g => { if (g.defaultCollapsed) init[g.label] = true })
+    return init
+  })
 
   useEffect(() => {
     getHealth()

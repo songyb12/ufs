@@ -19,7 +19,7 @@ from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.database.seed import seed_watchlist
 from app.polaris.router import router as polaris_router
-from app.routers import academy, action_plan, alerts, auth, backtest, briefing, dashboard, data, geopolitical, guru, llm_settings, macro_intel, notification_settings, pipeline, portfolio, portfolio_import, risk, screening, sentiment, signals, soxl, strategy_settings, watchlist
+from app.routers import academy, action_plan, alerts, auth, backtest, briefing, dashboard, data, geopolitical, guru, llm_settings, macro_intel, notification_settings, pipeline, portfolio, portfolio_import, risk, screening, sentiment, signals, soxl, soxl_backtest, soxl_live, strategy_settings, watchlist
 from app.scheduler.jobs import register_jobs
 from app.scheduler.runner import create_scheduler
 
@@ -76,6 +76,17 @@ async def lifespan(app: FastAPI):
     collector_registry = CollectorRegistry(settings)
     app.state.collector_registry = collector_registry
 
+    # Finnhub live client (SOXL real-time)
+    if settings.FINNHUB_API_KEY:
+        from app.collectors.finnhub_live import FinnhubLiveClient, FinnhubRateLimiter
+        limiter = FinnhubRateLimiter(max_calls=settings.FINNHUB_RATE_LIMIT)
+        finnhub = FinnhubLiveClient(settings.FINNHUB_API_KEY, limiter)
+        app.state.finnhub = finnhub
+        logger.info("Finnhub live client initialized (rate_limit=%d/min)", settings.FINNHUB_RATE_LIMIT)
+    else:
+        app.state.finnhub = None
+        logger.info("Finnhub live client disabled (no API key)")
+
     # Scheduler
     if settings.SCHEDULER_ENABLED:
         scheduler = create_scheduler(settings)
@@ -97,6 +108,10 @@ async def lifespan(app: FastAPI):
         logger.info("Scheduler shut down")
 
     # Close shared HTTP clients
+    if hasattr(app.state, "finnhub") and app.state.finnhub:
+        await app.state.finnhub.close()
+        logger.info("Finnhub client closed")
+
     from app.collectors.news import close_client as close_news_client
     from app.notifier.discord import close_discord_client
     await close_news_client()
@@ -169,6 +184,8 @@ app.include_router(academy.router)
 app.include_router(notification_settings.router)
 app.include_router(strategy_settings.router)
 app.include_router(soxl.router)
+app.include_router(soxl_live.router)
+app.include_router(soxl_backtest.router)
 app.include_router(geopolitical.router)
 app.include_router(polaris_router)
 
