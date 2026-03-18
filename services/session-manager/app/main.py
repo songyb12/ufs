@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
@@ -187,6 +187,32 @@ app = FastAPI(title="Claude Session Manager", lifespan=lifespan)
 sessions: dict = {}
 shell_sessions: dict = {}  # Shell 터미널 세션
 
+# ─── Rate Limiting (인메모리) ───────────────────────────────────────────────────
+MAX_SESSIONS_PER_CLIENT = int(os.environ.get("MAX_SESSIONS_PER_CLIENT", "5"))
+MAX_SESSION_CREATES_PER_MINUTE = 10
+_session_create_log: dict[str, list[float]] = {}  # IP → [timestamps]
+
+
+def _check_rate_limit(client_ip: str):
+    """세션 생성 rate limit 체크. 초과 시 HTTPException(429) raise."""
+    now = time.time()
+
+    # 1) 분당 생성 수 제한
+    timestamps = _session_create_log.get(client_ip, [])
+    timestamps = [t for t in timestamps if now - t < 60]  # 최근 1분만 유지
+    if len(timestamps) >= MAX_SESSION_CREATES_PER_MINUTE:
+        raise HTTPException(status_code=429, detail=f"분당 최대 {MAX_SESSION_CREATES_PER_MINUTE}개 세션 생성 제한 초과")
+
+    # 2) 활성 세션 수 제한 (전체)
+    active_count = sum(1 for s in sessions.values() if s.alive)
+    active_shells = sum(1 for s in shell_sessions.values() if s.alive)
+    if active_count + active_shells >= MAX_SESSIONS_PER_CLIENT:
+        raise HTTPException(status_code=429, detail=f"최대 활성 세션 수 초과 ({MAX_SESSIONS_PER_CLIENT}개)")
+
+    # 기록 추가
+    timestamps.append(now)
+    _session_create_log[client_ip] = timestamps
+
 
 # ─── Pydantic 요청 모델 ──────────────────────────────────────────────────────────
 
@@ -216,7 +242,6 @@ class PipelineStartRequest(BaseModel):
     supervisor_model: str = "sonnet"
     max_iterations: int = Field(default=20, ge=1, le=100)
     mode: str = Field(default="cli", pattern="^(api|cli)$")
-    api_key: str = ""
 
 class ShellCreateRequest(BaseModel):
     shell_type: str = Field(default="cmd", pattern="^(cmd|powershell)$")
@@ -793,13 +818,12 @@ class PipelineRunner:
 
     def __init__(self, session: ClaudeSession, goal: str,
                  supervisor_model: str, max_iterations: int,
-                 api_key: str = "", mode: str = "api"):
+                 mode: str = "api"):
         self.id = str(uuid.uuid4())[:8]
         self.session = session          # 작업자 CLI 세션
         self.goal = goal
         self.supervisor_model = supervisor_model
         self.max_iterations = max_iterations
-        self.api_key = api_key
         self.mode = mode                # "api" | "cli"
         self.iteration = 0
         self.status = "idle"            # idle | running | completed | failed | stopped
@@ -936,7 +960,10 @@ class PipelineRunner:
         except ImportError:
             raise RuntimeError("anthropic 패키지 미설치. pip install anthropic")
 
-        client = anthropic.AsyncAnthropic(api_key=self.api_key)
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("LLM_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY 환경변수 미설정")
+        client = anthropic.AsyncAnthropic(api_key=api_key)
 
         system_prompt = _SUPERVISOR_SYSTEM.format(
             goal=self.goal,
@@ -1116,9 +1143,12 @@ async def list_sessions():
 
 
 @app.post("/api/sessions")
-async def create_session(body: CreateSessionRequest):
+async def create_session(body: CreateSessionRequest, request: Request):
     if not CLAUDE_EXE:
         raise HTTPException(status_code=503, detail="Claude CLI not available")
+
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_ip)
 
     session_id = str(uuid.uuid4())[:8]
     session = ClaudeSession(session_id, body.work_dir, body.model)
@@ -1486,7 +1516,7 @@ async def git_exec(body: GitExecRequest):
     if not Path(path).exists():
         raise HTTPException(status_code=400, detail="경로 없음")
 
-    # 보안: 허용된 git 서브커맨드만 실행 (shell injection 방지)
+    # 보안: allow-list 기반 git 명령 제어 (shell injection 방지)
     import shlex
     try:
         parts = shlex.split(command)
@@ -1497,20 +1527,34 @@ async def git_exec(body: GitExecRequest):
         raise HTTPException(status_code=400, detail="명령어 필요")
 
     subcommand = parts[0]
-    allowed_subcommands = {
-        "add", "commit", "push", "pull", "fetch", "checkout", "switch",
-        "merge", "rebase", "stash", "tag", "branch", "status", "log", "diff",
-        "remote", "restore", "cherry-pick", "revert",
-    }
-    if subcommand not in allowed_subcommands:
-        raise HTTPException(status_code=403, detail=f"허용되지 않은 git 명령: {subcommand}")
 
-    # 위험한 플래그 차단
-    blocked_flags = ["--force", "-f", "--hard", "--no-verify"]
-    if subcommand in ("push", "reset", "clean"):
+    # 읽기 전용 (항상 허용)
+    READONLY_COMMANDS = {"status", "log", "diff", "show", "branch", "remote", "fetch", "tag"}
+    # 쓰기 명령 (ALLOW_GIT_WRITE=true 환경변수 필요, 기본 허용)
+    WRITE_COMMANDS = {
+        "add", "commit", "push", "pull", "checkout", "switch",
+        "merge", "rebase", "stash", "restore", "cherry-pick", "revert",
+    }
+    # 절대 금지
+    FORBIDDEN_COMMANDS = {"clean", "gc", "filter-branch", "reflog"}
+
+    if subcommand in FORBIDDEN_COMMANDS:
+        raise HTTPException(status_code=403, detail=f"금지된 git 명령: {subcommand}")
+
+    if subcommand not in READONLY_COMMANDS and subcommand not in WRITE_COMMANDS:
+        raise HTTPException(status_code=403, detail=f"허용되지 않은 git 명령: {subcommand}. 허용: {', '.join(sorted(READONLY_COMMANDS | WRITE_COMMANDS))}")
+
+    if subcommand in WRITE_COMMANDS:
+        allow_write = os.environ.get("ALLOW_GIT_WRITE", "true").lower() == "true"
+        if not allow_write:
+            raise HTTPException(status_code=403, detail=f"쓰기 명령 비활성화됨: {subcommand} (ALLOW_GIT_WRITE=true 필요)")
+
+    # 위험한 플래그 차단 (쓰기 명령에서만)
+    DANGEROUS_FLAGS = {"--force", "-f", "--force-with-lease", "--hard", "--no-verify", "-D", "--delete"}
+    if subcommand in WRITE_COMMANDS:
         for flag in parts[1:]:
-            if flag in blocked_flags:
-                raise HTTPException(status_code=403, detail=f"차단된 플래그: {flag}")
+            if flag in DANGEROUS_FLAGS:
+                raise HTTPException(status_code=403, detail=f"차단된 플래그: {flag} (명령: git {subcommand})")
 
     # subprocess_exec로 실행 (shell=False — injection 불가)
     try:
@@ -1676,18 +1720,18 @@ async def gh_repos(query: str = Query("")):
 @app.post("/api/pipelines")
 async def start_pipeline(body: PipelineStartRequest):
     """파이프라인 시작 — 감독자(API 또는 CLI)가 작업자 CLI를 반복 구동"""
-    api_key = body.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-
     if body.session_id not in sessions:
         raise HTTPException(status_code=400, detail="유효한 세션 ID 필요")
-    if body.mode == "api" and not api_key:
-        raise HTTPException(status_code=400, detail="API 모드에서는 API Key 필요 (입력 또는 ANTHROPIC_API_KEY 환경변수)")
+    if body.mode == "api":
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("LLM_API_KEY", "")
+        if not api_key:
+            raise HTTPException(status_code=400, detail="API 모드에서는 ANTHROPIC_API_KEY 환경변수 필요")
     if body.mode == "cli" and not CLAUDE_EXE:
         raise HTTPException(status_code=400, detail="CLI 모드에서는 Claude CLI 필요")
 
     session = sessions[body.session_id]
     runner = PipelineRunner(session, body.goal, body.supervisor_model,
-                            body.max_iterations, api_key, body.mode)
+                            body.max_iterations, body.mode)
     pipelines[runner.id] = runner
     runner.start()
 
@@ -1746,9 +1790,12 @@ async def remove_pipeline(pipeline_id: str):
 # ─── Shell 터미널 API ────────────────────────────────────────────────────────────
 
 @app.post("/api/shells")
-async def create_shell(body: ShellCreateRequest):
+async def create_shell(body: ShellCreateRequest, request: Request):
     if not HAS_WINPTY:
         raise HTTPException(status_code=503, detail="pywinpty not installed — Shell 사용 불가")
+
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_ip)
 
     shell_id = str(uuid.uuid4())[:8]
     shell = ShellSession(shell_id, body.work_dir, body.shell_type, body.cols, body.rows)
@@ -2932,7 +2979,7 @@ body {
                     </div>
                     <div id="pipelineApiKeyGroup" style="flex:1;min-width:180px;display:none">
                         <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">API Key</label>
-                        <input type="password" id="pipelineApiKey" placeholder="sk-ant-..." style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:12px">
+                        <span style="font-size:11px;color:var(--text-dim)">서버 환경변수(ANTHROPIC_API_KEY) 사용</span>
                     </div>
                     <button class="btn btn-primary btn-small" onclick="startPipeline()" id="pipelineStartBtn">&#9654; Start</button>
                     <button class="btn btn-small btn-danger" onclick="stopPipeline()" id="pipelineStopBtn" style="display:none">&#9632; Stop</button>
@@ -3746,7 +3793,7 @@ async function startPipeline() {
         mode: mode,
         supervisor_model: document.getElementById('pipelineSupervisorModel').value,
         max_iterations: parseInt(document.getElementById('pipelineMaxIter').value) || 20,
-        api_key: mode === 'api' ? document.getElementById('pipelineApiKey').value.trim() : '',
+        // api_key는 서버 환경변수(ANTHROPIC_API_KEY)에서 읽음
     };
 
     try {
