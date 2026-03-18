@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ufs-shell-v1'
+const CACHE_NAME = 'ufs-shell-v2'
 const SHELL_ASSETS = ['/', '/index.html']
 
 self.addEventListener('install', (event) => {
@@ -24,16 +24,32 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return
   if (request.url.includes('/api/') || request.url.includes('/svc/')) return
 
+  // Hashed assets: network-first (stale cache = broken app)
+  if (request.url.includes('/assets/')) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+          }
+          return response
+        })
+        .catch(() => caches.match(request))
+    )
+    return
+  }
+
+  // Navigation & shell: network-first with cache fallback
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const fetched = fetch(request).then((response) => {
+    fetch(request)
+      .then((response) => {
         if (response.ok) {
           const clone = response.clone()
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
         }
         return response
       })
-      return cached || fetched
-    })
+      .catch(() => caches.match(request))
   )
 })

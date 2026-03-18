@@ -73,25 +73,26 @@ export default function ClaudeApp() {
     { name: 'Session Resume', desc: '--resume 플래그로 이전 대화 이어하기', icon: '🔄' },
     { name: 'Model Selection', desc: 'claude-sonnet-4-20250514 등 모델 선택', icon: '🧠' },
     { name: 'Auto Cleanup', desc: '10분 유휴 시 자동 정리, 프로세스 관리', icon: '🧹' },
+    { name: 'Pipeline (자동)', desc: 'LLM 감독자가 CLI에 프롬프트 자동 전달 루프 (API/CLI 듀얼 모드)', icon: '🤖' },
   ]
 
   if (viewMode === 'manager') {
     return (
-      <div className="flex flex-col -m-6" style={{ height: 'calc(100vh - 3.5rem)' }}>
-        <div className="flex items-center justify-between px-4 py-2 bg-ufs-800 border-b border-ufs-600/50 shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-white font-medium">Claude Session Manager</span>
+      <div className="flex flex-col -m-4 lg:-m-6 -mb-20 lg:-mb-6" style={{ height: 'calc(100dvh - 3.5rem - env(safe-area-inset-bottom, 0px))' }}>
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-ufs-800 border-b border-ufs-600/50 shrink-0 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs sm:text-sm text-white font-medium truncate">Session Manager</span>
             {iframeState === 'loaded' && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">Connected</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 shrink-0">Connected</span>
             )}
             {iframeState === 'loading' && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 animate-pulse">Loading...</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 animate-pulse shrink-0">Loading...</span>
             )}
             {iframeState === 'error' && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">Disconnected</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 shrink-0">Disconnected</span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {iframeState === 'error' && (
               <button onClick={handleRetry} className="text-xs text-amber-400 hover:text-amber-300 px-2 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 transition-colors">
                 Retry
@@ -103,8 +104,9 @@ export default function ClaudeApp() {
             >
               ↗
             </a>
-            <button onClick={() => setViewMode('overview')} className="text-xs text-ufs-400 hover:text-white px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors">
-              Back to Overview
+            <button onClick={() => setViewMode('overview')} className="text-xs text-ufs-400 hover:text-white px-1.5 sm:px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors">
+              <span className="hidden sm:inline">Back to Overview</span>
+              <span className="sm:hidden">←</span>
             </button>
           </div>
         </div>
