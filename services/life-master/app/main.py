@@ -17,7 +17,7 @@ from app.config import settings
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.models.schemas import DashboardResponse, DbInfoResponse, ExportResponse, SearchResult
-from app.routers import goals, habits, japanese, notifications, routines, scheduler
+from app.routers import goals, habits, japanese, japanese_analytics, japanese_grammar, japanese_kanji, japanese_reading, japanese_writing, notifications, routines, scheduler
 
 
 def _setup_logging() -> None:
@@ -77,6 +77,11 @@ app.include_router(goals.router)
 app.include_router(scheduler.router)
 app.include_router(notifications.router)
 app.include_router(japanese.router)
+app.include_router(japanese_grammar.router)
+app.include_router(japanese_kanji.router)
+app.include_router(japanese_reading.router)
+app.include_router(japanese_analytics.router)
+app.include_router(japanese_writing.router)
 
 
 @app.get("/health")
@@ -133,6 +138,25 @@ async def root():
             "japanese_sources": "/japanese/sources",
             "japanese_player": "/japanese/player",
             "japanese_stats": "/japanese/stats",
+            "japanese_grammar": "/japanese/grammar/list",
+            "japanese_grammar_review": "/japanese/grammar/review/due",
+            "japanese_grammar_quiz": "/japanese/grammar/quiz/fill-blank",
+            "japanese_kanji": "/japanese/kanji",
+            "japanese_kanji_search": "/japanese/kanji/search",
+            "japanese_kanji_quiz_reading": "/japanese/kanji/quiz/reading",
+            "japanese_kanji_quiz_meaning": "/japanese/kanji/quiz/meaning",
+            "japanese_reading": "/japanese/reading",
+            "japanese_reading_submit": "/japanese/reading/{id}/submit",
+            "japanese_reading_vocab": "/japanese/reading/{id}/vocab",
+            "japanese_analytics_weakness": "/japanese/analytics/weakness",
+            "japanese_analytics_learning_curve": "/japanese/analytics/learning-curve",
+            "japanese_analytics_srs_forecast": "/japanese/analytics/srs-forecast",
+            "japanese_analytics_mastery": "/japanese/analytics/mastery",
+            "japanese_analytics_streak": "/japanese/analytics/streak",
+            "japanese_writing_translation": "/japanese/writing/translation",
+            "japanese_writing_sentence_order": "/japanese/writing/sentence-order",
+            "japanese_writing_grammar_usage": "/japanese/writing/grammar-usage",
+            "japanese_writing_check": "/japanese/writing/check/{id}",
             "docs": "/docs",
         },
     }

@@ -1016,8 +1016,25 @@ async def seed_japanese_data() -> dict:
     cursor = await db.execute("SELECT COUNT(*) as cnt FROM jp_vocabulary")
     row = await cursor.fetchone()
     if row and row["cnt"] > 0:
-        logger.info("Japanese data already seeded (%d vocab)", row["cnt"])
-        return {"status": "already_seeded", "vocab_count": row["cnt"]}
+        logger.info("Japanese vocab already seeded (%d vocab), seeding other modules", row["cnt"])
+        from app.database.jp_grammar_seed import seed_grammar_data
+        from app.database.jp_kanji_seed import seed_kanji_data
+        from app.database.jp_reading_seed import seed_reading_data
+        from app.database.jp_writing_seed import seed_writing_data
+
+        grammar_count = await seed_grammar_data()
+        kanji_count = await seed_kanji_data()
+        reading_count = await seed_reading_data()
+        writing_count = await seed_writing_data()
+
+        return {
+            "status": "already_seeded",
+            "vocab_count": row["cnt"],
+            "grammar_count": grammar_count,
+            "kanji_count": kanji_count,
+            "reading_count": reading_count,
+            "writing_count": writing_count,
+        }
 
     # Insert vocabulary
     vocab_count = 0
@@ -1055,4 +1072,24 @@ async def seed_japanese_data() -> dict:
 
     await db.commit()
     logger.info("Japanese seed data inserted: %d vocab, %d sources", vocab_count, source_count)
-    return {"status": "seeded", "vocab_count": vocab_count, "source_count": source_count}
+
+    # Seed grammar, kanji, reading, writing (each function checks for duplicates)
+    from app.database.jp_grammar_seed import seed_grammar_data
+    from app.database.jp_kanji_seed import seed_kanji_data
+    from app.database.jp_reading_seed import seed_reading_data
+    from app.database.jp_writing_seed import seed_writing_data
+
+    grammar_count = await seed_grammar_data()
+    kanji_count = await seed_kanji_data()
+    reading_count = await seed_reading_data()
+    writing_count = await seed_writing_data()
+
+    return {
+        "status": "seeded",
+        "vocab_count": vocab_count,
+        "source_count": source_count,
+        "grammar_count": grammar_count,
+        "kanji_count": kanji_count,
+        "reading_count": reading_count,
+        "writing_count": writing_count,
+    }

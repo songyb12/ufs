@@ -6,7 +6,7 @@ from app.database.connection import get_db
 
 logger = logging.getLogger("life-master.schema")
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 9
 
 TABLES = [
     """CREATE TABLE IF NOT EXISTS routines (
@@ -243,6 +243,103 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE(week_start)
     )""",
+    # ── Grammar Learning ───────────────────────────────────
+    """CREATE TABLE IF NOT EXISTS jp_grammar (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        grammar_point TEXT NOT NULL,
+        meaning_ko TEXT NOT NULL,
+        meaning_en TEXT,
+        jlpt_level TEXT NOT NULL DEFAULT 'N5',
+        category TEXT NOT NULL DEFAULT '문형',
+        formation TEXT,
+        notes TEXT,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_grammar_example (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        grammar_id INTEGER NOT NULL,
+        sentence_jp TEXT NOT NULL,
+        sentence_ko TEXT NOT NULL,
+        sentence_en TEXT,
+        audio_url TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (grammar_id) REFERENCES jp_grammar(id) ON DELETE CASCADE
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_grammar_srs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        grammar_id INTEGER NOT NULL,
+        ease_factor REAL NOT NULL DEFAULT 2.5,
+        interval_days INTEGER NOT NULL DEFAULT 0,
+        repetitions INTEGER NOT NULL DEFAULT 0,
+        next_review TEXT NOT NULL DEFAULT (date('now')),
+        last_reviewed TEXT,
+        quality_history TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (grammar_id) REFERENCES jp_grammar(id) ON DELETE CASCADE,
+        UNIQUE(grammar_id)
+    )""",
+    # ── Kanji Learning ────────────────────────────────────
+    """CREATE TABLE IF NOT EXISTS jp_kanji (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        character TEXT NOT NULL UNIQUE,
+        meaning_ko TEXT NOT NULL,
+        meaning_en TEXT,
+        onyomi TEXT,
+        kunyomi TEXT,
+        jlpt_level TEXT NOT NULL DEFAULT 'N5',
+        grade INTEGER,
+        stroke_count INTEGER NOT NULL DEFAULT 1,
+        radicals TEXT,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_kanji_vocab_link (
+        kanji_id INTEGER NOT NULL,
+        vocab_id INTEGER NOT NULL,
+        PRIMARY KEY (kanji_id, vocab_id),
+        FOREIGN KEY (kanji_id) REFERENCES jp_kanji(id) ON DELETE CASCADE,
+        FOREIGN KEY (vocab_id) REFERENCES jp_vocabulary(id) ON DELETE CASCADE
+    )""",
+    # ── Reading Practice ─────────────────────────────────
+    """CREATE TABLE IF NOT EXISTS jp_reading_passage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        content_jp TEXT NOT NULL,
+        content_ko TEXT,
+        jlpt_level TEXT NOT NULL DEFAULT 'N5',
+        category TEXT DEFAULT 'daily',
+        word_count INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS jp_reading_question (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        passage_id INTEGER NOT NULL,
+        question_jp TEXT NOT NULL,
+        question_ko TEXT,
+        option_a TEXT NOT NULL,
+        option_b TEXT NOT NULL,
+        option_c TEXT NOT NULL,
+        option_d TEXT NOT NULL,
+        correct_answer TEXT NOT NULL,
+        explanation TEXT,
+        FOREIGN KEY (passage_id) REFERENCES jp_reading_passage(id) ON DELETE CASCADE
+    )""",
+    # ── Writing Practice ─────────────────────────────────
+    """CREATE TABLE IF NOT EXISTS jp_writing_exercise (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        exercise_type TEXT NOT NULL,
+        jlpt_level TEXT DEFAULT 'N5',
+        prompt_ko TEXT NOT NULL,
+        prompt_jp TEXT,
+        answer_jp TEXT NOT NULL,
+        alt_answers TEXT,
+        grammar_point TEXT,
+        hint TEXT,
+        difficulty INTEGER DEFAULT 1
+    )""",
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_notification_logs_date ON notification_logs(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_notification_rules_active ON notification_rules(is_active, trigger_type)",
@@ -262,6 +359,19 @@ TABLES = [
     "CREATE INDEX IF NOT EXISTS idx_jp_quiz_date ON jp_quiz_results(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_jp_daily_quests_date ON jp_daily_quests(date)",
     "CREATE INDEX IF NOT EXISTS idx_jp_weekly_challenges_week ON jp_weekly_challenges(week_start)",
+    # Grammar & Kanji indexes
+    "CREATE INDEX IF NOT EXISTS idx_jp_grammar_level ON jp_grammar(jlpt_level)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_grammar_category ON jp_grammar(category)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_grammar_example_gid ON jp_grammar_example(grammar_id)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_grammar_srs_next ON jp_grammar_srs(next_review)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_kanji_level ON jp_kanji(jlpt_level)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_kanji_vocab_kanji ON jp_kanji_vocab_link(kanji_id)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_kanji_vocab_vocab ON jp_kanji_vocab_link(vocab_id)",
+    # Reading indexes
+    "CREATE INDEX IF NOT EXISTS idx_jp_reading_passage_level ON jp_reading_passage(jlpt_level)",
+    "CREATE INDEX IF NOT EXISTS idx_jp_reading_question_passage ON jp_reading_question(passage_id)",
+    # Writing indexes
+    "CREATE INDEX IF NOT EXISTS idx_jp_writing_type_level ON jp_writing_exercise(exercise_type, jlpt_level)",
 ]
 
 _MIGRATIONS = [
