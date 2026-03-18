@@ -47,6 +47,26 @@ def _extract_json_from_text(text: str) -> list[dict]:
     raise ValueError("No JSON array found in response")
 
 
+_ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"}
+_ALLOWED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+# Magic byte signatures for image format validation
+_IMAGE_SIGNATURES = {
+    b"\x89PNG": "image/png",
+    b"\xff\xd8\xff": "image/jpeg",
+    b"GIF8": "image/gif",
+    b"RIFF": "image/webp",  # WebP starts with RIFF
+}
+
+
+def _detect_image_type(data: bytes) -> str | None:
+    """Detect image type from magic bytes."""
+    for sig, mime in _IMAGE_SIGNATURES.items():
+        if data[:len(sig)] == sig:
+            return mime
+    return None
+
+
 @router.post("/image")
 async def import_from_image(
     file: UploadFile = File(...),
@@ -58,14 +78,39 @@ async def import_from_image(
     if not settings.LLM_API_KEY:
         raise HTTPException(400, "LLM API key not configured. Set LLM_API_KEY in .env")
 
+    # Validate Content-Type
+    content_type = (file.content_type or "").lower()
+    if content_type and content_type not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            400,
+            f"허용되지 않은 파일 형식: {content_type}. "
+            f"허용: {', '.join(sorted(_ALLOWED_IMAGE_TYPES))}",
+        )
+
+    # Validate file extension
+    filename = (file.filename or "").lower()
+    if filename:
+        import os
+        ext = os.path.splitext(filename)[1]
+        if ext and ext not in _ALLOWED_IMAGE_EXTS:
+            raise HTTPException(
+                400,
+                f"허용되지 않은 확장자: {ext}. 허용: {', '.join(sorted(_ALLOWED_IMAGE_EXTS))}",
+            )
+
     # Read with size limit to avoid OOM on large uploads
     max_size = 10 * 1024 * 1024  # 10MB
     contents = await file.read(max_size + 1)
     if len(contents) > max_size:
         raise HTTPException(413, "Image too large (max 10MB)")
 
+    # Validate actual content via magic bytes
+    detected = _detect_image_type(contents)
+    if not detected:
+        raise HTTPException(400, "파일 내용이 유효한 이미지가 아닙니다 (magic bytes 불일치)")
+
     b64 = base64.b64encode(contents).decode()
-    content_type = file.content_type or "image/png"
+    content_type = detected  # Use detected type for accuracy
 
     prompt = (
         "이 이미지는 증권사 앱의 보유 종목 화면입니다. "
