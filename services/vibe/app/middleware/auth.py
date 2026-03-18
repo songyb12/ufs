@@ -50,8 +50,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 if payload and payload.get("sub"):
                     # Valid JWT — allow request
                     return await call_next(request)
-            except Exception:
-                pass  # Fall through to API key check
+            except Exception as e:
+                logger.debug(
+                    "JWT decode failed for %s %s from %s: %s",
+                    request.method, request.url.path,
+                    request.client.host if request.client else "unknown",
+                    type(e).__name__,
+                )
 
         # 2) Check X-API-Key header
         provided_key = request.headers.get("X-API-Key", "")

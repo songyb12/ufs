@@ -305,7 +305,8 @@ async def run_portfolio_review(
             final_text += block.text
 
     return {
-        "status": "ok",
+        "status": "incomplete",
+        "reason": "max_iterations_reached",
         "review": final_text or "리뷰 생성 중 최대 반복 횟수에 도달했습니다.",
         "iterations": MAX_ITERATIONS,
         "tool_calls": tool_calls_log,

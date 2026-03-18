@@ -308,6 +308,7 @@ async def generate_soxl_strategy(req: SoxlBacktestRequest = None):
 async def _gather_current_context(db) -> dict:
     """Gather current market context from DB for AI strategy prompt."""
     ctx = {}
+    data_warnings = []
 
     # Current price + recent performance
     try:
@@ -325,8 +326,9 @@ async def _gather_current_context(db) -> dict:
                 ctx["price_1d_change"] = round((rows[0][0] - rows[1][0]) / rows[1][0] * 100, 2) if rows[1][0] else None
             if len(rows) >= 5:
                 ctx["price_5d_change"] = round((rows[0][0] - rows[4][0]) / rows[4][0] * 100, 2) if rows[4][0] else None
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch SOXL price data: %s", e)
+        data_warnings.append("price_data_unavailable")
 
     # Macro indicators
     try:
@@ -342,8 +344,9 @@ async def _gather_current_context(db) -> dict:
                 "yield_spread": row[4], "wti": row[5], "gold": row[6],
                 "fear_greed": row[7], "copper": row[8], "usd_krw": row[9],
             }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch macro indicators: %s", e)
+        data_warnings.append("macro_data_unavailable")
 
     # Latest signal
     try:
@@ -355,8 +358,9 @@ async def _gather_current_context(db) -> dict:
         row = await cursor.fetchone()
         if row:
             ctx["signal"] = {"signal": row[0], "score": row[1], "confidence": row[2]}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch SOXL signal: %s", e)
+        data_warnings.append("signal_data_unavailable")
 
     # Recent geo events
     try:
@@ -369,8 +373,9 @@ async def _gather_current_context(db) -> dict:
         ctx["geo_events"] = [
             {"date": r[0], "event": r[1], "impact": r[2]} for r in rows
         ]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch geopolitical events: %s", e)
+        data_warnings.append("geo_events_unavailable")
 
     # [NEW] 52-week high/low
     try:
@@ -385,8 +390,12 @@ async def _gather_current_context(db) -> dict:
             ctx["week52_low"] = row[1]
             if ctx.get("price") and row[0]:
                 ctx["pct_from_52w_high"] = round((ctx["price"] - row[0]) / row[0] * 100, 2)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch 52-week high/low: %s", e)
+        data_warnings.append("week52_data_unavailable")
+
+    if data_warnings:
+        ctx["data_warnings"] = data_warnings
 
     return ctx
 

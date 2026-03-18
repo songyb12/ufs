@@ -291,8 +291,9 @@ class ClaudeSession:
         """
         use_model = self.model if not _retry_without_model else ""
 
-        cmd = [CLAUDE_EXE, "-p", "--output-format", "stream-json",
-               "--verbose", "--dangerously-skip-permissions"]
+        cmd = [CLAUDE_EXE, "-p", "--output-format", "stream-json", "--verbose"]
+        if os.environ.get("CLAUDE_ALLOW_DANGEROUS_SKIP_PERMISSIONS", "").lower() == "true":
+            cmd.append("--dangerously-skip-permissions")
 
         if self.no_tools:
             cmd.extend(["--tools", ""])
