@@ -73,6 +73,8 @@ export interface CurriculumActions {
   dismissAchievement: () => void
   /** Switch instrument/curriculum */
   switchCurriculum: (instrument: 'guitar' | 'bass') => void
+  /** Reset all curriculum progress (requires confirmation) */
+  resetProgress: () => void
   /** Get level progress */
   getLevelProgressPercent: (level: Level) => number
   /** Get lesson progress */
@@ -287,6 +289,31 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
     setActiveDrillId(null)
   }, [])
 
+  const resetProgress = useCallback(() => {
+    setProgress({
+      currentLevelIndex: 0,
+      completedLessons: [],
+      completedDrills: [],
+      drillBestScores: {},
+      unlockedLevels: [0],
+    })
+    setProfile(prev => ({
+      ...prev,
+      xp: 0,
+      level: 0,
+      achievements: [],
+      completedLessons: [],
+      completedDrills: [],
+      completedSongs: [],
+      drillScores: {},
+    }))
+    setView('map')
+    setSelectedLevelId(null)
+    setSelectedLessonId(null)
+    setActiveDrillId(null)
+    setPendingAchievements([])
+  }, [])
+
   const getLevelProgressPercent = useCallback((level: Level) => {
     return getLevelProgress(level, progress.completedLessons)
   }, [progress.completedLessons])
@@ -324,6 +351,7 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
     goToMap,
     dismissAchievement,
     switchCurriculum,
+    resetProgress,
     getLevelProgressPercent,
     getLessonProgressPercent,
     isUnlocked,

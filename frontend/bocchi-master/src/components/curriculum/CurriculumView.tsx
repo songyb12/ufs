@@ -15,7 +15,13 @@ interface CurriculumViewProps {
 
 export function CurriculumView({ state, actions }: CurriculumViewProps) {
   const { curriculum, profile } = state
-  const { selectLevel, selectLesson, isUnlocked, getLevelProgressPercent, xpInfo, levelInfo } = actions
+  const { selectLevel, selectLesson, isUnlocked, getLevelProgressPercent, xpInfo, levelInfo, resetProgress } = actions
+
+  const handleReset = () => {
+    if (window.confirm('커리큘럼 진행도를 초기화하시겠습니까?\n\nXP, 업적, 드릴 기록이 모두 리셋됩니다.\n(설정, 악기 선택 등 기본 설정은 유지됩니다)')) {
+      resetProgress()
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -47,6 +53,13 @@ export function CurriculumView({ state, actions }: CurriculumViewProps) {
           <div className="text-xs text-slate-400">🔥 스트릭</div>
           <div className="text-lg font-bold text-orange-400">{profile.streakDays}일</div>
         </div>
+        <button
+          onClick={handleReset}
+          className="text-xs text-slate-500 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-700/50 transition-colors"
+          title="커리큘럼 진행도 초기화"
+        >
+          ↺
+        </button>
       </div>
 
       {/* Curriculum Title */}

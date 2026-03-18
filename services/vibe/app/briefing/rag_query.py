@@ -301,8 +301,12 @@ async def synthesize_answer(question: str, sql_result: dict) -> str:
 
     # Truncate result for LLM context
     result_text = json.dumps(rows[:50], ensure_ascii=False, default=str)
-    if len(result_text) > 4000:
+    original_length = len(result_text)
+    truncated = original_length > 4000
+    if truncated:
         result_text = result_text[:4000] + "... (truncated)"
+        sql_result["truncated"] = True
+        sql_result["original_length"] = original_length
 
     prompt = (
         f"[원본 질문] {question}\n\n"
@@ -359,7 +363,7 @@ async def rag_query(question: str) -> dict[str, Any]:
     # Step 3: Synthesize answer
     answer = await synthesize_answer(question, sql_result)
 
-    return {
+    result = {
         "status": "ok",
         "question": question,
         "answer": answer,
@@ -368,3 +372,10 @@ async def rag_query(question: str) -> dict[str, Any]:
         "row_count": sql_result.get("row_count", 0),
         "error": sql_result.get("error"),
     }
+
+    # Propagate truncation info from synthesize step
+    if sql_result.get("truncated"):
+        result["truncated"] = True
+        result["original_length"] = sql_result["original_length"]
+
+    return result

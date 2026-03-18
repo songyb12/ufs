@@ -682,6 +682,14 @@ class ShellSession:
             self._push_data("".join(buf))
 
         self.alive = False
+
+        # PTY 프로세스 확실히 종료 (좀비 방지)
+        try:
+            if self.pty and self.pty.isalive():
+                self.pty.terminate()
+        except Exception:
+            pass
+
         # 종료 신호를 구독자에게 전달
         for q in self._subscribers[:]:
             try:

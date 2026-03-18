@@ -341,7 +341,34 @@ export function checkAchievements(profile: PlayerProfile): Achievement[] {
       case 'specific_lesson':
         earned = profile.completedLessons.includes(condition.lessonId)
         break
-      // hidden, drill_accuracy, chord_count — 별도 로직 필요
+      case 'drill_accuracy': {
+        // drillType이 'any'면 전체 드릴 중 하나라도 조건 충족
+        const scores = Object.entries(profile.drillScores)
+        if (condition.drillType === 'any') {
+          earned = scores.some(([, s]) => s.accuracy >= condition.accuracy)
+        } else {
+          earned = scores.some(([id, s]) =>
+            id.includes(condition.drillType) && s.accuracy >= condition.accuracy
+          )
+        }
+        break
+      }
+      case 'chord_count': {
+        // 완료한 voicing-match 및 chord-change 드릴에서 유니크 코드 수 추정
+        const chordDrills = profile.completedDrills.filter(
+          id => id.includes('chord') || id.includes('voicing')
+        )
+        // 각 드릴이 대략 3-5개 코드를 커버한다고 추정
+        const estimatedChords = new Set(chordDrills.flatMap(id => {
+          const score = profile.drillScores[id]
+          return score ? [id] : []
+        }))
+        earned = estimatedChords.size * 3 >= condition.count
+        break
+      }
+      case 'hidden':
+        // hidden 업적은 외부에서 직접 부여 (triggerHiddenAchievement 사용)
+        break
       default:
         break
     }
@@ -352,6 +379,13 @@ export function checkAchievements(profile: PlayerProfile): Achievement[] {
   }
 
   return newAchievements
+}
+
+/** 히든 업적 트리거 (조건을 외부에서 직접 판단하여 부여) */
+export function triggerHiddenAchievement(profile: PlayerProfile, achievementId: string): Achievement | null {
+  if (profile.achievements.includes(achievementId)) return null
+  const ach = ACHIEVEMENTS.find(a => a.id === achievementId && a.condition.type === 'hidden')
+  return ach ?? null
 }
 
 /** 오늘의 일일 미션 생성 (3개, 시드 기반 결정적) */
