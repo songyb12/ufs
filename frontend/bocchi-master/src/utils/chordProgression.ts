@@ -179,6 +179,71 @@ export const PROGRESSION_PRESETS: ProgressionPreset[] = [
       { degreeIndex: 4, qualityOverride: '7th' },   // V7
     ],
   },
+  // ── J-Pop ──
+  {
+    name: 'J-Pop 왕도 (IV△7-V7-iii7-vi)',
+    steps: [
+      { degreeIndex: 3, qualityOverride: 'Maj7' },  // IVMaj7
+      { degreeIndex: 4, qualityOverride: '7th' },   // V7
+      { degreeIndex: 2, qualityOverride: 'm7' },    // iii7
+      { degreeIndex: 5 },                           // vi
+    ],
+  },
+  {
+    name: 'J-Pop 소악마 (vi-IV-V-I)',
+    steps: [
+      { degreeIndex: 5 },                           // vi
+      { degreeIndex: 3 },                           // IV
+      { degreeIndex: 4 },                           // V
+      { degreeIndex: 0 },                           // I
+    ],
+  },
+  {
+    name: 'J-Pop 시티팝 (IMaj7-IVMaj7-iii7-vi7)',
+    steps: [
+      { degreeIndex: 0, qualityOverride: 'Maj7' },  // IMaj7
+      { degreeIndex: 3, qualityOverride: 'Maj7' },  // IVMaj7
+      { degreeIndex: 2, qualityOverride: 'm7' },    // iii7
+      { degreeIndex: 5, qualityOverride: 'm7' },    // vi7
+    ],
+  },
+  {
+    name: 'J-Pop 마루사 (IMaj7-III7-vi7-II7)',
+    steps: [
+      { degreeIndex: 0, qualityOverride: 'Maj7' },  // IMaj7
+      { degreeIndex: 2, qualityOverride: '7th' },   // III7 (secondary dom)
+      { degreeIndex: 5, qualityOverride: 'm7' },    // vi7
+      { degreeIndex: 1, qualityOverride: '7th' },   // II7 (secondary dom)
+    ],
+  },
+  {
+    name: 'J-Pop 발라드 (I-iii-vi-IV-V)',
+    steps: [
+      { degreeIndex: 0 },                           // I
+      { degreeIndex: 2 },                           // iii
+      { degreeIndex: 5 },                           // vi
+      { degreeIndex: 3 },                           // IV
+      { degreeIndex: 4 },                           // V
+    ],
+  },
+  {
+    name: 'J-Rock (I5-bVII5-IV5-V5)',
+    steps: [
+      { degreeIndex: 0, qualityOverride: '5 (Power)' },  // I5
+      { degreeIndex: 6, qualityOverride: '5 (Power)' },  // bVII5 (approx)
+      { degreeIndex: 3, qualityOverride: '5 (Power)' },  // IV5
+      { degreeIndex: 4, qualityOverride: '5 (Power)' },  // V5
+    ],
+  },
+  {
+    name: '애니 OP (vi-IV-I-V)',
+    steps: [
+      { degreeIndex: 5 },                           // vi
+      { degreeIndex: 3 },                           // IV
+      { degreeIndex: 0 },                           // I
+      { degreeIndex: 4 },                           // V
+    ],
+  },
 ]
 
 // ----- Random Progression Generator (Markov chain) -----

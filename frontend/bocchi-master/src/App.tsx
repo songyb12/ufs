@@ -58,6 +58,11 @@ import { CircleOfFifths } from './components/theory/CircleOfFifths'
 import { BeatFlash } from './components/metronome/BeatFlash'
 import { DroneTonePanel } from './components/practice/DroneTonePanel'
 import { NoteToast, type NoteToastHandle } from './components/ui/NoteToast'
+import { CurriculumMode } from './components/curriculum/CurriculumMode'
+
+// App mode: 'free' = 기존 자유 연습, 'curriculum' = 커리큘럼 학습
+type AppMode = 'free' | 'curriculum'
+const APP_MODE_KEY = 'bocchi-app-mode'
 
 // Restore persisted settings on initial load
 const initialSettings = loadSettings()
@@ -84,6 +89,13 @@ function resolvePreset(name: string | null): ProgressionPreset | null {
 }
 
 export default function App() {
+  // ── App Mode Toggle ──
+  const [appMode, setAppMode] = useState<AppMode>(
+    () => (localStorage.getItem(APP_MODE_KEY) as AppMode) ?? 'free',
+  )
+  const switchToFree = () => { setAppMode('free'); localStorage.setItem(APP_MODE_KEY, 'free') }
+  const switchToCurriculum = () => { setAppMode('curriculum'); localStorage.setItem(APP_MODE_KEY, 'curriculum') }
+
   const [instrument, setInstrument] = useState<InstrumentConfig>(
     resolveInstrument(initialSettings.instrumentName, initialSettings.instrumentType),
   )
@@ -647,8 +659,62 @@ export default function App() {
     [allProgressionVoicings, isOptimized, optimizedIndices, soundEngine, instrument],
   )
 
+  // ── Inline useCallback 끌어올림 (조건부 렌더링 안에서 hook 호출 금지) ──
+  const handlePlayAvailableVoicing = useCallback((idx: number) => {
+    const v = availableVoicings[idx]
+    if (v) soundEngine.playVoicing(v, effectiveInstrument)
+  }, [availableVoicings, soundEngine, effectiveInstrument])
+
+  const handleScaleFinderSelect = useCallback((root: NoteName, scaleName: string) => {
+    setSelectedRoot(root)
+    const foundDef = SCALES.find((s) => s.name === scaleName) ?? null
+    if (foundDef) {
+      setMode('scale')
+      setSelectedDefinition(foundDef)
+    }
+  }, [])
+
+  const handleCircleKeySelect = useCallback((key: NoteName) => {
+    if (progressionPreset) {
+      setProgressionKey(key)
+    } else {
+      setSelectedRoot(key)
+    }
+  }, [progressionPreset])
+
+  const handleFretboardQuizToggle = useCallback(() => setFretboardQuizActive((v) => !v), [])
+
   return (
     <AppShell instrument={instrument} onInstrumentChange={setInstrument}>
+      {/* ── Mode Tabs ── */}
+      <div className="flex items-center gap-1 mb-4 pb-3 border-b border-slate-700">
+        <button
+          onClick={switchToFree}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            appMode === 'free'
+              ? 'bg-orange-600 text-white'
+              : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+          }`}
+        >
+          🎸 자유 연습
+        </button>
+        <button
+          onClick={switchToCurriculum}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            appMode === 'curriculum'
+              ? 'bg-orange-600 text-white'
+              : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+          }`}
+        >
+          📚 커리큘럼
+        </button>
+      </div>
+
+      {/* ── Curriculum Mode ── */}
+      {appMode === 'curriculum' ? (
+        <CurriculumMode onSwitchToFreeMode={switchToFree} />
+      ) : (
+      <>
       {/* Note click info toast */}
       <NoteToast ref={noteToastRef} rootNote={selectedRoot ?? progressionKey ?? undefined} />
 
@@ -974,10 +1040,7 @@ export default function App() {
         voicingFrets={currentVoicing?.frets}
         activeChordName={activeChord?.chordName}
         allVoicings={availableVoicings}
-        onPlayVoicing={useCallback((idx: number) => {
-          const v = availableVoicings[idx]
-          if (v) soundEngine.playVoicing(v, effectiveInstrument)
-        }, [availableVoicings, soundEngine, instrument])}
+        onPlayVoicing={handlePlayAvailableVoicing}
         loopCount={loopCount}
         onLoopCountChange={setLoopCount}
         isCustom={isCustomProgression}
@@ -1061,26 +1124,13 @@ export default function App() {
 
       {/* Scale Finder */}
       <ScaleFinderPanel
-        onScaleSelect={useCallback((root: NoteName, scaleName: string) => {
-          setSelectedRoot(root)
-          const foundDef = SCALES.find((s) => s.name === scaleName) ?? null
-          if (foundDef) {
-            setMode('scale')
-            setSelectedDefinition(foundDef)
-          }
-        }, [])}
+        onScaleSelect={handleScaleFinderSelect}
       />
 
       {/* Circle of Fifths */}
       <CircleOfFifths
         activeKey={progressionKey ?? selectedRoot}
-        onKeySelect={useCallback((key: NoteName) => {
-          if (progressionPreset) {
-            setProgressionKey(key)
-          } else {
-            setSelectedRoot(key)
-          }
-        }, [progressionPreset])}
+        onKeySelect={handleCircleKeySelect}
       />
 
       {/* Scale Patterns (box shapes) */}
@@ -1118,7 +1168,7 @@ export default function App() {
       <FretboardQuizPanel
         ref={fretboardQuizRef}
         active={fretboardQuizActive}
-        onToggle={useCallback(() => setFretboardQuizActive((v) => !v), [])}
+        onToggle={handleFretboardQuizToggle}
       />
 
       {/* Practice Timer */}
@@ -1144,6 +1194,8 @@ export default function App() {
         visible={showShortcutHelp}
         onClose={() => setShowShortcutHelp(false)}
       />
+      </>
+      )}
     </AppShell>
   )
 }
