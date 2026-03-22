@@ -354,11 +354,11 @@ export function checkAchievements(profile: PlayerProfile): Achievement[] {
         break
       }
       case 'chord_count': {
-        // 완료한 voicing-match 및 chord-change 드릴에서 유니크 코드 수 추정
+        // TODO: 실제 유니크 코드 수를 프로필에 별도 추적 필요.
+        // 현재는 드릴 ID 기반 추정치 — 정확도 낮음 (드릴당 ~3코드 가정).
         const chordDrills = profile.completedDrills.filter(
           id => id.includes('chord') || id.includes('voicing')
         )
-        // 각 드릴이 대략 3-5개 코드를 커버한다고 추정
         const estimatedChords = new Set(chordDrills.flatMap(id => {
           const score = profile.drillScores[id]
           return score ? [id] : []

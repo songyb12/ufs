@@ -1,16 +1,11 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import type { InstrumentConfig, Note, NoteName } from './types/music'
-import { STANDARD_GUITAR, INSTRUMENTS } from './constants/tunings'
+import type { Note, NoteName } from './types/music'
 import { AppShell } from './components/layout/AppShell'
 import { Fretboard } from './components/fretboard/Fretboard'
 import { MetronomePanel } from './components/metronome/MetronomePanel'
 import { MidiStatus } from './components/midi/MidiStatus'
 import { ScaleSelector } from './components/scale/ScaleSelector'
-import {
-  ChordProgressionPanel,
-  type VoicingMode,
-  type VoicingSource,
-} from './components/progression/ChordProgressionPanel'
+import { ChordProgressionPanel } from './components/progression/ChordProgressionPanel'
 import { useMetronome } from './hooks/useMetronome'
 import {
   SCALES,
@@ -21,15 +16,6 @@ import {
   getKeySignature,
   getScaleFormula,
 } from './utils/scaleCalculator'
-import {
-  resolveProgression,
-  PROGRESSION_PRESETS,
-  type ProgressionPreset,
-  type ProgressionStep,
-} from './utils/chordProgression'
-import { getCAGEDVoicings, suggestFingering, type ChordVoicing } from './utils/voicingLibrary'
-import { generateVoicings } from './utils/voicingGenerator'
-import { optimizeProgressionVoicings } from './utils/voicingOptimizer'
 import { useSoundEngine } from './hooks/useSoundEngine'
 import { useMidi } from './hooks/useMidi'
 import { CHROMATIC_SCALE } from './constants/notes'
@@ -38,12 +24,16 @@ import { ScaleSuggestionPanel } from './components/scale/ScaleSuggestionPanel'
 import { useBackingTrack } from './hooks/useBackingTrack'
 import { BackingTrackPanel } from './components/backing/BackingTrackPanel'
 import { usePracticeMode } from './hooks/usePracticeMode'
+import { useRhythmScore } from './hooks/useRhythmScore'
 import { PracticePanel } from './components/practice/PracticePanel'
-import { loadSettings, saveSettings } from './utils/storage'
+import { RhythmScorePanel } from './components/practice/RhythmScorePanel'
+import { saveSettings } from './utils/storage'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIntervalTrainer } from './hooks/useIntervalTrainer'
 import { IntervalTrainerPanel } from './components/trainer/IntervalTrainerPanel'
 import { PracticeHistoryPanel } from './components/practice/PracticeHistoryPanel'
+import { WeaknessAnalysisPanel } from './components/practice/WeaknessAnalysisPanel'
+import { ReminderSharePanel } from './components/practice/ReminderSharePanel'
 import { ShortcutHelpOverlay } from './components/help/ShortcutHelpOverlay'
 import { ScaleFinderPanel } from './components/scale/ScaleFinderPanel'
 import { FretboardQuizPanel, type FretboardQuizHandle } from './components/trainer/FretboardQuizPanel'
@@ -54,25 +44,20 @@ import { StrumPatternPanel } from './components/rhythm/StrumPatternPanel'
 import { TempoTrainerPanel } from './components/metronome/TempoTrainerPanel'
 import { TuningQuickSwitch } from './components/fretboard/TuningQuickSwitch'
 import { ChordTransitionTimer } from './components/trainer/ChordTransitionTimer'
+import { ChordToneDrillPanel } from './components/trainer/ChordToneDrillPanel'
+import { CallResponsePanel } from './components/trainer/CallResponsePanel'
 import { CircleOfFifths } from './components/theory/CircleOfFifths'
 import { BeatFlash } from './components/metronome/BeatFlash'
 import { DroneTonePanel } from './components/practice/DroneTonePanel'
+import { TunerPanel } from './components/tuner/TunerPanel'
 import { NoteToast, type NoteToastHandle } from './components/ui/NoteToast'
 import { CurriculumMode } from './components/curriculum/CurriculumMode'
-
-// App mode: 'free' = 기존 자유 연습, 'curriculum' = 커리큘럼 학습
-type AppMode = 'free' | 'curriculum'
-const APP_MODE_KEY = 'bocchi-app-mode'
-
-// Restore persisted settings on initial load
-const initialSettings = loadSettings()
-
-function resolveInstrument(name: string, type: string): InstrumentConfig {
-  // Try exact name match first (for alternate tunings), fallback to type
-  return INSTRUMENTS.find((i) => i.name === name)
-    ?? INSTRUMENTS.find((i) => i.type === type)
-    ?? STANDARD_GUITAR
-}
+import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
+import { PANEL_TABS, SKILL_PROFILE_OPTIONS } from './utils/panelConfig'
+import { CollapsibleSection } from './components/ui/CollapsibleSection'
+import { useAppSettings, initialSettings } from './hooks/useAppSettings'
+import { useFretboardSettings } from './hooks/useFretboardSettings'
+import { useChordProgression } from './hooks/useChordProgression'
 
 function resolveDefinition(
   name: string | null,
@@ -83,62 +68,46 @@ function resolveDefinition(
   return pool.find((d) => d.name === name) ?? pool[0]
 }
 
-function resolvePreset(name: string | null): ProgressionPreset | null {
-  if (!name) return null
-  return PROGRESSION_PRESETS.find((p) => p.name === name) ?? null
-}
-
 export default function App() {
-  // ── App Mode Toggle ──
-  const [appMode, setAppMode] = useState<AppMode>(
-    () => (localStorage.getItem(APP_MODE_KEY) as AppMode) ?? 'free',
-  )
-  const switchToFree = () => { setAppMode('free'); localStorage.setItem(APP_MODE_KEY, 'free') }
-  const switchToCurriculum = () => { setAppMode('curriculum'); localStorage.setItem(APP_MODE_KEY, 'curriculum') }
+  // ── Extracted hooks ──
+  const app = useAppSettings()
+  const {
+    appMode, switchToFree, switchToCurriculum,
+    panelTab, handlePanelTabChange,
+    skillProfile, visibleTabs, showPanel, handleSkillProfileChange,
+    showOnboarding, handleOnboardingComplete,
+    instrument, setInstrument,
+    showShortcutHelp, setShowShortcutHelp,
+    beatFlashEnabled, setBeatFlashEnabled,
+  } = app
 
-  const [instrument, setInstrument] = useState<InstrumentConfig>(
-    resolveInstrument(initialSettings.instrumentName, initialSettings.instrumentType),
-  )
+  const fb = useFretboardSettings(instrument)
+  const {
+    showChordTones, setShowChordTones,
+    hideNoteLabels, setHideNoteLabels,
+    showFingering, setShowFingering,
+    compareScaleIdx, setCompareScaleIdx,
+    capo, setCapo,
+    effectiveInstrument,
+    labelMode, setLabelMode,
+    enharmonicMode, setEnharmonicMode,
+    leftHanded, setLeftHanded,
+    fretRange, setFretRange,
+    autoZoom, setAutoZoom,
+    fretControlsExpanded, toggleFretControls,
+    dimmedStrings, toggleStringDim, clearDimmedStrings,
+    patternPositions, setPatternPositions,
+  } = fb
+
   const [highlightedNotes, setHighlightedNotes] = useState<Note[]>([])
   const soundEngine = useSoundEngine()
   const midi = useMidi()
   const practice = usePracticeMode()
+  const rhythmScore = useRhythmScore()
   const intervalTrainer = useIntervalTrainer()
-
-  // Scale pattern positions (for box shapes on fretboard)
-  const [patternPositions, setPatternPositions] = useState<{ stringIndex: number; fret: number }[] | null>(null)
-
-  // Chord tone highlighting toggle
-  const [showChordTones, setShowChordTones] = useState(false)
-
-  // Ghost mode: hide note labels (dots only)
-  const [hideNoteLabels, setHideNoteLabels] = useState(false)
-
-  // Fingering numbers overlay
-  const [showFingering, setShowFingering] = useState(false)
 
   // Note click toast
   const noteToastRef = useRef<NoteToastHandle>(null)
-
-  // Scale comparison: overlay a second scale on the fretboard
-  const [compareScaleIdx, setCompareScaleIdx] = useState<number | null>(null)
-
-  // Capo position (0 = no capo, 1-12 = capo at that fret)
-  const [capo, setCapo] = useState(0)
-
-  // Capo-adjusted instrument: shifts tuning up by capo semitones
-  const effectiveInstrument = useMemo<InstrumentConfig>(() => {
-    if (capo === 0) return instrument
-    return {
-      ...instrument,
-      tuning: instrument.tuning.map((note) => ({
-        name: CHROMATIC_SCALE[(note.midiNumber + capo) % 12],
-        octave: Math.floor((note.midiNumber + capo) / 12) - 1,
-        midiNumber: note.midiNumber + capo,
-      })),
-      fretCount: instrument.fretCount - capo,
-    }
-  }, [instrument, capo])
 
   // Fretboard quiz state
   const [fretboardQuizActive, setFretboardQuizActive] = useState(false)
@@ -158,7 +127,8 @@ export default function App() {
     const octave = Math.floor(midiNum / 12) - 1
     soundEngine.playFretboardNote({ name, octave, midiNumber: midiNum })
     practice.evaluateNote(midiNum)
-  }, [midi.lastNote]) // eslint-disable-line react-hooks/exhaustive-deps
+    rhythmScore.evaluate()
+  }, [midi.lastNote, soundEngine, practice, rhythmScore.evaluate])
 
   // Scale/Chord overlay state
   const [selectedRoot, setSelectedRoot] = useState<NoteName | null>(
@@ -169,40 +139,6 @@ export default function App() {
   >(resolveDefinition(initialSettings.selectedDefinitionName, initialSettings.mode))
   const [mode, setMode] = useState<'scale' | 'chord'>(initialSettings.mode)
 
-  // Note label mode (name / interval / degree)
-  const [labelMode, setLabelMode] = useState<import('./utils/noteLabelFormatter').NoteLabelMode>('name')
-
-  // Enharmonic display mode (sharp/flat)
-  const [enharmonicMode, setEnharmonicMode] = useState<import('./utils/enharmonic').EnharmonicMode>('sharp')
-
-  // Fretboard orientation
-  const [leftHanded, setLeftHanded] = useState(false)
-
-  // Fretboard zoom (fret range) — reset when instrument or capo changes
-  const [fretRange, setFretRange] = useState<[number, number]>([0, effectiveInstrument.fretCount])
-  const [autoZoom, setAutoZoom] = useState(false)
-  useEffect(() => {
-    setFretRange([0, effectiveInstrument.fretCount])
-  }, [effectiveInstrument.fretCount])
-
-  // String focus (dim unselected strings)
-  const [dimmedStrings, setDimmedStrings] = useState<Set<number>>(new Set())
-  const toggleStringDim = useCallback((stringIndex: number) => {
-    setDimmedStrings((prev) => {
-      const next = new Set(prev)
-      if (next.has(stringIndex)) next.delete(stringIndex)
-      else next.add(stringIndex)
-      return next
-    })
-  }, [])
-  const clearDimmedStrings = useCallback(() => setDimmedStrings(new Set()), [])
-
-  // Shortcut help overlay
-  const [showShortcutHelp, setShowShortcutHelp] = useState(false)
-
-  // Visual beat flash on screen border
-  const [beatFlashEnabled, setBeatFlashEnabled] = useState(false)
-
   // Refs for backing track getters (avoids circular dependency with useMetronome)
   const chordRootRef = useRef<NoteName | null>(null)
   const bpmRef = useRef(120)
@@ -212,72 +148,60 @@ export default function App() {
   // Backing track (must be before useMetronome so we can pass onBeatSchedule)
   const backingTrack = useBackingTrack(getChordRoot, getBpm)
 
+  // Combined beat schedule callback: backing track + rhythm scoring
+  const rhythmRecordBeatRef = useRef(rhythmScore.recordBeat)
+  rhythmRecordBeatRef.current = rhythmScore.recordBeat
+  const combinedOnBeatSchedule = useCallback(
+    (beat: number, measure: number, time: number, ctx: AudioContext) => {
+      backingTrack.onBeatSchedule(beat, measure, time, ctx)
+      rhythmRecordBeatRef.current(beat, bpmRef.current)
+    },
+    [backingTrack.onBeatSchedule],
+  )
+
   // Metronome state (lifted from MetronomePanel)
-  const metronome = useMetronome(backingTrack.onBeatSchedule)
+  const metronome = useMetronome(combinedOnBeatSchedule)
 
   // Restore persisted BPM + beats on mount
   useEffect(() => {
     if (initialSettings.bpm !== 120) metronome.setBpm(initialSettings.bpm)
     if (initialSettings.beatsPerMeasure !== 4) metronome.setBeatsPerMeasure(initialSettings.beatsPerMeasure)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps — mount-only: restores persisted settings once; metronome setters are stable but change identity on each render
+  }, [])
 
-  // Chord progression state
-  const [progressionKey, setProgressionKey] = useState<NoteName | null>(
-    (initialSettings.progressionKey as NoteName) ?? null,
-  )
-  const [progressionPreset, setProgressionPreset] =
-    useState<ProgressionPreset | null>(
-      resolvePreset(initialSettings.progressionPresetName),
-    )
-  const [activeChordIndex, setActiveChordIndex] = useState(0)
+  // ── Chord Progression (extracted hook) ──
+  const chord = useChordProgression({
+    initialSettings,
+    effectiveInstrument,
+    metronomeIsPlaying: metronome.isPlaying,
+    metronomeMeasure: metronome.currentMeasure,
+    metronomeStop: metronome.stop,
+    showFingering,
+    autoZoom,
+    setFretRange,
+  })
+  const {
+    progressionKey, setProgressionKey,
+    progressionPreset, setProgressionPreset,
+    activeChordIndex, setActiveChordIndex,
+    loopCount, setLoopCount,
+    isCustomProgression, handleCustomToggle,
+    customSteps, handleCustomStepsChange,
+    resolvedChords, activeChord, activeChordIntervals,
+    voicingMode, setVoicingMode,
+    voicingSource, setVoicingSource,
+    voicingIndex, setVoicingIndex,
+    isOptimized, setIsOptimized,
+    allProgressionVoicings, availableVoicings,
+    optimizedIndices, currentVoicing, fingeringNumbers,
+    isAutoChordChange,
+  } = chord
 
   // Auto-suggest enharmonic mode when root key changes
   useEffect(() => {
     const key = selectedRoot ?? progressionKey
     if (key) setEnharmonicMode(suggestEnharmonicMode(key))
-  }, [selectedRoot, progressionKey])
-
-  // Progression loop control (0 = infinite loop, N = stop after N loops)
-  const [loopCount, setLoopCount] = useState(0)
-
-  // Custom progression state
-  const [isCustomProgression, setIsCustomProgression] = useState(false)
-  const [customSteps, setCustomSteps] = useState<ProgressionStep[]>([
-    { degreeIndex: 0 }, // I
-    { degreeIndex: 3 }, // IV
-    { degreeIndex: 4 }, // V
-    { degreeIndex: 0 }, // I
-  ])
-
-  const handleCustomToggle = useCallback(() => {
-    setIsCustomProgression((v) => {
-      const next = !v
-      if (next) {
-        // Switch to custom: create a preset from customSteps
-        onCustomPresetUpdate(customSteps)
-      }
-      return next
-    })
-  }, [customSteps]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const onCustomPresetUpdate = useCallback((steps: ProgressionStep[]) => {
-    setCustomSteps(steps)
-    if (steps.length > 0) {
-      setProgressionPreset({ name: 'Custom', steps })
-    } else {
-      setProgressionPreset(null)
-    }
-  }, [])
-
-  const handleCustomStepsChange = useCallback((steps: ProgressionStep[]) => {
-    onCustomPresetUpdate(steps)
-  }, [onCustomPresetUpdate])
-
-  // Voicing state
-  const [voicingMode, setVoicingMode] = useState<VoicingMode>(initialSettings.voicingMode)
-  const [voicingSource, setVoicingSource] = useState<VoicingSource>(initialSettings.voicingSource)
-  const [voicingIndex, setVoicingIndex] = useState(0)
-  const [isOptimized, setIsOptimized] = useState(initialSettings.isOptimized)
+  }, [selectedRoot, progressionKey, setEnharmonicMode])
 
   // Persist settings on change (debounced)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -308,121 +232,9 @@ export default function App() {
     progressionKey, progressionPreset, voicingMode, voicingSource, isOptimized,
   ])
 
-  // Resolve progression chords
-  const resolvedChords = useMemo(() => {
-    if (!progressionKey || !progressionPreset) return []
-    return resolveProgression(progressionKey, progressionPreset)
-  }, [progressionKey, progressionPreset])
-
-  // Active chord info
-  const activeChord = resolvedChords[activeChordIndex] ?? null
-
   // Sync backing track refs
   chordRootRef.current = activeChord?.root ?? null
   bpmRef.current = metronome.bpm
-
-  // Compute available voicings for ALL chords in the progression
-  const allProgressionVoicings: ChordVoicing[][] = useMemo(() => {
-    return resolvedChords.map((chord) => {
-      if (voicingSource === 'caged') {
-        return getCAGEDVoicings(chord.root, chord.quality, effectiveInstrument)
-      }
-      return generateVoicings(chord.root, chord.quality, effectiveInstrument)
-    })
-  }, [resolvedChords, voicingSource, effectiveInstrument])
-
-  // Available voicings for the currently active chord
-  const availableVoicings = allProgressionVoicings[activeChordIndex] ?? []
-
-  // DP-optimized voicing indices for the entire progression
-  const optimizedIndices = useMemo(() => {
-    if (allProgressionVoicings.length === 0) return []
-    return optimizeProgressionVoicings(allProgressionVoicings)
-  }, [allProgressionVoicings])
-
-  // Use a ref to track whether the chord change was from metronome/click (auto)
-  // vs manual ◀▶ navigation
-  const isAutoChordChange = useRef(false)
-
-  // When active chord changes, apply optimized index if optimization is ON
-  useEffect(() => {
-    if (isOptimized && optimizedIndices.length > 0) {
-      const optIdx = optimizedIndices[activeChordIndex] ?? 0
-      setVoicingIndex(optIdx)
-    } else if (isAutoChordChange.current) {
-      // Non-optimized: reset to 0 on auto chord change
-      setVoicingIndex(0)
-    }
-    isAutoChordChange.current = false
-  }, [activeChordIndex, isOptimized, optimizedIndices])
-
-  // When voicing source changes, reset index
-  useEffect(() => {
-    if (isOptimized && optimizedIndices.length > 0) {
-      const optIdx = optimizedIndices[activeChordIndex] ?? 0
-      setVoicingIndex(optIdx)
-    } else {
-      setVoicingIndex(0)
-    }
-  }, [voicingSource]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Clamp voicingIndex when voicing list changes
-  useEffect(() => {
-    if (availableVoicings.length > 0 && voicingIndex >= availableVoicings.length) {
-      setVoicingIndex(0)
-    }
-  }, [availableVoicings.length, voicingIndex])
-
-  // Current voicing (if in voicing mode with available voicings)
-  const currentVoicing =
-    voicingMode === 'voicing' && availableVoicings.length > 0
-      ? availableVoicings[voicingIndex] ?? null
-      : null
-
-  // Suggested fingering for current voicing
-  const fingeringNumbers = useMemo(() => {
-    if (!showFingering || !currentVoicing) return undefined
-    return suggestFingering(currentVoicing)
-  }, [showFingering, currentVoicing])
-
-  // Auto-zoom fretboard to fit current voicing (when enabled)
-  useEffect(() => {
-    if (!autoZoom) return
-    if (currentVoicing) {
-      const frettedFrets = currentVoicing.frets.filter((f) => f > 0)
-      if (frettedFrets.length > 0) {
-        const min = Math.min(...frettedFrets)
-        const max = Math.max(...frettedFrets)
-        const hasOpen = currentVoicing.frets.some((f) => f === 0)
-        const start = hasOpen ? 0 : Math.max(0, min - 1)
-        const end = Math.min(effectiveInstrument.fretCount, max + 2)
-        setFretRange([start, end])
-      }
-    } else {
-      // No voicing — reset to full
-      setFretRange([0, effectiveInstrument.fretCount])
-    }
-  }, [autoZoom, currentVoicing, effectiveInstrument.fretCount])
-
-  // Sync activeChordIndex with metronome measure + auto-stop
-  useEffect(() => {
-    if (resolvedChords.length > 0 && metronome.isPlaying) {
-      const loopNum = Math.floor(metronome.currentMeasure / resolvedChords.length)
-      // Auto-stop after N loops (loopCount=0 means infinite)
-      if (loopCount > 0 && loopNum >= loopCount) {
-        metronome.stop()
-        return
-      }
-      isAutoChordChange.current = true
-      setActiveChordIndex(metronome.currentMeasure % resolvedChords.length)
-    }
-  }, [metronome.currentMeasure, metronome.isPlaying, resolvedChords.length, loopCount, metronome.stop])
-
-  // Reset activeChordIndex when progression changes
-  useEffect(() => {
-    isAutoChordChange.current = true
-    setActiveChordIndex(0)
-  }, [progressionKey, progressionPreset])
 
   // Compute scale note names from ScaleSelector (memoized)
   const scaleSelectorNoteNames = useMemo(() => {
@@ -517,7 +329,7 @@ export default function App() {
     if (practice.active && practiceTargetNotes.length > 0) {
       practice.updateTarget(practiceTargetNotes)
     }
-  }, [practiceTargetNotes]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [practiceTargetNotes, practice.active, practice.updateTarget])
 
   // Practice mode toggle handler
   const handlePracticeToggle = useCallback(() => {
@@ -565,8 +377,9 @@ export default function App() {
           metronome.setSubdivision(cycle[(idx + 1) % 4])
         },
         toggleCountIn: () => metronome.setCountIn(!metronome.countIn),
+        toggleMute: () => metronome.setVolume(metronome.volume > 0 ? 0 : 0.8),
       }),
-      [metronome.toggle, metronome.stop, metronome.setBpm, metronome.subdivision, metronome.setSubdivision, metronome.countIn, metronome.setCountIn, backingTrack.toggle, handlePracticeToggle],
+      [metronome.toggle, metronome.stop, metronome.setBpm, metronome.subdivision, metronome.setSubdivision, metronome.countIn, metronome.setCountIn, metronome.volume, metronome.setVolume, backingTrack.toggle, handlePracticeToggle],
     ),
   )
 
@@ -598,50 +411,6 @@ export default function App() {
     [soundEngine, fretboardQuizActive],
   )
 
-  // ── Global keyboard shortcuts ──
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // Ignore when typing in input/textarea/select
-      const tag = (e.target as HTMLElement).tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-
-      switch (e.code) {
-        case 'Space':
-          e.preventDefault()
-          metronome.toggle()
-          break
-        case 'ArrowUp':
-          e.preventDefault()
-          metronome.setBpm(Math.min(300, metronome.bpm + (e.shiftKey ? 10 : 1)))
-          break
-        case 'ArrowDown':
-          e.preventDefault()
-          metronome.setBpm(Math.max(20, metronome.bpm - (e.shiftKey ? 10 : 1)))
-          break
-        case 'ArrowLeft':
-          if (resolvedChords.length > 0) {
-            e.preventDefault()
-            setActiveChordIndex((prev) => (prev - 1 + resolvedChords.length) % resolvedChords.length)
-          }
-          break
-        case 'ArrowRight':
-          if (resolvedChords.length > 0) {
-            e.preventDefault()
-            setActiveChordIndex((prev) => (prev + 1) % resolvedChords.length)
-          }
-          break
-        case 'KeyM':
-          // Mute/unmute (toggle volume)
-          if (metronome.setVolume) {
-            metronome.setVolume(metronome.volume > 0 ? 0 : 0.8)
-          }
-          break
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [metronome, resolvedChords.length])
-
   const handleProgressionChordClick = useCallback(
     (index: number) => {
       isAutoChordChange.current = true
@@ -656,7 +425,7 @@ export default function App() {
         if (v) soundEngine.playVoicing(v, effectiveInstrument)
       }
     },
-    [allProgressionVoicings, isOptimized, optimizedIndices, soundEngine, instrument],
+    [allProgressionVoicings, isOptimized, optimizedIndices, soundEngine, effectiveInstrument],
   )
 
   // ── Inline useCallback 끌어올림 (조건부 렌더링 안에서 hook 호출 금지) ──
@@ -685,6 +454,8 @@ export default function App() {
   const handleFretboardQuizToggle = useCallback(() => setFretboardQuizActive((v) => !v), [])
 
   return (
+    <>
+    {showOnboarding && <OnboardingWizard onComplete={handleOnboardingComplete} />}
     <AppShell instrument={instrument} onInstrumentChange={setInstrument}>
       {/* ── Mode Tabs ── */}
       <div className="flex items-center gap-1 mb-4 pb-3 border-b border-slate-700">
@@ -708,6 +479,26 @@ export default function App() {
         >
           📚 커리큘럼
         </button>
+
+        {/* Skill Profile selector — pushed right */}
+        {appMode === 'free' && (
+          <div className="ml-auto flex items-center gap-0.5 bg-slate-700/50 rounded-lg p-0.5">
+            {SKILL_PROFILE_OPTIONS.map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => handleSkillProfileChange(opt.id)}
+                className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  skillProfile === opt.id
+                    ? 'bg-slate-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-300'
+                }`}
+              >
+                <span className="mr-0.5">{opt.icon}</span>
+                <span className="hidden sm:inline">{opt.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Curriculum Mode ── */}
@@ -725,6 +516,15 @@ export default function App() {
         enabled={beatFlashEnabled}
       />
 
+      {/* Beginner guide text */}
+      {skillProfile === 'beginner' && (
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-slate-300">
+          <span className="text-orange-400 font-medium">🌱 초급 모드</span>
+          <span className="mx-1.5 text-slate-600">|</span>
+          루트음과 스케일을 선택하고, 프렛보드에서 음 위치를 확인해보세요. 아래 메트로놈과 퀴즈로 연습할 수 있습니다.
+        </div>
+      )}
+
       {/* Scale/Chord selector */}
       <ScaleSelector
         selectedRoot={selectedRoot}
@@ -741,8 +541,8 @@ export default function App() {
         <div className="mb-1.5">
           <TuningQuickSwitch instrument={instrument} onInstrumentChange={setInstrument} />
         </div>
-        {/* Fretboard controls bar */}
-        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+        {/* Fretboard controls bar — Row 1: core controls */}
+        <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
           <span className="text-xs text-slate-500 mr-1">Labels:</span>
           {(['name', 'interval', 'degree'] as const).map((m) => (
             <button
@@ -768,43 +568,6 @@ export default function App() {
           >
             {enharmonicMode === 'sharp' ? '#' : '♭'}
           </button>
-          <button
-            onClick={() => setHideNoteLabels((v) => !v)}
-            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-              hideNoteLabels
-                ? 'bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/40'
-                : 'bg-slate-700 text-slate-500 hover:text-slate-300'
-            }`}
-            title="Ghost mode: hide note labels (dots only) for fretboard memorization"
-          >
-            👻
-          </button>
-          {currentVoicing && (
-            <button
-              onClick={() => setShowFingering((v) => !v)}
-              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                showFingering
-                  ? 'bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/40'
-                  : 'bg-slate-700 text-slate-500 hover:text-slate-300'
-              }`}
-              title="Show suggested fingering numbers (1-4)"
-            >
-              1234
-            </button>
-          )}
-          {activeChord && (
-            <button
-              onClick={() => setShowChordTones((v) => !v)}
-              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                showChordTones
-                  ? 'bg-pink-500/20 text-pink-400 ring-1 ring-pink-500/40'
-                  : 'bg-slate-700 text-slate-500 hover:text-slate-300'
-              }`}
-              title="Highlight chord tones (R, 3, 5, 7) with ring indicator"
-            >
-              CT
-            </button>
-          )}
           <span className="text-slate-700 mx-1">|</span>
           <button
             onClick={() => setLeftHanded((v) => !v)}
@@ -816,22 +579,6 @@ export default function App() {
           >
             {leftHanded ? '🫲 Left' : '🫱 Right'}
           </button>
-          <span className="text-slate-700 mx-1">|</span>
-          <span className="text-xs text-slate-500">Capo:</span>
-          <select
-            value={capo}
-            onChange={(e) => setCapo(Number(e.target.value))}
-            className={`text-xs rounded px-1.5 py-0.5 outline-none w-12 ${
-              capo > 0
-                ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40'
-                : 'bg-slate-700 text-slate-300'
-            }`}
-          >
-            <option value={0}>Off</option>
-            {Array.from({ length: 12 }, (_, i) => (
-              <option key={i + 1} value={i + 1}>{i + 1}</option>
-            ))}
-          </select>
           <span className="text-slate-700 mx-1">|</span>
           <span className="text-xs text-slate-500">Frets:</span>
           <select
@@ -872,32 +619,99 @@ export default function App() {
           >
             Auto
           </button>
-          {/* String focus toggles */}
-          <span className="text-slate-700 mx-1">|</span>
-          <span className="text-xs text-slate-500">Strings:</span>
-          {effectiveInstrument.tuning.map((openNote, si) => (
-            <button
-              key={si}
-              onClick={() => toggleStringDim(si)}
-              className={`w-6 h-5 rounded text-[10px] font-medium transition-colors ${
-                dimmedStrings.has(si)
-                  ? 'bg-slate-800 text-slate-600 line-through'
-                  : 'bg-slate-700 text-slate-400 hover:text-slate-200'
-              }`}
-              title={`${dimmedStrings.has(si) ? 'Show' : 'Dim'} string ${si + 1} (${openNote.name})`}
-            >
-              {openNote.name}
-            </button>
-          ))}
-          {dimmedStrings.size > 0 && (
-            <button
-              onClick={clearDimmedStrings}
-              className="text-xs text-slate-500 hover:text-slate-300"
-            >
-              All
-            </button>
-          )}
+          {/* Toggle for Row 2 */}
+          <button
+            onClick={toggleFretControls}
+            className="ml-auto px-1.5 py-0.5 rounded text-xs text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 transition-colors"
+            title={fretControlsExpanded ? '컨트롤 접기' : '더보기'}
+          >
+            <svg className={`w-3.5 h-3.5 transition-transform ${fretControlsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
         </div>
+        {/* Fretboard controls bar — Row 2: secondary controls (collapsible) */}
+        {fretControlsExpanded && (
+          <div className="flex items-center gap-1.5 mb-1 flex-wrap pl-1">
+            <button
+              onClick={() => setHideNoteLabels((v) => !v)}
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                hideNoteLabels
+                  ? 'bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/40'
+                  : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+              }`}
+              title="Ghost mode: hide note labels (dots only) for fretboard memorization"
+            >
+              👻 Ghost
+            </button>
+            {currentVoicing && (
+              <button
+                onClick={() => setShowFingering((v) => !v)}
+                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                  showFingering
+                    ? 'bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/40'
+                    : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+                title="Show suggested fingering numbers (1-4)"
+              >
+                1234
+              </button>
+            )}
+            {activeChord && (
+              <button
+                onClick={() => setShowChordTones((v) => !v)}
+                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                  showChordTones
+                    ? 'bg-pink-500/20 text-pink-400 ring-1 ring-pink-500/40'
+                    : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+                title="Highlight chord tones (R, 3, 5, 7) with ring indicator"
+              >
+                CT
+              </button>
+            )}
+            <span className="text-slate-700 mx-1">|</span>
+            <span className="text-xs text-slate-500">Capo:</span>
+            <select
+              value={capo}
+              onChange={(e) => setCapo(Number(e.target.value))}
+              className={`text-xs rounded px-1.5 py-0.5 outline-none w-12 ${
+                capo > 0
+                  ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40'
+                  : 'bg-slate-700 text-slate-300'
+              }`}
+            >
+              <option value={0}>Off</option>
+              {Array.from({ length: 12 }, (_, i) => (
+                <option key={i + 1} value={i + 1}>{i + 1}</option>
+              ))}
+            </select>
+            <span className="text-slate-700 mx-1">|</span>
+            <span className="text-xs text-slate-500">Strings:</span>
+            {effectiveInstrument.tuning.map((openNote, si) => (
+              <button
+                key={si}
+                onClick={() => toggleStringDim(si)}
+                className={`w-6 h-5 rounded text-[10px] font-medium transition-colors ${
+                  dimmedStrings.has(si)
+                    ? 'bg-slate-800 text-slate-600 line-through'
+                    : 'bg-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+                title={`${dimmedStrings.has(si) ? 'Show' : 'Dim'} string ${si + 1} (${openNote.name})`}
+              >
+                {openNote.name}
+              </button>
+            ))}
+            {dimmedStrings.size > 0 && (
+              <button
+                onClick={clearDimmedStrings}
+                className="text-xs text-slate-500 hover:text-slate-300"
+              >
+                All
+              </button>
+            )}
+          </div>
+        )}
         {/* Compare scale overlay selector */}
         {selectedRoot && selectedDefinition && (
           <div className="flex items-center gap-1.5 px-1 py-0.5">
@@ -1009,7 +823,7 @@ export default function App() {
         )}
       </section>
 
-      {/* Scale Suggestions (shown when progression is active) */}
+      {/* Scale Suggestions (shown when progression is active — always visible) */}
       {scaleSuggestions.length > 0 && (
         <ScaleSuggestionPanel
           suggestions={scaleSuggestions}
@@ -1018,164 +832,254 @@ export default function App() {
         />
       )}
 
-      {/* Chord Progression */}
-      <ChordProgressionPanel
-        progressionKey={progressionKey}
-        progressionPreset={progressionPreset}
-        activeChordIndex={activeChordIndex}
-        isPlaying={metronome.isPlaying}
-        onKeyChange={setProgressionKey}
-        onPresetChange={setProgressionPreset}
-        onChordClick={handleProgressionChordClick}
-        voicingMode={voicingMode}
-        onVoicingModeChange={setVoicingMode}
-        voicingSource={voicingSource}
-        onVoicingSourceChange={setVoicingSource}
-        voicingIndex={voicingIndex}
-        onVoicingIndexChange={setVoicingIndex}
-        voicingCount={availableVoicings.length}
-        voicingName={currentVoicing?.name ?? ''}
-        isOptimized={isOptimized}
-        onOptimizedChange={setIsOptimized}
-        voicingFrets={currentVoicing?.frets}
-        activeChordName={activeChord?.chordName}
-        allVoicings={availableVoicings}
-        onPlayVoicing={handlePlayAvailableVoicing}
-        loopCount={loopCount}
-        onLoopCountChange={setLoopCount}
-        isCustom={isCustomProgression}
-        onCustomToggle={handleCustomToggle}
-        customSteps={customSteps}
-        onCustomStepsChange={handleCustomStepsChange}
-      />
+      {/* ── Panel Tab Bar (hidden for beginner — flat list) ── */}
+      {skillProfile !== 'beginner' && (
+        <div className="flex gap-1 bg-slate-800/80 backdrop-blur-sm rounded-xl p-1 sticky top-0 z-10">
+          {PANEL_TABS.filter(tab => visibleTabs.includes(tab.id)).map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => handlePanelTabChange(tab.id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-colors ${
+                panelTab === tab.id
+                  ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20'
+                  : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'
+              }`}
+            >
+              <span>{tab.icon}</span>
+              <span className="hidden sm:inline">{tab.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Bottom controls */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <MetronomePanel
-          bpm={metronome.bpm}
-          setBpm={metronome.setBpm}
-          isPlaying={metronome.isPlaying}
-          toggle={metronome.toggle}
-          currentBeat={metronome.currentBeat}
-          currentMeasure={metronome.currentMeasure}
-          beatsPerMeasure={metronome.beatsPerMeasure}
-          setBeatsPerMeasure={metronome.setBeatsPerMeasure}
-          countIn={metronome.countIn}
-          onCountInChange={metronome.setCountIn}
-          isCountingIn={metronome.isCountingIn}
-          clickSound={metronome.clickSound}
-          onClickSoundChange={metronome.setClickSound}
-          subdivision={metronome.subdivision}
-          onSubdivisionChange={metronome.setSubdivision}
-          swing={metronome.swing}
-          onSwingChange={metronome.setSwing}
-          accentPattern={metronome.accentPattern}
-          onAccentPatternChange={metronome.setAccentPattern}
-          beatFlash={beatFlashEnabled}
-          onBeatFlashChange={setBeatFlashEnabled}
-          volume={metronome.volume}
-          onVolumeChange={metronome.setVolume}
-        />
-        <BackingTrackPanel
-          enabled={backingTrack.enabled}
-          drumVolume={backingTrack.drumVolume}
-          bassVolume={backingTrack.bassVolume}
-          styleIndex={backingTrack.styleIndex}
-          styleName={backingTrack.style.name}
-          onToggle={backingTrack.toggle}
-          onDrumVolumeChange={backingTrack.setDrumVolume}
-          onBassVolumeChange={backingTrack.setBassVolume}
-          onStyleChange={backingTrack.setStyleIndex}
-        />
-        <PracticePanel
-          active={practice.active}
-          stats={practice.stats}
-          lastResult={practice.lastResult}
-          hasTarget={practiceTargetNotes.length > 0}
-          onToggle={handlePracticeToggle}
-          onReset={practice.reset}
-        />
-        <MidiStatus
-          isSupported={midi.isSupported}
-          isConnected={midi.isConnected}
-          devices={midi.devices}
-          lastNote={midi.lastNote}
-          error={midi.error}
-          requestAccess={midi.requestAccess}
-        />
-        <IntervalTrainerPanel
-          active={intervalTrainer.active}
-          question={intervalTrainer.question}
-          stats={intervalTrainer.stats}
-          setIndex={intervalTrainer.setIndex}
-          direction={intervalTrainer.direction}
-          lastAnswer={intervalTrainer.lastAnswer}
-          revealed={intervalTrainer.revealed}
-          onStart={intervalTrainer.start}
-          onStop={intervalTrainer.stop}
-          onSetChange={intervalTrainer.setSetIndex}
-          onDirectionChange={intervalTrainer.setDirection}
-          onAnswer={intervalTrainer.answer}
-          onReplay={intervalTrainer.replay}
-          onNext={intervalTrainer.next}
-          onReset={intervalTrainer.reset}
-        />
-      </div>
+      {/* ══════════════════════════════════════════════════
+          TAB: 🎵 진행/반주 (play)
+          ══════════════════════════════════════════════════ */}
+      {(skillProfile === 'beginner' || panelTab === 'play') && (
+        <div className="space-y-4">
+          {/* Chord Progression */}
+          {showPanel('chordProgression') && <CollapsibleSection title="Chord Progression" icon="🎸" defaultExpanded>
+            <ChordProgressionPanel
+              progressionKey={progressionKey}
+              progressionPreset={progressionPreset}
+              activeChordIndex={activeChordIndex}
+              isPlaying={metronome.isPlaying}
+              onKeyChange={setProgressionKey}
+              onPresetChange={setProgressionPreset}
+              onChordClick={handleProgressionChordClick}
+              voicingMode={voicingMode}
+              onVoicingModeChange={setVoicingMode}
+              voicingSource={voicingSource}
+              onVoicingSourceChange={setVoicingSource}
+              voicingIndex={voicingIndex}
+              onVoicingIndexChange={setVoicingIndex}
+              voicingCount={availableVoicings.length}
+              voicingName={currentVoicing?.name ?? ''}
+              isOptimized={isOptimized}
+              onOptimizedChange={setIsOptimized}
+              voicingFrets={currentVoicing?.frets}
+              activeChordName={activeChord?.chordName}
+              allVoicings={availableVoicings}
+              onPlayVoicing={handlePlayAvailableVoicing}
+              loopCount={loopCount}
+              onLoopCountChange={setLoopCount}
+              isCustom={isCustomProgression}
+              onCustomToggle={handleCustomToggle}
+              customSteps={customSteps}
+              onCustomStepsChange={handleCustomStepsChange}
+            />
+          </CollapsibleSection>}
 
-      {/* Scale Finder */}
-      <ScaleFinderPanel
-        onScaleSelect={handleScaleFinderSelect}
-      />
+          {showPanel('metronome') && <CollapsibleSection title="Metronome" icon="🥁" defaultExpanded>
+            <MetronomePanel
+              bpm={metronome.bpm}
+              setBpm={metronome.setBpm}
+              isPlaying={metronome.isPlaying}
+              toggle={metronome.toggle}
+              currentBeat={metronome.currentBeat}
+              currentMeasure={metronome.currentMeasure}
+              beatsPerMeasure={metronome.beatsPerMeasure}
+              setBeatsPerMeasure={metronome.setBeatsPerMeasure}
+              countIn={metronome.countIn}
+              onCountInChange={metronome.setCountIn}
+              isCountingIn={metronome.isCountingIn}
+              clickSound={metronome.clickSound}
+              onClickSoundChange={metronome.setClickSound}
+              subdivision={metronome.subdivision}
+              onSubdivisionChange={metronome.setSubdivision}
+              swing={metronome.swing}
+              onSwingChange={metronome.setSwing}
+              accentPattern={metronome.accentPattern}
+              onAccentPatternChange={metronome.setAccentPattern}
+              beatFlash={beatFlashEnabled}
+              onBeatFlashChange={setBeatFlashEnabled}
+              volume={metronome.volume}
+              onVolumeChange={metronome.setVolume}
+            />
+          </CollapsibleSection>}
+          {showPanel('backingTrack') && <CollapsibleSection title="Backing Track" icon="🎶">
+            <BackingTrackPanel
+              enabled={backingTrack.enabled}
+              drumVolume={backingTrack.drumVolume}
+              bassVolume={backingTrack.bassVolume}
+              styleIndex={backingTrack.styleIndex}
+              onToggle={backingTrack.toggle}
+              onDrumVolumeChange={backingTrack.setDrumVolume}
+              onBassVolumeChange={backingTrack.setBassVolume}
+              onStyleChange={backingTrack.setStyleIndex}
+            />
+          </CollapsibleSection>}
 
-      {/* Circle of Fifths */}
-      <CircleOfFifths
-        activeKey={progressionKey ?? selectedRoot}
-        onKeySelect={handleCircleKeySelect}
-      />
+          {showPanel('strumPattern') && <StrumPatternPanel
+            currentBeat={metronome.currentBeat}
+            beatsPerMeasure={metronome.beatsPerMeasure}
+            isPlaying={metronome.isPlaying}
+          />}
 
-      {/* Scale Patterns (box shapes) */}
-      <ScalePatternPanel
-        instrument={instrument}
-        selectedRoot={selectedRoot}
-        onPatternPositionsChange={setPatternPositions}
-      />
+          {showPanel('tempoTrainer') && <TempoTrainerPanel
+            currentBpm={metronome.bpm}
+            isPlaying={metronome.isPlaying}
+            currentMeasure={metronome.currentMeasure}
+            onBpmChange={metronome.setBpm}
+          />}
+        </div>
+      )}
 
-      {/* Strum Patterns */}
-      <StrumPatternPanel
-        currentBeat={metronome.currentBeat}
-        beatsPerMeasure={metronome.beatsPerMeasure}
-        isPlaying={metronome.isPlaying}
-      />
+      {/* ══════════════════════════════════════════════════
+          TAB: 🎯 연습/드릴 (drill)
+          ══════════════════════════════════════════════════ */}
+      {(skillProfile === 'beginner' || panelTab === 'drill') && (
+        <div className="space-y-4">
+          {showPanel('practice') && <CollapsibleSection title="Practice Mode" icon="🎯" defaultExpanded>
+            <PracticePanel
+              active={practice.active}
+              stats={practice.stats}
+              lastResult={practice.lastResult}
+              hasTarget={practiceTargetNotes.length > 0}
+              onToggle={handlePracticeToggle}
+              onReset={practice.reset}
+            />
+          </CollapsibleSection>}
+          {showPanel('rhythmScore') && <CollapsibleSection title="Rhythm Score" icon="🥁">
+            <RhythmScorePanel
+              active={rhythmScore.active}
+              stats={rhythmScore.stats}
+              lastHit={rhythmScore.lastHit}
+              isMetronomePlaying={metronome.isPlaying}
+              onStart={rhythmScore.start}
+              onStop={rhythmScore.stop}
+              onReset={rhythmScore.reset}
+            />
+          </CollapsibleSection>}
 
-      {/* Tempo Trainer */}
-      <TempoTrainerPanel
-        currentBpm={metronome.bpm}
-        isPlaying={metronome.isPlaying}
-        currentMeasure={metronome.currentMeasure}
-        onBpmChange={metronome.setBpm}
-      />
+          {showPanel('chordTransition') && <ChordTransitionTimer
+            activeChordName={activeChord?.chordName}
+            isPlaying={metronome.isPlaying}
+          />}
 
-      {/* Drone Tone (reference pitch) */}
-      <DroneTonePanel activeRoot={progressionKey ?? selectedRoot} />
+          {showPanel('chordToneDrill') && <CollapsibleSection title="Chord Tone Drill" icon="🎹">
+            <ChordToneDrillPanel
+              chordRoot={activeChord?.root ?? null}
+              chordQuality={activeChord?.quality ?? null}
+              chordName={activeChord?.chordName ?? null}
+              chordNotes={activeChord?.notes ?? []}
+              chordIntervals={activeChordIntervals}
+              midiConnected={midi.isConnected}
+              lastMidiNote={midi.lastNote}
+            />
+          </CollapsibleSection>}
 
-      {/* Chord Transition Timer */}
-      <ChordTransitionTimer
-        activeChordName={activeChord?.chordName}
-        isPlaying={metronome.isPlaying}
-      />
+          {showPanel('callResponse') && <CallResponsePanel
+            midiConnected={midi.isConnected}
+            lastMidiNote={midi.lastNote}
+          />}
 
-      {/* Fretboard Quiz */}
-      <FretboardQuizPanel
-        ref={fretboardQuizRef}
-        active={fretboardQuizActive}
-        onToggle={handleFretboardQuizToggle}
-      />
+          {showPanel('fretboardQuiz') && <FretboardQuizPanel
+            ref={fretboardQuizRef}
+            active={fretboardQuizActive}
+            onToggle={handleFretboardQuizToggle}
+          />}
 
-      {/* Practice Timer */}
-      <PracticeTimerPanel isActive={metronome.isPlaying || practice.active} />
+          {showPanel('intervalTrainer') && <CollapsibleSection title="Interval Trainer" icon="🎵">
+            <IntervalTrainerPanel
+              active={intervalTrainer.active}
+              question={intervalTrainer.question}
+              stats={intervalTrainer.stats}
+              setIndex={intervalTrainer.setIndex}
+              direction={intervalTrainer.direction}
+              lastAnswer={intervalTrainer.lastAnswer}
+              revealed={intervalTrainer.revealed}
+              onStart={intervalTrainer.start}
+              onStop={intervalTrainer.stop}
+              onSetChange={intervalTrainer.setSetIndex}
+              onDirectionChange={intervalTrainer.setDirection}
+              onAnswer={intervalTrainer.answer}
+              onReplay={intervalTrainer.replay}
+              onNext={intervalTrainer.next}
+              onReset={intervalTrainer.reset}
+            />
+          </CollapsibleSection>}
+        </div>
+      )}
 
-      {/* Practice History (persistent stats) */}
-      <PracticeHistoryPanel />
+      {/* ══════════════════════════════════════════════════
+          TAB: 📖 이론 (theory)
+          ══════════════════════════════════════════════════ */}
+      {(skillProfile === 'beginner' || panelTab === 'theory') && (
+        <div className="space-y-4">
+          {showPanel('scaleFinder') && <ScaleFinderPanel
+            onScaleSelect={handleScaleFinderSelect}
+          />}
+
+          {showPanel('circleOfFifths') && <CircleOfFifths
+            activeKey={progressionKey ?? selectedRoot}
+            onKeySelect={handleCircleKeySelect}
+          />}
+
+          {showPanel('scalePattern') && <ScalePatternPanel
+            instrument={instrument}
+            selectedRoot={selectedRoot}
+            onPatternPositionsChange={setPatternPositions}
+          />}
+
+          {showPanel('droneTone') && <DroneTonePanel activeRoot={progressionKey ?? selectedRoot} />}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          TAB: 🔧 도구 (tools)
+          ══════════════════════════════════════════════════ */}
+      {(skillProfile === 'beginner' || panelTab === 'tools') && (
+        <div className="space-y-4">
+          {showPanel('tuner') && <TunerPanel instrument={effectiveInstrument} />}
+
+          {showPanel('midiStatus') && <CollapsibleSection title="MIDI Status" icon="🎹">
+            <MidiStatus
+              isSupported={midi.isSupported}
+              isConnected={midi.isConnected}
+              devices={midi.devices}
+              lastNote={midi.lastNote}
+              error={midi.error}
+              requestAccess={midi.requestAccess}
+            />
+          </CollapsibleSection>}
+
+          {showPanel('practiceTimer') && <PracticeTimerPanel isActive={metronome.isPlaying || practice.active} />}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          TAB: 📊 분석 (stats)
+          ══════════════════════════════════════════════════ */}
+      {(skillProfile === 'beginner' || panelTab === 'stats') && (
+        <div className="space-y-4">
+          {showPanel('weaknessAnalysis') && <WeaknessAnalysisPanel />}
+
+          {showPanel('reminderShare') && <ReminderSharePanel />}
+
+          {showPanel('practiceHistory') && <PracticeHistoryPanel />}
+        </div>
+      )}
 
       {/* Help button (fixed bottom-right) */}
       <div className="flex justify-end mt-2">
@@ -1197,5 +1101,6 @@ export default function App() {
       </>
       )}
     </AppShell>
+    </>
   )
 }

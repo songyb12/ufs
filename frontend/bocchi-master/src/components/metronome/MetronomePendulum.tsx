@@ -50,6 +50,8 @@ export const MetronomePendulum = memo(function MetronomePendulum({
     // So the period is 2 * beatDuration (full cycle = two beats)
     const angularVelocity = Math.PI / beatDuration // radians per second
 
+    lastTimeRef.current = 0
+
     const animate = (timestamp: number) => {
       if (!lastTimeRef.current) lastTimeRef.current = timestamp
       const dt = (timestamp - lastTimeRef.current) / 1000

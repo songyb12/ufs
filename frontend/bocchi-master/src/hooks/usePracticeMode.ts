@@ -30,6 +30,8 @@ export function usePracticeMode() {
   const targetRef = useRef<Set<NoteName>>(new Set())
   const startTimeRef = useRef<number>(0)
   const targetDescRef = useRef<string>('')
+  const statsRef = useRef(stats)
+  statsRef.current = stats
 
   const activate = useCallback((targetNotes: NoteName[], description?: string) => {
     targetRef.current = new Set(targetNotes)
@@ -47,20 +49,18 @@ export function usePracticeMode() {
 
   const deactivate = useCallback(() => {
     // Save session to practice history (if at least 3 attempts)
-    setStats((currentStats) => {
-      if (currentStats.totalAttempts >= 3) {
-        const durationSeconds = Math.round((Date.now() - startTimeRef.current) / 1000)
-        addPracticeSession({
-          date: new Date().toISOString(),
-          accuracy: currentStats.accuracy,
-          totalAttempts: currentStats.totalAttempts,
-          correctAttempts: currentStats.correctAttempts,
-          targetDescription: targetDescRef.current,
-          durationSeconds,
-        })
-      }
-      return currentStats
-    })
+    const currentStats = statsRef.current
+    if (currentStats.totalAttempts >= 3) {
+      const durationSeconds = Math.round((Date.now() - startTimeRef.current) / 1000)
+      addPracticeSession({
+        date: new Date().toISOString(),
+        accuracy: currentStats.accuracy,
+        totalAttempts: currentStats.totalAttempts,
+        correctAttempts: currentStats.correctAttempts,
+        targetDescription: targetDescRef.current,
+        durationSeconds,
+      })
+    }
     setActive(false)
     setLastResult(null)
   }, [])

@@ -32,6 +32,7 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
   const [completed, setCompleted] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastSavedRef = useRef(0) // tracks last saved elapsed to compute delta
+  const elapsedRef = useRef(0) // mirror of elapsedSeconds for use in cleanup
 
   // Daily goal state
   const [dailyGoal, setDailyGoal] = useState(() => loadDailyGoal())
@@ -76,6 +77,7 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
     }
     setRunning(false)
     setElapsedSeconds(0)
+    elapsedRef.current = 0
     lastSavedRef.current = 0
     setCompleted(false)
   }, [elapsedSeconds, flushToDailyLog])
@@ -84,7 +86,11 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
   useEffect(() => {
     if (running) {
       intervalRef.current = setInterval(() => {
-        setElapsedSeconds((prev) => prev + 1)
+        setElapsedSeconds((prev) => {
+          const next = prev + 1
+          elapsedRef.current = next
+          return next
+        })
       }, 1000)
     }
     return () => {
@@ -122,6 +128,8 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
         playTone(523, 0)
         playTone(659, 0.2)
         playTone(784, 0.4)
+        // Close AudioContext after tones finish to avoid resource leak
+        setTimeout(() => ctx.close().catch(() => {}), 1500)
       } catch { /* ignore audio errors */ }
     }
   }, [elapsedSeconds, mode, running, totalGoalSeconds, flushToDailyLog])
@@ -135,9 +143,9 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
 
   // Flush on unmount
   useEffect(() => () => {
-    const delta = elapsedSeconds - lastSavedRef.current
+    const delta = elapsedRef.current - lastSavedRef.current
     if (delta > 0) addDailyPracticeTime(delta)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   const displaySeconds = mode === 'countdown'
     ? Math.max(0, totalGoalSeconds - elapsedSeconds)

@@ -3,132 +3,188 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Life-Master</title>
+  <title>Life-Master Dashboard</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
       background: #0f172a; color: #e2e8f0;
-      min-height: 100vh; display: flex; flex-direction: column;
-      align-items: center; padding: 2rem 1rem;
+      min-height: 100vh; padding: 1.5rem;
     }
-    h1 { color: #f97316; font-size: 1.8rem; margin-bottom: 0.25rem; }
-    .subtitle { color: #64748b; font-size: 0.85rem; margin-bottom: 2rem; }
-    .card {
-      background: #1e293b; border-radius: 12px; padding: 1.5rem;
-      width: 100%; max-width: 600px; margin-bottom: 1rem;
-    }
-    .card h2 { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;
-      letter-spacing: 0.05em; margin-bottom: 0.75rem; }
-    .status-row { display: flex; justify-content: space-between; align-items: center;
-      padding: 0.5rem 0; border-bottom: 1px solid #334155; }
-    .status-row:last-child { border-bottom: none; }
-    .label { color: #94a3b8; font-size: 0.85rem; }
-    .value { color: #e2e8f0; font-size: 0.85rem; font-family: monospace; }
+    .header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+    .header h1 { color: #e2e8f0; font-size: 1.5rem; font-weight: 700; }
+    .header h1 span { color: #8b5cf6; }
     .badge {
-      display: inline-block; padding: 0.2rem 0.6rem; border-radius: 9999px;
-      font-size: 0.7rem; font-weight: 600;
+      font-size: 0.65rem; padding: 0.2rem 0.5rem; border-radius: 9999px;
+      font-weight: 600; display: inline-block;
     }
     .badge-healthy { background: #065f4620; color: #34d399; border: 1px solid #34d39940; }
-    .badge-planning { background: #f9731620; color: #f97316; border: 1px solid #f9731640; }
-    .features { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
-    .feature-tag {
-      background: #334155; color: #94a3b8; padding: 0.3rem 0.75rem;
-      border-radius: 6px; font-size: 0.75rem;
+    .badge-error { background: #7f1d1d20; color: #f87171; border: 1px solid #f8717140; }
+    .badge-loading { background: #78350f20; color: #fbbf24; border: 1px solid #fbbf2440; }
+
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+    .stat {
+      background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+      padding: 1rem; text-align: center;
     }
-    .roadmap-item { padding: 0.5rem 0; border-bottom: 1px solid #334155; }
-    .roadmap-item:last-child { border-bottom: none; }
-    .roadmap-title { color: #e2e8f0; font-size: 0.85rem; font-weight: 500; }
-    .roadmap-desc { color: #64748b; font-size: 0.75rem; margin-top: 0.2rem; }
-    .footer { margin-top: 2rem; color: #475569; font-size: 0.7rem; text-align: center; }
-    #error { color: #ef4444; display: none; margin-top: 1rem; font-size: 0.8rem; }
+    .stat .value { font-size: 1.5rem; font-weight: 700; }
+    .stat .label { font-size: 0.7rem; color: #64748b; margin-top: 0.25rem; }
+    .c-violet { color: #8b5cf6; }
+    .c-blue { color: #3b82f6; }
+    .c-green { color: #10b981; }
+    .c-amber { color: #f59e0b; }
+
+    .section { margin-bottom: 1.5rem; }
+    .section-title {
+      font-size: 0.7rem; color: #64748b; text-transform: uppercase;
+      letter-spacing: 0.05em; font-weight: 600; margin-bottom: 0.75rem;
+    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem; }
+    .card {
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+      padding: 0.75rem; transition: border-color 0.2s;
+    }
+    .card:hover { border-color: #8b5cf640; }
+    .card .name { font-size: 0.85rem; font-weight: 500; color: #e2e8f0; }
+    .card .desc { font-size: 0.7rem; color: #64748b; margin-top: 0.25rem; }
+    .card .ep {
+      font-size: 0.65rem; color: #475569; font-family: monospace;
+      margin-top: 0.25rem; display: block; text-decoration: none;
+    }
+    .card .ep:hover { color: #8b5cf6; }
+
+    .api-links { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+    .api-link {
+      font-size: 0.65rem; padding: 0.25rem 0.5rem; border-radius: 4px;
+      background: #334155; color: #94a3b8; text-decoration: none; font-family: monospace;
+    }
+    .api-link:hover { background: #475569; color: #8b5cf6; }
+    #error { color: #ef4444; font-size: 0.8rem; margin-top: 0.5rem; display: none; }
   </style>
 </head>
 <body>
-  <h1>Life-Master</h1>
-  <p class="subtitle">Intelligent Routine & Schedule Optimizer</p>
-
-  <div class="card">
-    <h2>Service Status</h2>
-    <div class="status-row">
-      <span class="label">Status</span>
-      <span id="status" class="badge badge-healthy">Loading...</span>
-    </div>
-    <div class="status-row">
-      <span class="label">Version</span>
-      <span id="version" class="value">-</span>
-    </div>
-    <div class="status-row">
-      <span class="label">Uptime Check</span>
-      <span id="timestamp" class="value">-</span>
-    </div>
+  <div class="header">
+    <h1>Life<span>-Master</span></h1>
+    <span id="status" class="badge badge-loading">Loading...</span>
+    <span id="version" style="font-size:0.7rem;color:#475569">-</span>
   </div>
 
-  <div class="card">
-    <h2>Planned Features</h2>
-    <div class="features">
-      <span class="feature-tag">Routine Manager</span>
-      <span class="feature-tag">Dynamic Scheduler</span>
-      <span class="feature-tag">Goal Tracker</span>
-      <span class="feature-tag">Analytics</span>
-    </div>
+  <div class="stats">
+    <div class="stat"><div class="value c-violet" id="routines">-</div><div class="label">Routines</div></div>
+    <div class="stat"><div class="value c-blue" id="habits">-</div><div class="label">Habits</div></div>
+    <div class="stat"><div class="value c-green" id="goals">-</div><div class="label">Goals</div></div>
+    <div class="stat"><div class="value c-amber" id="completion">-</div><div class="label">Completion</div></div>
   </div>
 
-  <div class="card">
-    <h2>Roadmap</h2>
-    <div class="roadmap-item">
-      <div class="roadmap-title">Phase 1: Core Routines</div>
-      <div class="roadmap-desc">CRUD for daily routines, time-block scheduling</div>
-    </div>
-    <div class="roadmap-item">
-      <div class="roadmap-title">Phase 2: Smart Scheduling</div>
-      <div class="roadmap-desc">Priority-based auto-scheduling, conflict detection</div>
-    </div>
-    <div class="roadmap-item">
-      <div class="roadmap-title">Phase 3: Analytics</div>
-      <div class="roadmap-desc">Completion tracking, streak analysis, optimization suggestions</div>
-    </div>
+  <div class="section">
+    <div class="section-title">Quick API</div>
+    <div class="api-links" id="api-links"></div>
   </div>
 
-  <div class="card">
-    <h2>UFS Ecosystem</h2>
-    <div class="status-row">
-      <span class="label">VIBE (Investment)</span>
-      <a href="/../../:8001/ui/" style="color:#38bdf8;font-size:0.8rem">:8001/ui/</a>
-    </div>
-    <div class="status-row">
-      <span class="label">Bocchi-Master (Music)</span>
-      <a href="/" style="color:#38bdf8;font-size:0.8rem">:3000</a>
-    </div>
-    <div class="status-row">
-      <span class="label">Life-Master (Routine)</span>
-      <span class="badge badge-planning">Current</span>
-    </div>
+  <div class="section">
+    <div class="section-title">Core Modules (5)</div>
+    <div class="grid" id="core-modules"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Japanese Learning (8)</div>
+    <div class="grid" id="jp-modules"></div>
   </div>
 
   <p id="error"></p>
-  <p class="footer">UFS Life-Master v<span id="ver2">0.1.0</span></p>
 
   <script>
-    async function checkHealth() {
+    // Shell iframe (/svc/life/) → API는 /api/life/, 직접 접속 → /
+    const isInShell = window.location.pathname.startsWith('/svc/life');
+    const API_BASE = isInShell ? '/api/life' : '';
+
+    // Render Quick API links with correct base
+    const apiEndpoints = [
+      ['/health', '/health'],
+      ['/dashboard', '/dashboard'],
+      ['/docs', '/docs (Swagger)'],
+      ['/japanese/vocab', '/japanese/vocab'],
+      ['/japanese/kanji', '/japanese/kanji'],
+      ['/japanese/grammar/list', '/japanese/grammar/list'],
+      ['/japanese/reading', '/japanese/reading'],
+      ['/japanese/analytics/mastery', '/japanese/analytics/mastery'],
+    ];
+    const linksEl = document.getElementById('api-links');
+    apiEndpoints.forEach(([path, label]) => {
+      const a = document.createElement('a');
+      a.className = 'api-link';
+      a.href = API_BASE + path;
+      a.target = '_blank';
+      a.textContent = label;
+      linksEl.appendChild(a);
+    });
+
+    // Render module cards with correct API base
+    function renderCards(containerId, modules) {
+      const el = document.getElementById(containerId);
+      modules.forEach(([name, desc, ep]) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = '<div class="name">' + name + '</div><div class="desc">' + desc + '</div>';
+        const a = document.createElement('a');
+        a.className = 'ep';
+        a.href = API_BASE + ep;
+        a.target = '_blank';
+        a.textContent = ep;
+        card.appendChild(a);
+        el.appendChild(card);
+      });
+    }
+    renderCards('core-modules', [
+      ['Routines', 'CRUD, daily/weekly routines', '/routines'],
+      ['Habits', 'Habit tracker, streaks', '/habits'],
+      ['Goals', 'Goal system, milestones', '/goals'],
+      ['Scheduler', 'Dynamic schedule optimizer', '/schedule/today'],
+      ['Notifications', 'Push notification rules', '/notifications/rules'],
+    ]);
+    renderCards('jp-modules', [
+      ['Vocab SRS', 'Spaced-repetition flashcards', '/japanese/vocab'],
+      ['Grammar', '44 N5 points, SRS, quiz', '/japanese/grammar/list'],
+      ['Kanji', '94 N5, reading/meaning quiz', '/japanese/kanji'],
+      ['Reading', '10 N5 passages, comprehension', '/japanese/reading'],
+      ['Writing', '30 exercises: translation, ordering', '/japanese/writing/translation'],
+      ['Analytics', 'Weakness, curve, forecast', '/japanese/analytics/weakness'],
+      ['Quiz', 'Flashcard, fill-blank, ordering', '/japanese/quiz/start'],
+      ['Gamification', '80+ achievements, RPG titles', '/japanese/player'],
+    ]);
+
+    async function loadData() {
       try {
-        const res = await fetch('/health');
-        const data = await res.json();
-        document.getElementById('status').textContent = data.status || 'healthy';
-        document.getElementById('status').className = 'badge badge-healthy';
-        document.getElementById('version').textContent = data.version || '-';
-        document.getElementById('ver2').textContent = data.version || '0.1.0';
-        document.getElementById('timestamp').textContent =
-          new Date(data.timestamp).toLocaleString('ko-KR');
+        const [healthRes, dashRes] = await Promise.allSettled([
+          fetch(API_BASE + '/health'),
+          fetch(API_BASE + '/dashboard'),
+        ]);
+        if (healthRes.status === 'fulfilled' && healthRes.value.ok) {
+          const h = await healthRes.value.json();
+          document.getElementById('status').textContent = h.status || 'healthy';
+          document.getElementById('status').className = 'badge badge-healthy';
+          document.getElementById('version').textContent = 'v' + (h.version || '?');
+        } else {
+          document.getElementById('status').textContent = 'Error';
+          document.getElementById('status').className = 'badge badge-error';
+        }
+        if (dashRes.status === 'fulfilled' && dashRes.value.ok) {
+          const d = await dashRes.value.json();
+          document.getElementById('routines').textContent = d.routines_total ?? '-';
+          document.getElementById('habits').textContent = d.habits_total ?? '-';
+          document.getElementById('goals').textContent = d.active_goals ?? '-';
+          var pct = d.routines_completion != null ? Math.round(d.routines_completion * 100) + '%' : '-';
+          document.getElementById('completion').textContent = pct;
+        }
       } catch (e) {
-        document.getElementById('status').textContent = 'Error';
-        document.getElementById('status').className = 'badge badge-planning';
+        document.getElementById('status').textContent = 'Offline';
+        document.getElementById('status').className = 'badge badge-error';
         document.getElementById('error').style.display = 'block';
-        document.getElementById('error').textContent = 'API connection failed: ' + e.message;
+        document.getElementById('error').textContent = 'API error: ' + e.message;
       }
     }
-    checkHealth();
-    setInterval(checkHealth, 30000);
+    loadData();
+    setInterval(loadData, 30000);
   </script>
 </body>
 </html>

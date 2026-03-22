@@ -221,3 +221,49 @@ export function downloadAsFile(content: string, filename: string, mimeType = 'ap
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
 }
+
+// ── Onboarding ──
+
+const ONBOARDING_KEY = 'bocchi-onboarding-done'
+
+export function isOnboardingDone(): boolean {
+  return localStorage.getItem(ONBOARDING_KEY) === '1'
+}
+
+export function markOnboardingDone(): void {
+  localStorage.setItem(ONBOARDING_KEY, '1')
+}
+
+// ── Practice Reminder ──
+
+const REMINDER_KEY = 'bocchi-practice-reminder'
+
+export interface ReminderSettings {
+  enabled: boolean
+  /** HH:MM format (24h) */
+  time: string
+  /** Days of week: 0=Sun, 1=Mon, ..., 6=Sat */
+  days: number[]
+}
+
+const DEFAULT_REMINDER: ReminderSettings = {
+  enabled: false,
+  time: '19:00',
+  days: [0, 1, 2, 3, 4, 5, 6],
+}
+
+export function loadReminderSettings(): ReminderSettings {
+  try {
+    const raw = localStorage.getItem(REMINDER_KEY)
+    if (!raw) return { ...DEFAULT_REMINDER }
+    return { ...DEFAULT_REMINDER, ...JSON.parse(raw) }
+  } catch {
+    return { ...DEFAULT_REMINDER }
+  }
+}
+
+export function saveReminderSettings(settings: ReminderSettings): void {
+  try {
+    localStorage.setItem(REMINDER_KEY, JSON.stringify(settings))
+  } catch { /* ignore */ }
+}

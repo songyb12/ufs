@@ -5,6 +5,7 @@
  * 드릴을 선택하면 DrillRunner로 전환.
  */
 
+import type { ReactNode } from 'react'
 import type { Lesson, Drill } from '../../data/curriculum'
 import type { CurriculumActions } from '../../hooks/useCurriculum'
 import type { DrillScore } from '../../data/curriculum'
@@ -190,6 +191,30 @@ function DrillCard({ drill, isCompleted, bestScore, onStart }: DrillCardProps) {
 
 // ─── Simple Markdown Renderer ───────────────────────
 
+/** Parse inline **bold** into React elements */
+function renderInlineBold(text: string, keyPrefix: string): ReactNode[] {
+  const parts: ReactNode[] = []
+  const regex = /\*\*(.+?)\*\*/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+    parts.push(
+      <b key={`${keyPrefix}-b-${match.index}`} className="text-white font-medium">{match[1]}</b>
+    )
+    lastIndex = regex.lastIndex
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : [text]
+}
+
 function SimpleMarkdown({ content }: { content: string }) {
   const lines = content.split('\n')
 
@@ -218,12 +243,11 @@ function SimpleMarkdown({ content }: { content: string }) {
           return <p key={i} className="pl-3 text-slate-300">• {trimmed.slice(2)}</p>
         }
         if (/^\d+\./.test(trimmed)) {
-          return <p key={i} className="pl-3 text-slate-300">{trimmed}</p>
+          return <p key={i} className="pl-3 text-slate-300">{renderInlineBold(trimmed, `${i}`)}</p>
         }
         if (trimmed === '') return <div key={i} className="h-1" />
-        // Bold inline
-        const withBold = trimmed.replace(/\*\*(.+?)\*\*/g, '<b class="text-white font-medium">$1</b>')
-        return <p key={i} dangerouslySetInnerHTML={{ __html: withBold }} />
+        // Inline bold via React elements (no dangerouslySetInnerHTML)
+        return <p key={i}>{renderInlineBold(trimmed, `${i}`)}</p>
       })}
     </div>
   )

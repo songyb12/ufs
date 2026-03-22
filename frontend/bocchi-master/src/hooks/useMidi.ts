@@ -67,13 +67,20 @@ export function useMidi() {
 
       updateDevices(access)
 
-      // Listen for device connect/disconnect
-      access.onstatechange = () => updateDevices(access)
+      // Attach message listeners to all current inputs
+      const attachListeners = (a: MIDIAccess) => {
+        a.inputs.forEach((input) => {
+          input.onmidimessage = handleMidiMessage
+        })
+      }
 
-      // Attach message listeners to all inputs
-      access.inputs.forEach((input) => {
-        input.onmidimessage = handleMidiMessage
-      })
+      // Listen for device connect/disconnect — re-attach listeners on hotplug
+      access.onstatechange = () => {
+        updateDevices(access)
+        attachListeners(access)
+      }
+
+      attachListeners(access)
 
       setError(null)
     } catch (err) {
@@ -85,6 +92,7 @@ export function useMidi() {
   useEffect(() => {
     return () => {
       if (midiAccessRef.current) {
+        midiAccessRef.current.onstatechange = null
         midiAccessRef.current.inputs.forEach((input) => {
           input.onmidimessage = null
         })

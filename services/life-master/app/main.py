@@ -17,7 +17,7 @@ from app.config import settings
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.models.schemas import DashboardResponse, DbInfoResponse, ExportResponse, SearchResult
-from app.routers import goals, habits, japanese, japanese_analytics, japanese_grammar, japanese_kanji, japanese_reading, japanese_writing, notifications, routines, scheduler
+from app.routers import finance, goals, habits, japanese, japanese_analytics, japanese_grammar, japanese_kanji, japanese_reading, japanese_writing, notifications, routines, scheduler
 
 
 def _setup_logging() -> None:
@@ -82,6 +82,7 @@ app.include_router(japanese_kanji.router)
 app.include_router(japanese_reading.router)
 app.include_router(japanese_analytics.router)
 app.include_router(japanese_writing.router)
+app.include_router(finance.router)
 
 
 @app.get("/health")
@@ -118,6 +119,7 @@ async def root():
             "export-import",
             "notifications",
             "japanese-learning",
+            "finance-manager",
         ],
         "endpoints": {
             "routines": "/routines",
@@ -157,6 +159,13 @@ async def root():
             "japanese_writing_sentence_order": "/japanese/writing/sentence-order",
             "japanese_writing_grammar_usage": "/japanese/writing/grammar-usage",
             "japanese_writing_check": "/japanese/writing/check/{id}",
+            "finance_dashboard": "/finance/dashboard",
+            "finance_cards": "/finance/cards",
+            "finance_subscriptions": "/finance/subscriptions",
+            "finance_expenses": "/finance/expenses",
+            "finance_assets": "/finance/assets",
+            "finance_budget": "/finance/budget/{year_month}",
+            "finance_seed": "/finance/seed",
             "docs": "/docs",
         },
     }

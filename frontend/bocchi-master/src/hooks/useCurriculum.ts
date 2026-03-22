@@ -3,7 +3,7 @@
  * Manages lesson/drill progress, XP tracking, and curriculum navigation.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   GUITAR_CURRICULUM,
   BASS_CURRICULUM,
@@ -22,6 +22,8 @@ import {
 } from '../data/curriculum'
 import {
   type PlayerProfile,
+  type PlayerLevel,
+  type DailyMission,
   loadPlayerProfile,
   savePlayerProfile,
   createDefaultProfile,
@@ -30,12 +32,25 @@ import {
   checkAchievements,
   getPlayerLevel,
   getXPToNextLevel,
+  generateDailyMissions,
   type Achievement,
 } from '../data/gamification'
 
 // ─── Types ──────────────────────────────────────────
 
-export type CurriculumView = 'map' | 'lesson' | 'drill'
+export type CurriculumView = 'map' | 'lesson' | 'drill' | 'achievements'
+
+export interface LessonCompleteResult {
+  lessonTitle: string
+  xpEarned: number
+  leveledUp: boolean
+  newLevel?: PlayerLevel
+}
+
+export interface DailyMissionStatus {
+  mission: DailyMission
+  completed: boolean
+}
 
 export interface CurriculumState {
   /** Current curriculum */
@@ -52,6 +67,12 @@ export interface CurriculumState {
   activeDrill: Drill | null
   /** Recently earned achievements (for popup) */
   pendingAchievements: Achievement[]
+  /** Result of last lesson completion (for celebration modal) */
+  lessonCompleteResult: LessonCompleteResult | null
+  /** Today's daily missions with completion status */
+  dailyMissions: DailyMissionStatus[]
+  /** Whether all daily missions are complete */
+  allMissionsComplete: boolean
 }
 
 export interface CurriculumActions {
@@ -73,6 +94,8 @@ export interface CurriculumActions {
   dismissAchievement: () => void
   /** Switch instrument/curriculum */
   switchCurriculum: (instrument: 'guitar' | 'bass') => void
+  /** Dismiss lesson completion celebration modal */
+  dismissLessonComplete: () => void
   /** Reset all curriculum progress (requires confirmation) */
   resetProgress: () => void
   /** Get level progress */
@@ -81,10 +104,16 @@ export interface CurriculumActions {
   getLessonProgressPercent: (lesson: Lesson) => number
   /** Check if level is unlocked */
   isUnlocked: (level: Level) => boolean
+  /** Complete a daily mission */
+  completeMission: (missionId: string) => void
+  /** Open achievements gallery */
+  openAchievements: () => void
   /** Get XP info */
   xpInfo: { current: number; required: number; progress: number }
   /** Get player level info */
   levelInfo: { level: number; title: string; icon: string }
+  /** Overall curriculum progress */
+  overallProgress: { completed: number; total: number; percent: number }
 }
 
 // ─── Storage ────────────────────────────────────────
@@ -126,6 +155,41 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null)
   const [activeDrillId, setActiveDrillId] = useState<string | null>(null)
   const [pendingAchievements, setPendingAchievements] = useState<Achievement[]>([])
+  const pendingAchievementsRef = useRef<Achievement[]>([])
+  const [lessonCompleteResult, setLessonCompleteResult] = useState<LessonCompleteResult | null>(null)
+
+  // Daily missions
+  const today = new Date().toISOString().split('T')[0]
+  const [completedMissionIds, setCompletedMissionIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem('bocchi-daily-missions-completed')
+      if (raw) {
+        const parsed = JSON.parse(raw) as { date: string; ids: string[] }
+        if (parsed.date === today) return parsed.ids
+      }
+    } catch { /* ignore */ }
+    return []
+  })
+
+  const todayMissions = useMemo(() => generateDailyMissions(today), [today])
+
+  const dailyMissions: DailyMissionStatus[] = useMemo(() =>
+    todayMissions.map(mission => ({
+      mission,
+      completed: completedMissionIds.includes(mission.id),
+    })),
+    [todayMissions, completedMissionIds]
+  )
+
+  const allMissionsComplete = dailyMissions.every(m => m.completed)
+
+  // Persist completed missions
+  useEffect(() => {
+    localStorage.setItem('bocchi-daily-missions-completed', JSON.stringify({
+      date: today,
+      ids: completedMissionIds,
+    }))
+  }, [today, completedMissionIds])
 
   // Current curriculum based on instrument
   const curriculum = useMemo(() => {
@@ -214,11 +278,11 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
           },
         }
 
-        // Check achievements
+        // Check achievements — apply bonus XP inline, defer popup to after setState
         const earned = checkAchievements(withDrills)
         if (earned.length > 0) {
           const totalBonusXP = earned.reduce((sum, a) => sum + a.xpReward, 0)
-          setPendingAchievements(earned)
+          pendingAchievementsRef.current = earned
           return {
             ...withDrills,
             xp: withDrills.xp + totalBonusXP,
@@ -228,6 +292,11 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
 
         return withDrills
       })
+      // Flush deferred achievement popup outside of state updater
+      if (pendingAchievementsRef.current.length > 0) {
+        setPendingAchievements(pendingAchievementsRef.current)
+        pendingAchievementsRef.current = []
+      }
     }
 
     // Go back to lesson view
@@ -245,8 +314,16 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
 
     const lesson = findLesson(curriculum, lessonId)
     if (lesson) {
+      let result: LessonCompleteResult | null = null
       setProfile(prev => {
-        const { profile: updated } = addXP(prev, lesson.xpReward)
+        const { profile: updated, leveledUp, newLevel } = addXP(prev, lesson.xpReward)
+        result = {
+          lessonTitle: lesson.title,
+          xpEarned: lesson.xpReward,
+          leveledUp,
+          newLevel,
+        }
+
         return {
           ...updated,
           completedLessons: updated.completedLessons.includes(lessonId)
@@ -254,8 +331,14 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
             : [...updated.completedLessons, lessonId],
         }
       })
+      // Set lesson result outside state updater to avoid side effects
+      if (result) setLessonCompleteResult(result)
     }
   }, [curriculum])
+
+  const dismissLessonComplete = useCallback(() => {
+    setLessonCompleteResult(null)
+  }, [])
 
   const goBack = useCallback(() => {
     if (view === 'drill') {
@@ -264,8 +347,14 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
     } else if (view === 'lesson') {
       setSelectedLessonId(null)
       setView('map')
+    } else if (view === 'achievements') {
+      setView('map')
     }
   }, [view])
+
+  const openAchievements = useCallback(() => {
+    setView('achievements')
+  }, [])
 
   const goToMap = useCallback(() => {
     setView('map')
@@ -312,6 +401,7 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
     setSelectedLessonId(null)
     setActiveDrillId(null)
     setPendingAchievements([])
+    setLessonCompleteResult(null)
   }, [])
 
   const getLevelProgressPercent = useCallback((level: Level) => {
@@ -326,8 +416,31 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
     return isLevelUnlocked(level, profile.xp)
   }, [profile.xp])
 
+  const completeMission = useCallback((missionId: string) => {
+    if (completedMissionIds.includes(missionId)) return
+    const mission = todayMissions.find(m => m.id === missionId)
+    if (!mission) return
+
+    setCompletedMissionIds(prev => [...prev, missionId])
+    setProfile(prev => {
+      const { profile: updated } = addXP(prev, mission.xpReward)
+      return updated
+    })
+  }, [completedMissionIds, todayMissions])
+
   const playerLevel = getPlayerLevel(profile.xp)
   const xpInfo = getXPToNextLevel(profile.xp)
+
+  // Overall curriculum progress
+  const overallProgress = useMemo(() => {
+    const total = curriculum.levels.reduce((sum, lv) => sum + lv.lessons.length, 0)
+    const completed = progress.completedLessons.length
+    return {
+      completed,
+      total,
+      percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+    }
+  }, [curriculum.levels, progress.completedLessons.length])
 
   // ─── Return ────────────────────────────────────
 
@@ -339,6 +452,9 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
     selectedLesson,
     activeDrill,
     pendingAchievements,
+    lessonCompleteResult,
+    dailyMissions,
+    allMissionsComplete,
   }
 
   const actions: CurriculumActions = {
@@ -347,6 +463,7 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
     startDrill,
     completeDrill,
     completeLesson,
+    dismissLessonComplete,
     goBack,
     goToMap,
     dismissAchievement,
@@ -355,7 +472,10 @@ export function useCurriculum(): [CurriculumState, CurriculumActions] {
     getLevelProgressPercent,
     getLessonProgressPercent,
     isUnlocked,
+    completeMission,
+    openAchievements,
     xpInfo,
+    overallProgress,
     levelInfo: {
       level: playerLevel.level,
       title: playerLevel.title,

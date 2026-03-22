@@ -9,7 +9,7 @@ interface ScaleFinderPanelProps {
 
 export function ScaleFinderPanel({ onScaleSelect }: ScaleFinderPanelProps) {
   const [selectedNotes, setSelectedNotes] = useState<Set<NoteName>>(new Set())
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
 
   const toggleNote = (note: NoteName) => {
     setSelectedNotes((prev) => {

@@ -389,8 +389,12 @@ export function resolveProgression(
     const root = CHROMATIC_SCALE[(keyIndex + degree.semitones) % 12]
     const quality = step.qualityOverride ?? degree.quality
     const notes = getChordNotes(root, quality)
+    const qualitySuffix: Record<string, string> = {
+      '7th': '7', 'm7': 'm7', 'Maj7': 'M7', 'dim': 'dim', 'aug': 'aug',
+      'sus2': 'sus2', 'sus4': 'sus4', 'm': 'm',
+    }
     const label = step.qualityOverride
-      ? `${degree.label}${step.qualityOverride === '7th' ? '7' : ''}`
+      ? `${degree.label}${qualitySuffix[step.qualityOverride] ?? ''}`
       : degree.label
 
     return {

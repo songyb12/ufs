@@ -6,7 +6,6 @@ interface BackingTrackPanelProps {
   drumVolume: number
   bassVolume: number
   styleIndex: number
-  styleName: string
   onToggle: () => void
   onDrumVolumeChange: (v: number) => void
   onBassVolumeChange: (v: number) => void
@@ -18,7 +17,6 @@ export const BackingTrackPanel = memo(function BackingTrackPanel({
   drumVolume,
   bassVolume,
   styleIndex,
-  styleName: _styleName,
   onToggle,
   onDrumVolumeChange,
   onBassVolumeChange,

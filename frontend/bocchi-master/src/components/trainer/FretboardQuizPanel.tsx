@@ -83,7 +83,11 @@ export const FretboardQuizPanel = forwardRef<FretboardQuizHandle, FretboardQuizP
       setTimeLeft(5)
       timerRef.current = setInterval(() => {
         setTimeLeft((prev) => {
-          if (prev === null || prev <= 1) {
+          // Guard: already expired (interval fires after we returned null)
+          if (prev === null) return null
+          if (prev <= 1) {
+            // Time's up — stop this interval before scheduling next note
+            stopTimer()
             setStats((s) => ({ ...s, total: s.total + 1, streak: 0 }))
             setLastResult('wrong')
             setTimeout(() => generateNote(), 400)

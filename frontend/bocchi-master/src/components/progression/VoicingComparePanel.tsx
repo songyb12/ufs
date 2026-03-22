@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { ChordDiagram } from './ChordDiagram'
 import { classifyDifficulty, type ChordVoicing, type VoicingDifficulty } from '../../utils/voicingLibrary'
 
@@ -30,6 +30,7 @@ export function VoicingComparePanel({
 }: VoicingComparePanelProps) {
   const [expanded, setExpanded] = useState(false)
   const [difficultyFilter, setDifficultyFilter] = useState<VoicingDifficulty | 'all'>('all')
+  const [page, setPage] = useState(0)
 
   // Classify each voicing
   const classified = useMemo(() =>
@@ -60,6 +61,11 @@ export function VoicingComparePanel({
     if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null }
   }, [])
 
+  // Cleanup hover timer on unmount
+  useEffect(() => () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+  }, [])
+
   if (voicings.length <= 1) return null
 
   if (!expanded) {
@@ -76,7 +82,6 @@ export function VoicingComparePanel({
   // Show a paginated set of filtered voicings (5 at a time)
   const PAGE_SIZE = 5
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
-  const [page, setPage] = useState(Math.floor(activeIndex / PAGE_SIZE))
   const startIdx = page * PAGE_SIZE
   const pageItems = filtered.slice(startIdx, startIdx + PAGE_SIZE)
 

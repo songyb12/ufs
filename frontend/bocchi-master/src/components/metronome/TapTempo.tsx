@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState } from 'react'
+import { useRef, useCallback, useState, useEffect } from 'react'
 
 interface TapTempoProps {
   onTempoDetected: (bpm: number) => void
@@ -6,10 +6,17 @@ interface TapTempoProps {
 
 const MAX_TAP_GAP_MS = 2000
 const TAP_HISTORY_SIZE = 4
+const RESET_DISPLAY_MS = 3000
 
 export function TapTempo({ onTempoDetected }: TapTempoProps) {
   const tapsRef = useRef<number[]>([])
   const [tapCount, setTapCount] = useState(0)
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cleanup reset timer on unmount
+  useEffect(() => () => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+  }, [])
 
   const handleTap = useCallback(() => {
     const now = performance.now()
@@ -28,6 +35,10 @@ export function TapTempo({ onTempoDetected }: TapTempoProps) {
     }
 
     setTapCount(taps.length)
+
+    // Reset display after inactivity
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+    resetTimerRef.current = setTimeout(() => setTapCount(0), RESET_DISPLAY_MS)
 
     // Need at least 2 taps to calculate BPM
     if (taps.length >= 2) {

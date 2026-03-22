@@ -6,7 +6,7 @@ from app.database.connection import get_db
 
 logger = logging.getLogger("life-master.schema")
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 TABLES = [
     """CREATE TABLE IF NOT EXISTS routines (
@@ -340,6 +340,103 @@ TABLES = [
         hint TEXT,
         difficulty INTEGER DEFAULT 1
     )""",
+    # ── Finance Manager tables ──
+    """CREATE TABLE IF NOT EXISTS fin_cards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        issuer TEXT NOT NULL DEFAULT '',
+        card_type TEXT NOT NULL DEFAULT 'CREDIT',
+        last_four TEXT,
+        billing_day INTEGER,
+        annual_fee INTEGER NOT NULL DEFAULT 0,
+        annual_fee_waived INTEGER NOT NULL DEFAULT 0,
+        color TEXT NOT NULL DEFAULT '#6366f1',
+        icon TEXT,
+        memo TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS fin_card_benefits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        card_id INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        merchant TEXT,
+        benefit_type TEXT NOT NULL DEFAULT 'DISCOUNT',
+        benefit_value REAL NOT NULL DEFAULT 0,
+        benefit_unit TEXT NOT NULL DEFAULT 'PERCENT',
+        monthly_limit INTEGER,
+        min_spend INTEGER,
+        conditions TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (card_id) REFERENCES fin_cards(id) ON DELETE CASCADE
+    )""",
+    """CREATE TABLE IF NOT EXISTS fin_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'OTHER',
+        price INTEGER NOT NULL DEFAULT 0,
+        billing_cycle TEXT NOT NULL DEFAULT 'MONTHLY',
+        billing_day INTEGER,
+        card_id INTEGER,
+        is_free_bundled INTEGER NOT NULL DEFAULT 0,
+        bundled_via TEXT,
+        benefits_json TEXT NOT NULL DEFAULT '[]',
+        usage_check_interval INTEGER NOT NULL DEFAULT 7,
+        last_used_at TEXT,
+        url TEXT,
+        icon TEXT,
+        memo TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        start_date TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (card_id) REFERENCES fin_cards(id) ON DELETE SET NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS fin_subscription_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subscription_id INTEGER NOT NULL,
+        used_at TEXT NOT NULL DEFAULT (datetime('now')),
+        benefit_used TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (subscription_id) REFERENCES fin_subscriptions(id) ON DELETE CASCADE
+    )""",
+    """CREATE TABLE IF NOT EXISTS fin_expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        category TEXT NOT NULL DEFAULT 'OTHER',
+        subcategory TEXT,
+        merchant TEXT,
+        card_id INTEGER,
+        description TEXT,
+        is_recurring INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (card_id) REFERENCES fin_cards(id) ON DELETE SET NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS fin_assets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        asset_type TEXT NOT NULL DEFAULT 'CASH',
+        institution TEXT,
+        balance INTEGER NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'KRW',
+        last_updated TEXT NOT NULL DEFAULT (datetime('now')),
+        memo TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS fin_budget (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        year_month TEXT NOT NULL,
+        category TEXT NOT NULL,
+        budget_amount INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(year_month, category)
+    )""",
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_notification_logs_date ON notification_logs(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_notification_rules_active ON notification_rules(is_active, trigger_type)",
@@ -372,6 +469,16 @@ TABLES = [
     "CREATE INDEX IF NOT EXISTS idx_jp_reading_question_passage ON jp_reading_question(passage_id)",
     # Writing indexes
     "CREATE INDEX IF NOT EXISTS idx_jp_writing_type_level ON jp_writing_exercise(exercise_type, jlpt_level)",
+    # Finance indexes
+    "CREATE INDEX IF NOT EXISTS idx_fin_card_benefits_card ON fin_card_benefits(card_id)",
+    "CREATE INDEX IF NOT EXISTS idx_fin_subscriptions_active ON fin_subscriptions(is_active)",
+    "CREATE INDEX IF NOT EXISTS idx_fin_sub_usage_sub ON fin_subscription_usage(subscription_id)",
+    "CREATE INDEX IF NOT EXISTS idx_fin_sub_usage_date ON fin_subscription_usage(used_at)",
+    "CREATE INDEX IF NOT EXISTS idx_fin_expenses_date ON fin_expenses(date)",
+    "CREATE INDEX IF NOT EXISTS idx_fin_expenses_category ON fin_expenses(category)",
+    "CREATE INDEX IF NOT EXISTS idx_fin_expenses_card ON fin_expenses(card_id)",
+    "CREATE INDEX IF NOT EXISTS idx_fin_assets_type ON fin_assets(asset_type)",
+    "CREATE INDEX IF NOT EXISTS idx_fin_budget_month ON fin_budget(year_month)",
 ]
 
 _MIGRATIONS = [

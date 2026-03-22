@@ -66,12 +66,10 @@ export interface MetronomePanelProps {
  */
 function BeatDot({
   active,
-  isDownbeat: _isDownbeat,
   accentLevel,
   onClick,
 }: {
   active: boolean
-  isDownbeat: boolean
   accentLevel: AccentLevel
   onClick?: () => void
 }) {
@@ -224,7 +222,6 @@ export function MetronomePanel({
           <BeatDot
             key={i}
             active={currentBeat === i}
-            isDownbeat={i === 0}
             accentLevel={effectiveAccents[i] ?? 1}
             onClick={() => cycleAccent(i)}
           />

@@ -225,13 +225,13 @@ export const BACKING_STYLES: StylePattern[] = [
 /**
  * Resolve a bass note type to a MIDI note relative to the chord root.
  */
-function resolveBassNote(root: NoteName, type: BassHit['type']): number {
+function resolveBassNote(root: NoteName, type: BassHit['type'], isMinor = false): number {
   const rootIdx = CHROMATIC_SCALE.indexOf(root)
   const baseMidi = 36 + rootIdx  // C2 region
 
   switch (type) {
     case 'root': return baseMidi
-    case 'third': return baseMidi + 4  // major third (approximation)
+    case 'third': return baseMidi + (isMinor ? 3 : 4)
     case 'fifth': return baseMidi + 7
     case 'octave': return baseMidi + 12
     case 'chromatic-up': return baseMidi + 11  // leading tone (semitone below next root)

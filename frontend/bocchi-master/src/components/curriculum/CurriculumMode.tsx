@@ -6,11 +6,13 @@
  * ErrorBoundary로 감싸서 에러 시 자유 연습으로 복귀 가능.
  */
 
-import { Component, type ReactNode } from 'react'
-import { useCurriculum } from '../../hooks/useCurriculum'
+import { Component, type ReactNode, useState, useEffect, useRef } from 'react'
+import { useCurriculum, type LessonCompleteResult } from '../../hooks/useCurriculum'
 import { CurriculumView } from './CurriculumView'
 import { LessonView } from './LessonView'
 import { DrillRunner } from './DrillRunner'
+import { AchievementGallery } from './AchievementGallery'
+import { playSuccessSound, playLevelUpSound } from './soundEffects'
 
 // ─── Error Boundary ─────────────────────────────────
 
@@ -66,13 +68,25 @@ export function CurriculumMode({ onSwitchToFreeMode }: CurriculumModeProps) {
 function CurriculumModeInner({ onSwitchToFreeMode }: CurriculumModeProps) {
   const [state, actions] = useCurriculum()
 
+  // Escape key to go back (except when in map view or drill — drill has its own handler)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && (state.view === 'lesson' || state.view === 'achievements')) {
+        e.preventDefault()
+        actions.goBack()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [state.view, actions.goBack])
+
   return (
     <div className="max-w-3xl mx-auto">
       {/* Mode Switch Header */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-700">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-white">📚 커리큘럼</h1>
-          {state.view !== 'map' && (
+          {state.view !== 'map' && state.view !== 'achievements' && (
             <button
               onClick={actions.goToMap}
               className="text-xs text-slate-400 hover:text-slate-300 underline"
@@ -89,8 +103,16 @@ function CurriculumModeInner({ onSwitchToFreeMode }: CurriculumModeProps) {
         </button>
       </div>
 
+      {/* Lesson Complete Celebration Modal */}
+      {state.lessonCompleteResult && (
+        <LessonCelebrationModal
+          result={state.lessonCompleteResult}
+          onDismiss={actions.dismissLessonComplete}
+        />
+      )}
+
       {/* Achievement Popup */}
-      {state.pendingAchievements.length > 0 && (
+      {state.pendingAchievements.length > 0 && !state.lessonCompleteResult && (
         <AchievementPopup
           achievement={state.pendingAchievements[0]}
           onDismiss={actions.dismissAchievement}
@@ -114,10 +136,139 @@ function CurriculumModeInner({ onSwitchToFreeMode }: CurriculumModeProps) {
       {state.view === 'drill' && state.activeDrill && (
         <DrillRunner
           drill={state.activeDrill}
+          bestScore={state.profile.drillScores[state.activeDrill.id]}
           onComplete={actions.completeDrill}
           onCancel={actions.goBack}
         />
       )}
+
+      {state.view === 'achievements' && (
+        <AchievementGallery
+          earnedIds={state.profile.achievements}
+          onBack={actions.goBack}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Lesson Celebration Modal ────────────────────────
+
+function LessonCelebrationModal({
+  result,
+  onDismiss,
+}: {
+  result: LessonCompleteResult
+  onDismiss: () => void
+}) {
+  const [displayXP, setDisplayXP] = useState(0)
+  const animFrameRef = useRef(0)
+  const soundPlayed = useRef(false)
+
+  // XP count-up animation
+  useEffect(() => {
+    const target = result.xpEarned
+    const duration = 600 // ms
+    const startTime = performance.now()
+
+    const animate = (now: number) => {
+      const elapsed = now - startTime
+      const progress = Math.min(elapsed / duration, 1)
+      // ease-out quad
+      const eased = 1 - (1 - progress) * (1 - progress)
+      setDisplayXP(Math.round(target * eased))
+
+      if (progress < 1) {
+        animFrameRef.current = requestAnimationFrame(animate)
+      }
+    }
+    animFrameRef.current = requestAnimationFrame(animate)
+
+    return () => cancelAnimationFrame(animFrameRef.current)
+  }, [result.xpEarned])
+
+  // Play sound effect once on mount
+  useEffect(() => {
+    if (soundPlayed.current) return
+    soundPlayed.current = true
+    if (result.leveledUp) {
+      playLevelUpSound()
+    } else {
+      playSuccessSound()
+    }
+  }, [result.leveledUp])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+      <div className="relative bg-slate-800 border border-slate-600 rounded-2xl p-8 text-center max-w-sm mx-4 shadow-2xl overflow-hidden">
+        {/* Level-up particle effect */}
+        {result.leveledUp && (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            {['🌟', '✨', '⭐', '🎉', '🎊', '💫', '✨', '🌟'].map((emoji, i) => (
+              <span
+                key={i}
+                className="absolute text-2xl animate-bounce"
+                style={{
+                  left: `${10 + (i * 11) % 80}%`,
+                  top: `${5 + (i * 17) % 60}%`,
+                  animationDelay: `${i * 0.12}s`,
+                  animationDuration: `${0.8 + (i % 3) * 0.3}s`,
+                  opacity: 0.8,
+                }}
+              >
+                {emoji}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="relative z-10">
+          <div className="text-5xl mb-3">{result.leveledUp ? '🏆' : '🎉'}</div>
+          <h3 className="text-xs text-slate-400 uppercase tracking-widest mb-1">레슨 완료!</h3>
+          <h2 className="text-xl font-bold text-white mb-1">{result.lessonTitle}</h2>
+
+          {/* XP count-up */}
+          <div className="my-4 py-3 rounded-xl bg-slate-700/50">
+            <div className="text-3xl font-bold font-mono text-orange-400">
+              +{displayXP} XP
+            </div>
+          </div>
+
+          {/* Level-up section */}
+          {result.leveledUp && result.newLevel && (
+            <div className="my-4 py-4 px-3 rounded-xl bg-yellow-900/30 border border-yellow-600/40">
+              <div className="text-xs text-yellow-400 uppercase tracking-widest mb-2">
+                Level Up!
+              </div>
+              <div className="text-4xl mb-2">{result.newLevel.icon}</div>
+              <div className="text-lg font-bold text-yellow-300">
+                Lv.{result.newLevel.level} {result.newLevel.title}
+              </div>
+              {result.newLevel.titleJa && (
+                <div className="text-sm text-yellow-400/70 mt-0.5">
+                  {result.newLevel.titleJa}
+                </div>
+              )}
+              <div className="text-xs text-slate-400 mt-2">
+                새로운 칭호를 획득했습니다!
+              </div>
+            </div>
+          )}
+
+          {/* Continue button */}
+          <button
+            onClick={onDismiss}
+            className={`w-full py-3 rounded-xl font-bold text-lg transition-colors mt-2 ${
+              result.leveledUp
+                ? 'bg-yellow-600 hover:bg-yellow-500 text-white'
+                : 'bg-orange-600 hover:bg-orange-500 text-white'
+            }`}
+          >
+            계속하기
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -131,6 +282,13 @@ function AchievementPopup({
   achievement: { name: string; icon: string; description: string; xpReward: number; rarity: string }
   onDismiss: () => void
 }) {
+  const soundPlayed = useRef(false)
+  useEffect(() => {
+    if (soundPlayed.current) return
+    soundPlayed.current = true
+    import('./soundEffects').then(m => m.playAchievementSound())
+  }, [])
+
   const rarityColors: Record<string, string> = {
     common: 'border-slate-500',
     rare: 'border-blue-500',

@@ -124,9 +124,10 @@ export function generateQuestion(
     actualDirection = direction
   }
 
-  const targetMidi = actualDirection === 'ascending'
+  const rawTargetMidi = actualDirection === 'ascending'
     ? rootMidi + semitones
     : rootMidi - semitones
+  const targetMidi = Math.max(0, Math.min(127, rawTargetMidi))
   const targetNote = CHROMATIC_SCALE[((targetMidi % 12) + 12) % 12]
 
   return {

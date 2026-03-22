@@ -12,6 +12,7 @@ export interface KeyboardShortcutActions {
   toggleShortcutHelp: () => void
   cycleSubdivision: () => void
   toggleCountIn: () => void
+  toggleMute: () => void
 }
 
 /**
@@ -87,6 +88,12 @@ export function useKeyboardShortcuts(actions: KeyboardShortcutActions): void {
         case 'KeyC':
           if (!e.ctrlKey && !e.metaKey) {
             actions.toggleCountIn()
+          }
+          break
+
+        case 'KeyM':
+          if (!e.ctrlKey && !e.metaKey) {
+            actions.toggleMute()
           }
           break
 

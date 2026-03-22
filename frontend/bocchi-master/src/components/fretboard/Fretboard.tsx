@@ -306,6 +306,9 @@ export function Fretboard({
           return (
             <g key={`notes-${stringIndex}`} opacity={isDimmed ? 0.15 : 1}>
               {Array.from({ length: fretCount + 1 }, (_, fret) => {
+                // Skip frets outside zoom range for performance
+                if (isZoomed && (fret < startFret || fret > endFret)) return null
+
                 // In voicing mode, skip rendering label on muted strings
                 // (X marker is shown instead at open position)
                 if (hasVoicing && mutedStrings.has(stringIndex) && fret === 0) {

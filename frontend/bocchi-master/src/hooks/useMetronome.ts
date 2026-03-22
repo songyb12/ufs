@@ -30,6 +30,8 @@ export function useMetronome(
   onBeatScheduleRef.current = externalOnBeatSchedule
   const countInRef = useRef(countIn)
   countInRef.current = countIn
+  const isPlayingRef = useRef(isPlaying)
+  isPlayingRef.current = isPlaying
 
   const start = useCallback(async () => {
     const ctx = await getSharedAudioContext()
@@ -67,9 +69,9 @@ export function useMetronome(
   }, [])
 
   const toggle = useCallback(() => {
-    if (isPlaying) stop()
+    if (isPlayingRef.current) stop()
     else start()
-  }, [isPlaying, start, stop])
+  }, [start, stop])
 
   const setBpm = useCallback(
     (newBpm: number) => {

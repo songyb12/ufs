@@ -7,7 +7,7 @@ export function BpmSlider({ bpm, onChange }: BpmSliderProps) {
   return (
     <div className="flex items-center gap-3">
       <button
-        onClick={() => onChange(bpm - 1)}
+        onClick={() => onChange(Math.max(40, bpm - 1))}
         className="w-8 h-8 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold"
       >
         -
@@ -23,7 +23,7 @@ export function BpmSlider({ bpm, onChange }: BpmSliderProps) {
       />
 
       <button
-        onClick={() => onChange(bpm + 1)}
+        onClick={() => onChange(Math.min(240, bpm + 1))}
         className="w-8 h-8 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold"
       >
         +

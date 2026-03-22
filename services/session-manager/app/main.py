@@ -37,6 +37,8 @@ LOGS_DIR = APP_DIR / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 DATA_DIR = APP_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
+SESSIONS_DIR = DATA_DIR / "sessions"
+SESSIONS_DIR.mkdir(exist_ok=True)
 PROJECTS_FILE = DATA_DIR / "projects.json"
 
 # 호스트 실행 시 .env 파일 로드 (Docker 외부)
@@ -109,6 +111,11 @@ async def _cleanup_dead_sessions():
         now = datetime.now()
         to_remove = []
         for sid, session in sessions.items():
+            # supervisor 세션이 sessions dict에 남아있으면 즉시 정리 (TTL 무시)
+            if session.pipeline_role == "supervisor":
+                to_remove.append(sid)
+                continue
+
             if not session.alive and not session.busy:
                 # created_at으로부터 TTL 초과 확인
                 try:
@@ -119,6 +126,7 @@ async def _cleanup_dead_sessions():
                     pass
         for sid in to_remove:
             try:
+                sessions[sid].delete_state()
                 await sessions[sid].kill()
             except Exception:
                 pass
@@ -163,6 +171,44 @@ async def lifespan(app):
     else:
         print(f"  Shell Terminal: unavailable (pywinpty not installed)")
 
+    # 저장된 세션 복원
+    restored = 0
+    sv_cleaned = 0
+    pw_converted = 0
+    for sf in SESSIONS_DIR.glob("*.json"):
+        sid = sf.stem
+        try:
+            # sv-* (감독자 좀비) → 복원하지 않고 삭제
+            if sid.startswith("sv-"):
+                sf.unlink(missing_ok=True)
+                sv_cleaned += 1
+                continue
+
+            session = ClaudeSession.load_state(sid)
+
+            # pw-* (고아 worker) → 파이프라인 바인딩 해제, 일반 세션으로 전환
+            if sid.startswith("pw-"):
+                session.pipeline_id = None
+                session.pipeline_role = None
+                pw_converted += 1
+
+            # 저장된 opus 모델 → 기본 모델로 전환 (구독 미지원 방지)
+            if session.model == "opus":
+                session.model = ""
+
+            session.start_worker()
+            sessions[session.id] = session
+            session.save_state()
+            restored += 1
+        except Exception as e:
+            print(f"  ⚠ 세션 복원 실패 ({sf.name}): {e}")
+    if restored:
+        print(f"  Restored {restored} session(s) from disk")
+    if sv_cleaned:
+        print(f"  Cleaned {sv_cleaned} supervisor zombie file(s)")
+    if pw_converted:
+        print(f"  Converted {pw_converted} orphan worker(s) to normal session(s)")
+
     # 자동 정리 태스크 시작
     cleanup_task = asyncio.create_task(_cleanup_dead_sessions())
     print(f"  Session cleanup: every {CLEANUP_INTERVAL}s, TTL {SESSION_TTL_SECONDS}s")
@@ -188,7 +234,7 @@ sessions: dict = {}
 shell_sessions: dict = {}  # Shell 터미널 세션
 
 # ─── Rate Limiting (인메모리) ───────────────────────────────────────────────────
-MAX_SESSIONS_PER_CLIENT = int(os.environ.get("MAX_SESSIONS_PER_CLIENT", "5"))
+MAX_SESSIONS_PER_CLIENT = int(os.environ.get("MAX_SESSIONS_PER_CLIENT", "10"))
 MAX_SESSION_CREATES_PER_MINUTE = 10
 _session_create_log: dict[str, list[float]] = {}  # IP → [timestamps]
 
@@ -203,11 +249,10 @@ def _check_rate_limit(client_ip: str):
     if len(timestamps) >= MAX_SESSION_CREATES_PER_MINUTE:
         raise HTTPException(status_code=429, detail=f"분당 최대 {MAX_SESSION_CREATES_PER_MINUTE}개 세션 생성 제한 초과")
 
-    # 2) 활성 세션 수 제한 (전체)
+    # 2) 활성 Claude 세션 수 제한 (Shell은 별도 — CLI 프로세스 부하가 다름)
     active_count = sum(1 for s in sessions.values() if s.alive)
-    active_shells = sum(1 for s in shell_sessions.values() if s.alive)
-    if active_count + active_shells >= MAX_SESSIONS_PER_CLIENT:
-        raise HTTPException(status_code=429, detail=f"최대 활성 세션 수 초과 ({MAX_SESSIONS_PER_CLIENT}개)")
+    if active_count >= MAX_SESSIONS_PER_CLIENT:
+        raise HTTPException(status_code=429, detail=f"최대 활성 세션 수 초과 ({MAX_SESSIONS_PER_CLIENT}개, 현재 {active_count}개 활성)")
 
     # 기록 추가
     timestamps.append(now)
@@ -220,6 +265,8 @@ class CreateSessionRequest(BaseModel):
     work_dir: str = "."
     model: str = ""
     prompt: str = ""
+    skip_permissions: bool = False
+    mcp_config: str = ""  # MCP 설정 파일 경로 (e.g. ~/.claude/mcp-config.json)
 
 class SendCommandRequest(BaseModel):
     command: str = Field(..., min_length=1, description="실행할 프롬프트")
@@ -249,6 +296,26 @@ class ShellCreateRequest(BaseModel):
     cols: int = Field(default=120, ge=40, le=400)
     rows: int = Field(default=30, ge=10, le=200)
 
+class RenameSessionRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+
+class ForkSessionRequest(BaseModel):
+    new_name: str = ""
+
+class PromptTemplate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    prompt: str = Field(..., min_length=1)
+    category: str = ""
+
+class ClaudeMdRequest(BaseModel):
+    content: str
+
+class CompareRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    models: list[str] = Field(default=["sonnet", "opus", "haiku"])
+    work_dir: str = "."
+    skip_permissions: bool = True
+
 
 # ─── 세션 클래스 ─────────────────────────────────────────────────────────────────
 
@@ -262,12 +329,15 @@ class ClaudeSession:
     """
 
     def __init__(self, session_id: str, work_dir: str, model: str = "",
-                 no_tools: bool = False):
+                 no_tools: bool = False, skip_permissions: bool = False,
+                 mcp_config: str = ""):
         self.id = session_id
         self.name = f"claude-{session_id}"
         self.work_dir = work_dir
         self.model = model  # e.g. "opus", "sonnet", "" = CLI default
         self.no_tools = no_tools  # True면 --tools "" (감독자용)
+        self.skip_permissions = skip_permissions  # True면 --dangerously-skip-permissions
+        self.mcp_config = mcp_config  # MCP 설정 파일 경로
         self.created_at = datetime.now().isoformat()
         self.alive = True
         self.busy = False  # 현재 Claude 실행 중인지
@@ -280,6 +350,67 @@ class ClaudeSession:
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task: Optional[asyncio.Task] = None
         self._output_version = 0  # WebSocket 변경 감지용
+        self.pending_question: Optional[dict] = None  # AskUserQuestion 대기 중
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.pipeline_id: Optional[str] = None       # 바인딩된 파이프라인 ID
+        self.pipeline_role: Optional[str] = None      # None | "worker" | "supervisor"
+
+    @property
+    def _save_path(self) -> Path:
+        return SESSIONS_DIR / f"{self.id}.json"
+
+    def save_state(self):
+        """세션 상태를 디스크에 저장 (output_lines, session_uuid 등)"""
+        try:
+            state = {
+                "id": self.id,
+                "name": self.name,
+                "work_dir": self.work_dir,
+                "model": self.model,
+                "skip_permissions": self.skip_permissions,
+                "mcp_config": self.mcp_config,
+                "session_uuid": self.session_uuid,
+                "created_at": self.created_at,
+                "output_lines": self.output_lines[-500:],  # 최근 500줄만 저장
+                "total_input_tokens": self.total_input_tokens,
+                "total_output_tokens": self.total_output_tokens,
+                "pipeline_id": self.pipeline_id,
+                "pipeline_role": self.pipeline_role,
+            }
+            self._save_path.write_text(
+                json.dumps(state, ensure_ascii=False), encoding="utf-8"
+            )
+        except Exception:
+            pass  # 저장 실패가 메인 동작 방해 금지
+
+    @classmethod
+    def load_state(cls, session_id: str) -> "ClaudeSession":
+        """디스크에서 세션 복원"""
+        path = SESSIONS_DIR / f"{session_id}.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        session = cls(
+            data["id"], data["work_dir"], data.get("model", ""),
+            skip_permissions=data.get("skip_permissions", False),
+            mcp_config=data.get("mcp_config", ""),
+        )
+        session.name = data.get("name", session.name)
+        session.session_uuid = data.get("session_uuid")
+        session.output_lines = data.get("output_lines", [])
+        session.created_at = data.get("created_at", session.created_at)
+        session.total_input_tokens = data.get("total_input_tokens", 0)
+        session.total_output_tokens = data.get("total_output_tokens", 0)
+        session.pipeline_id = data.get("pipeline_id")
+        session.pipeline_role = data.get("pipeline_role")
+        session._output_version = len(session.output_lines)
+        return session
+
+    def delete_state(self):
+        """디스크에서 세션 상태 삭제"""
+        try:
+            self._save_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def start_worker(self):
         self._worker_task = asyncio.create_task(self._process_queue())
@@ -295,6 +426,7 @@ class ClaudeSession:
                 break
 
             self.busy = True
+            self.pending_question = None
             self._append_output("system", f">>> {prompt}")
             try:
                 await self._run_claude(prompt)
@@ -317,7 +449,7 @@ class ClaudeSession:
         use_model = self.model if not _retry_without_model else ""
 
         cmd = [CLAUDE_EXE, "-p", "--output-format", "stream-json", "--verbose"]
-        if os.environ.get("CLAUDE_ALLOW_DANGEROUS_SKIP_PERMISSIONS", "").lower() == "true":
+        if self.skip_permissions:
             cmd.append("--dangerously-skip-permissions")
 
         if self.no_tools:
@@ -325,6 +457,9 @@ class ClaudeSession:
 
         if use_model:
             cmd.extend(["--model", use_model])
+
+        if self.mcp_config:
+            cmd.extend(["--mcp-config", self.mcp_config])
 
         # 이전 세션 이어가기
         if self.session_uuid:
@@ -336,10 +471,8 @@ class ClaudeSession:
 
         try:
             # 중첩 세션 감지 방지: CLAUDECODE 환경변수 제거
-            # LLM_API_KEY → ANTHROPIC_API_KEY 매핑 (Claude CLI 인증)
-            env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-            if "ANTHROPIC_API_KEY" not in env and os.environ.get("LLM_API_KEY"):
-                env["ANTHROPIC_API_KEY"] = os.environ["LLM_API_KEY"]
+            # ANTHROPIC_API_KEY 제거 → CLI가 OAuth 토큰(Pro/Max 구독) 사용
+            env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "ANTHROPIC_API_KEY", "LLM_API_KEY")}
             self.process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -422,9 +555,12 @@ class ClaudeSession:
 
             if model_error and use_model and not _retry_without_model:
                 self._append_output("system",
-                    f"모델 '{use_model}' 사용 불가 → 기본 모델로 자동 재시도합니다...")
+                    f"모델 '{use_model}' 사용 불가 (구독 플랜 미지원 또는 모델명 오류) → 기본 모델로 전환합니다...")
+                # 이후 프롬프트에서도 같은 에러 반복 방지 — 모델 설정 영구 변경
+                self.model = ""
                 self.process = None
                 await self._run_claude(prompt, _retry_without_model=True)
+                self.save_state()
                 return
 
             if stderr_text:
@@ -485,6 +621,31 @@ class ClaudeSession:
                     elif tool_name in ("Read", "Write", "Edit"):
                         path = tool_input.get("file_path", "")
                         self._append_output("tool", f"[{tool_name}] {path}")
+                    elif tool_name == "AskUserQuestion":
+                        # 질문 내용을 풀어서 표시 + 클릭 가능 옵션 저장
+                        questions = tool_input.get("questions", [])
+                        self.pending_question = tool_input
+                        for q in questions:
+                            qtext = q.get("question", "")
+                            self._append_output("tool", f"[질문] {qtext}")
+                            options = q.get("options", [])
+                            for i, opt in enumerate(options):
+                                label = opt.get("label", "")
+                                desc = opt.get("description", "")
+                                self._append_output("tool", f"  {i+1}. {label} — {desc}")
+                    elif tool_name == "Glob":
+                        pattern = tool_input.get("pattern", "")
+                        self._append_output("tool", f"[Glob] {pattern}")
+                    elif tool_name == "Grep":
+                        pattern = tool_input.get("pattern", "")
+                        self._append_output("tool", f"[Grep] {pattern}")
+                    elif tool_name == "Agent":
+                        desc = tool_input.get("description", "")
+                        self._append_output("tool", f"[Agent] {desc}")
+                    elif tool_name == "TodoWrite":
+                        todos = tool_input.get("todos", [])
+                        items = ", ".join(t.get("content", "")[:40] for t in todos[:5])
+                        self._append_output("tool", f"[TodoWrite] {items}")
                     else:
                         self._append_output("tool", f"[{tool_name}]")
             return
@@ -515,9 +676,15 @@ class ClaudeSession:
             sid = event.get("session_id")
             if sid:
                 self.session_uuid = sid
+            # 토큰 사용량 추적
+            usage = event.get("usage", {})
+            if usage:
+                self.total_input_tokens += usage.get("input_tokens", 0)
+                self.total_output_tokens += usage.get("output_tokens", 0)
             if result_text and not any(l["text"] == result_text for l in self.output_lines[-5:]):
                 self._append_output("result", result_text)
             self._append_output("system", "--- Done ---")
+            self.save_state()  # 실행 완료 시 상태 저장
             return
 
     def _append_output(self, otype: str, text: str, streaming: bool = False):
@@ -612,7 +779,33 @@ class ClaudeSession:
             "log_file": self.log_filename,
             "has_session": self.session_uuid is not None,
             "queue_size": self._queue.qsize(),
+            "skip_permissions": self.skip_permissions,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "pipeline_id": self.pipeline_id,
+            "pipeline_role": self.pipeline_role,
         }
+
+    def export_markdown(self) -> str:
+        """대화 내역을 Markdown 형태로 내보내기"""
+        lines = [f"# {self.name}", f"- Created: {self.created_at}",
+                 f"- Model: {self.model or 'default'}",
+                 f"- Working Dir: {self.work_dir}",
+                 f"- Tokens: {self.total_input_tokens:,} in / {self.total_output_tokens:,} out",
+                 "", "---", ""]
+        for entry in self.output_lines:
+            t = entry.get("time", "")
+            tp = entry.get("type", "")
+            text = entry.get("text", "")
+            if tp == "system":
+                lines.append(f"\n**{text}**\n")
+            elif tp == "assistant" or tp == "result":
+                lines.append(text)
+            elif tp == "tool":
+                lines.append(f"\n`{text}`\n")
+            elif tp == "error":
+                lines.append(f"\n> **ERROR:** {text}\n")
+        return "\n".join(lines)
 
 
 # ─── Shell 터미널 세션 (ConPTY) ──────────────────────────────────────────────────
@@ -816,11 +1009,12 @@ class PipelineRunner:
     4. 목표 달성 또는 최대 반복 시 종료
     """
 
-    def __init__(self, session: ClaudeSession, goal: str,
+    def __init__(self, source_session: ClaudeSession, goal: str,
                  supervisor_model: str, max_iterations: int,
                  mode: str = "api"):
         self.id = str(uuid.uuid4())[:8]
-        self.session = session          # 작업자 CLI 세션
+        self._source_session = source_session  # 참조용 원본 세션 (설정 복사 목적)
+        self.session: Optional[ClaudeSession] = None  # 전용 worker 세션 (start()에서 생성)
         self.goal = goal
         self.supervisor_model = supervisor_model
         self.max_iterations = max_iterations
@@ -837,17 +1031,47 @@ class PipelineRunner:
         self._supervisor_retries = 0
         self._max_supervisor_retries = 3
 
+    def _create_worker_session(self) -> ClaudeSession:
+        """파이프라인 전용 worker 세션 생성 — 원본 세션의 설정을 복사"""
+        src = self._source_session
+        wid = f"pw-{self.id}"
+        worker = ClaudeSession(
+            wid, src.work_dir, src.model,
+            skip_permissions=src.skip_permissions,
+            mcp_config=src.mcp_config,
+        )
+        worker.name = f"pipeline-worker-{self.id}"
+        worker.pipeline_id = self.id
+        worker.pipeline_role = "worker"
+        worker.start_worker()
+        # sessions dict에 등록 (UI에서 확인 가능)
+        sessions[wid] = worker
+        worker.save_state()
+        return worker
+
     def start(self):
         self.status = "running"
+        self.session = self._create_worker_session()
+        # 원본 세션에 파이프라인 바인딩 마킹
+        self._source_session.pipeline_id = self.id
+        self._source_session.save_state()
         if self.mode == "cli":
             self._create_supervisor_session()
         self._task = asyncio.create_task(self._run_loop())
 
     def _create_supervisor_session(self):
-        """감독자용 CLI 세션 생성 (도구 차단 — 텍스트만 출력)"""
+        """감독자용 CLI 세션 생성 (도구 차단 — 텍스트만 출력)
+
+        감독자 세션은 sessions dict에 등록하지 않고, save_state를 no-op으로
+        오버라이드하여 좀비 파일을 방지한다.
+        """
         sid = f"sv-{self.id}"
         sv = ClaudeSession(sid, self.session.work_dir, self.supervisor_model,
-                           no_tools=True)
+                           no_tools=True,
+                           skip_permissions=self.session.skip_permissions)
+        sv.pipeline_id = self.id
+        sv.pipeline_role = "supervisor"
+        sv.save_state = lambda: None  # 디스크에 좀비 파일 방지
         sv.start_worker()
         self._supervisor_session = sv
         self._add_history("system", f"감독자 CLI 세션 생성: {sid} (no-tools)")
@@ -870,14 +1094,23 @@ class PipelineRunner:
 
     async def _wait_for_session(self, session: ClaudeSession,
                                  timeout: int = 600) -> str:
-        """특정 CLI 세션이 busy=False가 될 때까지 대기"""
+        """특정 CLI 세션이 busy=False가 될 때까지 대기
+
+        _output_version 기반으로 새 출력이 나오고 + busy가 끝날 때까지 대기.
+        기존 방식(busy=True 감지 5초 대기)은 CLI 시작이 느릴 때 race condition 발생.
+        """
         start = time.time()
-        # 시작 대기 (busy가 True가 될 때까지)
-        for _ in range(10):
-            if session.busy:
+        version_before = session._output_version
+
+        # Phase 1: busy=True 또는 새 출력이 나올 때까지 대기 (최대 30초)
+        for _ in range(60):
+            if self._stop_flag:
+                return "[파이프라인 중단됨]"
+            if session.busy or session._output_version != version_before:
                 break
             await asyncio.sleep(0.5)
 
+        # Phase 2: busy=False가 될 때까지 대기
         while session.busy:
             if self._stop_flag:
                 return "[파이프라인 중단됨]"
@@ -941,9 +1174,21 @@ class PipelineRunner:
             self.status = "failed"
             self._add_history("error", f"파이프라인 오류: {str(e)}")
         finally:
-            # 감독자 CLI 세션 정리
+            # 감독자 CLI 세션 정리 (kill + 디스크에서 삭제)
             if self._supervisor_session:
                 await self._supervisor_session.kill()
+                self._supervisor_session.delete_state()
+
+            # worker 세션의 파이프라인 바인딩 해제 (세션 자체는 살려둠)
+            if self.session:
+                self.session.pipeline_id = None
+                self.session.pipeline_role = None
+                self.session.save_state()
+
+            # 원본 세션의 파이프라인 바인딩도 해제
+            if self._source_session:
+                self._source_session.pipeline_id = None
+                self._source_session.save_state()
 
     # ─── 감독자 호출 (모드별 분기) ─────────────────────
 
@@ -1091,7 +1336,8 @@ class PipelineRunner:
     def to_dict(self) -> dict:
         return {
             "id": self.id,
-            "session_id": self.session.id,
+            "session_id": self.session.id if self.session else None,
+            "source_session_id": self._source_session.id if self._source_session else None,
             "goal": self.goal,
             "supervisor_model": self.supervisor_model,
             "mode": self.mode,
@@ -1151,9 +1397,12 @@ async def create_session(body: CreateSessionRequest, request: Request):
     _check_rate_limit(client_ip)
 
     session_id = str(uuid.uuid4())[:8]
-    session = ClaudeSession(session_id, body.work_dir, body.model)
+    session = ClaudeSession(session_id, body.work_dir, body.model,
+                            skip_permissions=body.skip_permissions,
+                            mcp_config=body.mcp_config)
     session.start_worker()
     sessions[session_id] = session
+    session.save_state()  # 생성 시 저장
 
     if body.prompt:
         await session.send_prompt(body.prompt)
@@ -1166,10 +1415,13 @@ async def kill_session(session_id: str, remove: bool = Query(False)):
     """세션 종료. remove=true면 목록에서도 제거"""
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="세션 없음")
-    await sessions[session_id].kill()
+    session = sessions[session_id]
+    await session.kill()
     if remove:
+        session.delete_state()  # 디스크에서도 삭제
         del sessions[session_id]
         return {"status": "removed"}
+    session.save_state()  # kill 상태 저장
     return {"status": "killed"}
 
 
@@ -1199,6 +1451,141 @@ async def get_output(session_id: str, lines: int = Query(200, ge=1, le=5000)):
     return {"output": output}
 
 
+@app.patch("/api/sessions/{session_id}/rename")
+async def rename_session(session_id: str, body: RenameSessionRequest):
+    """세션 이름 변경"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="세션 없음")
+    sessions[session_id].name = body.name.strip()
+    sessions[session_id].save_state()
+    return {"status": "renamed", "name": body.name.strip()}
+
+
+@app.get("/api/sessions/{session_id}/export")
+async def export_session(session_id: str):
+    """세션 대화를 Markdown으로 내보내기"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="세션 없음")
+    md = sessions[session_id].export_markdown()
+    return {"markdown": md, "name": sessions[session_id].name}
+
+
+@app.post("/api/sessions/{session_id}/fork")
+async def fork_session(session_id: str, body: ForkSessionRequest):
+    """세션 복제 — 대화 기록과 session_uuid를 복사하여 분기"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="세션 없음")
+    src = sessions[session_id]
+    new_id = str(uuid.uuid4())[:8]
+    forked = ClaudeSession(new_id, src.work_dir, src.model,
+                           skip_permissions=src.skip_permissions,
+                           mcp_config=src.mcp_config)
+    forked.name = body.new_name or f"{src.name}-fork"
+    forked.session_uuid = src.session_uuid  # 같은 대화 이어가기 가능
+    forked.output_lines = list(src.output_lines)  # 히스토리 복사
+    forked.total_input_tokens = src.total_input_tokens
+    forked.total_output_tokens = src.total_output_tokens
+    forked._output_version = len(forked.output_lines)
+    forked._append_output("system", f"=== Forked from {src.name} ===")
+    forked.start_worker()
+    sessions[new_id] = forked
+    forked.save_state()
+    return {"id": new_id, "name": forked.name, "status": "forked"}
+
+
+# ─── 프롬프트 템플릿 ──────────────────────────────────────────────────────────
+TEMPLATES_FILE = DATA_DIR / "templates.json"
+
+
+def _load_templates() -> list[dict]:
+    if TEMPLATES_FILE.exists():
+        return json.loads(TEMPLATES_FILE.read_text(encoding="utf-8"))
+    return []
+
+
+def _save_templates(templates: list[dict]):
+    TEMPLATES_FILE.write_text(json.dumps(templates, ensure_ascii=False, indent=2),
+                              encoding="utf-8")
+
+
+@app.get("/api/templates")
+async def list_templates():
+    return _load_templates()
+
+
+@app.post("/api/templates")
+async def create_template(body: PromptTemplate):
+    templates = _load_templates()
+    entry = {"id": str(uuid.uuid4())[:8], "name": body.name,
+             "prompt": body.prompt, "category": body.category,
+             "created_at": datetime.now().isoformat()}
+    templates.append(entry)
+    _save_templates(templates)
+    return entry
+
+
+@app.delete("/api/templates/{template_id}")
+async def delete_template(template_id: str):
+    templates = _load_templates()
+    templates = [t for t in templates if t.get("id") != template_id]
+    _save_templates(templates)
+    return {"status": "deleted"}
+
+
+# ─── CLAUDE.md 편집 ──────────────────────────────────────────────────────────
+
+@app.get("/api/sessions/{session_id}/claude-md")
+async def get_claude_md(session_id: str):
+    """세션 작업 디렉토리의 CLAUDE.md 읽기"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="세션 없음")
+    work_dir = sessions[session_id].work_dir
+    claude_md = Path(work_dir) / "CLAUDE.md"
+    content = ""
+    if claude_md.exists():
+        try:
+            content = claude_md.read_text(encoding="utf-8")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"content": content, "path": str(claude_md)}
+
+
+@app.put("/api/sessions/{session_id}/claude-md")
+async def update_claude_md(session_id: str, body: ClaudeMdRequest):
+    """세션 작업 디렉토리의 CLAUDE.md 저장"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="세션 없음")
+    work_dir = sessions[session_id].work_dir
+    claude_md = Path(work_dir) / "CLAUDE.md"
+    try:
+        claude_md.write_text(body.content, encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "saved", "path": str(claude_md)}
+
+
+# ─── 멀티 모델 비교 ──────────────────────────────────────────────────────────
+
+@app.post("/api/compare")
+async def compare_models(body: CompareRequest):
+    """같은 프롬프트를 여러 모델에 보내고 결과 비교"""
+    if not CLAUDE_EXE:
+        raise HTTPException(status_code=503, detail="Claude CLI not available")
+
+    results = {}
+    for model in body.models[:4]:  # 최대 4개
+        sid = f"cmp-{str(uuid.uuid4())[:6]}"
+        session = ClaudeSession(sid, body.work_dir, model,
+                                skip_permissions=body.skip_permissions)
+        session.name = f"compare-{model}"
+        session.start_worker()
+        sessions[sid] = session
+        await session.send_prompt(body.prompt)
+        results[model] = sid
+
+    return {"status": "started", "sessions": results}
+
+
 @app.websocket("/ws/{session_id}")
 async def websocket_output(websocket: WebSocket, session_id: str):
     await websocket.accept()
@@ -1222,13 +1609,20 @@ async def websocket_output(websocket: WebSocket, session_id: str):
             if session._output_version != last_version:
                 try:
                     output = session.get_formatted_output(200)
+                    msg = {
+                        "output": output,
+                        "alive": session.alive,
+                        "busy": session.busy,
+                        "queue_size": session._queue.qsize(),
+                        "tokens": {
+                            "input": session.total_input_tokens,
+                            "output": session.total_output_tokens,
+                        },
+                    }
+                    if session.pending_question:
+                        msg["pending_question"] = session.pending_question
                     await asyncio.wait_for(
-                        websocket.send_json({
-                            "output": output,
-                            "alive": session.alive,
-                            "busy": session.busy,
-                            "queue_size": session._queue.qsize(),
-                        }),
+                        websocket.send_json(msg),
                         timeout=5  # WebSocket 전송 타임아웃
                     )
                     last_version = session._output_version
@@ -1730,12 +2124,24 @@ async def start_pipeline(body: PipelineStartRequest):
         raise HTTPException(status_code=400, detail="CLI 모드에서는 Claude CLI 필요")
 
     session = sessions[body.session_id]
+
+    # 세션이 이미 파이프라인에 바인딩되어 있으면 충돌 방지
+    if session.pipeline_id:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Session already bound to pipeline {session.pipeline_id}")
+
     runner = PipelineRunner(session, body.goal, body.supervisor_model,
                             body.max_iterations, body.mode)
     pipelines[runner.id] = runner
     runner.start()
 
-    return {"pipeline_id": runner.id, "status": runner.status, "mode": body.mode}
+    return {
+        "pipeline_id": runner.id,
+        "worker_session_id": runner.session.id if runner.session else None,
+        "status": runner.status,
+        "mode": body.mode,
+    }
 
 
 # 하위호환: 기존 /api/pipeline/start 경로 유지
@@ -2061,10 +2467,10 @@ body {
     background: var(--bg-secondary);
     padding: 8px 12px;
     gap: 8px;
-    align-items: center;
+    align-items: flex-end;
 }
 
-.terminal-input-bar input {
+.terminal-input-bar textarea {
     flex: 1;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
@@ -2074,9 +2480,14 @@ body {
     font-family: 'Cascadia Code', 'Consolas', monospace;
     font-size: 13px;
     outline: none;
+    resize: none;
+    min-height: 38px;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.4;
 }
 
-.terminal-input-bar input:focus { border-color: var(--accent); }
+.terminal-input-bar textarea:focus { border-color: var(--accent); }
 
 .logs-container { flex: 1; overflow: hidden; display: none; flex-direction: column; }
 .logs-container.active { display: flex; }
@@ -2321,7 +2732,7 @@ body {
     .tab { padding: 8px 12px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
 
     .terminal-input-bar { padding: 6px 8px; gap: 6px; }
-    .terminal-input-bar input { padding: 8px 10px; font-size: 14px; }
+    .terminal-input-bar textarea { padding: 8px 10px; font-size: 14px; }
 
     .terminal-output { padding: 10px; font-size: 12px; }
 
@@ -2780,10 +3191,17 @@ body {
         </div>
 
         <div class="session-actions" id="sessionActions" style="display:none">
-            <button class="btn btn-small btn-danger" onclick="killSession()">&#10005; Kill</button>
-            <button class="btn btn-small btn-danger" onclick="removeSession()" style="background:var(--bg-tertiary);color:var(--text-dim);border-color:var(--border)" title="Kill and remove from list">&#128465; Remove</button>
             <button class="btn btn-small" onclick="interruptSession()">Stop</button>
+            <button class="btn btn-small" onclick="renameSession()" title="이름 변경">&#9998;</button>
+            <button class="btn btn-small" onclick="forkSession()" title="세션 분기">&#9095;</button>
+            <button class="btn btn-small" onclick="exportSession()" title="대화 내보내기">&#8615;</button>
+            <button class="btn btn-small" onclick="showClaudeMdEditor()" title="CLAUDE.md 편집">&#128221;</button>
+            <button class="btn btn-small" onclick="showTemplates()" title="프롬프트 템플릿">&#9776;</button>
+            <button class="btn btn-small" onclick="showCompare()" title="모델 비교">&#8644;</button>
+            <button class="btn btn-small btn-danger" onclick="killSession()">Kill</button>
+            <button class="btn btn-small" onclick="removeSession()" style="color:var(--text-dim)" title="Remove">&#128465;</button>
             <span class="status-badge" id="statusBadge">Idle</span>
+            <span id="tokenBadge" style="font-size:10px;color:var(--text-dim);margin-left:auto"></span>
         </div>
 
         <div class="terminal-container" id="terminalView">
@@ -2813,10 +3231,11 @@ body {
                         <p>Select or create a session to start</p>
                     </div>
                 </div>
+                <div id="questionPanel" style="display:none;border-top:1px solid var(--border);background:var(--bg-tertiary);padding:10px 12px;max-height:220px;overflow-y:auto"></div>
                 <div class="terminal-input-bar">
-                    <input type="text" id="commandInput" placeholder="Enter prompt for Claude..."
-                           onkeydown="if(event.key==='Enter')sendCommand()">
-                    <button class="btn btn-primary btn-small" onclick="sendCommand()">Send</button>
+                    <textarea id="commandInput" rows="1" placeholder="Enter prompt for Claude... (Shift+Enter = 줄바꿈)"
+                              onkeydown="handleInputKeydown(event)"></textarea>
+                    <button class="btn btn-primary btn-small" onclick="sendCommand()" style="align-self:flex-end;margin-bottom:2px">Send</button>
                 </div>
             </div>
             <!-- Shell 모드 (xterm.js) -->
@@ -2986,6 +3405,9 @@ body {
                 </div>
             </div>
 
+            <!-- 파이프라인 목록 (여러개일 때) -->
+            <div id="pipelineListBar" style="padding:6px 16px;border-bottom:1px solid var(--border)"></div>
+
             <!-- 상태 바 -->
             <div id="pipelineStatusBar" style="padding:8px 16px;background:var(--bg-tertiary);border-bottom:1px solid var(--border);display:none">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -2995,6 +3417,7 @@ body {
                 <div style="background:var(--bg);border-radius:3px;height:6px;overflow:hidden">
                     <div id="pipelineProgressBar" style="background:var(--accent);height:100%;width:0%;transition:width 0.3s"></div>
                 </div>
+                <div id="pipelineSessionInfo" style="font-size:11px;color:var(--text-dim);margin-top:4px"></div>
             </div>
 
             <!-- 히스토리 -->
@@ -3035,9 +3458,17 @@ body {
         <select id="newModel" style="width:100%;padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none;cursor:pointer">
             <option value="">Default (CLI default)</option>
             <option value="sonnet">Sonnet (latest)</option>
-            <option value="opus">Opus (latest)</option>
+            <option value="opus">Opus (Max 플랜 전용)</option>
             <option value="haiku">Haiku (latest)</option>
         </select>
+
+        <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
+            <input type="checkbox" id="newSkipPermissions" checked style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
+            <span style="font-size:13px">권한 자동 승인 <span style="color:var(--text-dim);font-size:11px">(도구 사용 시 묻지 않음)</span></span>
+        </label>
+
+        <label>MCP Config <span style="color:var(--text-dim);font-size:11px">(optional — MCP 서버 설정 파일 경로)</span></label>
+        <input type="text" id="newMcpConfig" value="" placeholder="e.g. C:\Users\you\.claude\mcp-config.json" style="width:100%;padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px">
 
         <label>Initial Prompt (optional)</label>
         <textarea id="newPrompt" placeholder="e.g. Help me fix the login bug"></textarea>
@@ -3048,8 +3479,56 @@ body {
     </div>
 </div>
 
+<!-- 템플릿 모달 -->
+<div class="modal-overlay" id="templateModal">
+    <div class="modal" style="width:600px;max-height:80vh;display:flex;flex-direction:column">
+        <h3>프롬프트 템플릿</h3>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+            <input type="text" id="tplName" placeholder="템플릿 이름" style="flex:1;padding:6px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+            <input type="text" id="tplCategory" placeholder="카테고리" style="width:120px;padding:6px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+        </div>
+        <textarea id="tplPrompt" rows="4" placeholder="프롬프트 내용..." style="width:100%;padding:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;resize:vertical;margin-bottom:8px"></textarea>
+        <div style="display:flex;gap:6px;margin-bottom:12px">
+            <button class="btn btn-primary btn-small" onclick="saveTemplate()">저장</button>
+        </div>
+        <div id="templateList" style="flex:1;overflow-y:auto;border-top:1px solid var(--border);padding-top:8px"></div>
+        <div class="modal-actions"><button class="btn" onclick="hideModal('templateModal')">닫기</button></div>
+    </div>
+</div>
+
+<!-- CLAUDE.md 편집 모달 -->
+<div class="modal-overlay" id="claudeMdModal">
+    <div class="modal" style="width:700px;max-height:85vh;display:flex;flex-direction:column">
+        <h3>CLAUDE.md 편집</h3>
+        <div id="claudeMdPath" style="font-size:11px;color:var(--text-dim);margin-bottom:8px"></div>
+        <textarea id="claudeMdContent" style="flex:1;min-height:300px;width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'Cascadia Code','Consolas',monospace;font-size:12px;resize:vertical;line-height:1.5"></textarea>
+        <div class="modal-actions">
+            <button class="btn" onclick="hideModal('claudeMdModal')">취소</button>
+            <button class="btn btn-primary" onclick="saveClaudeMd()">저장</button>
+        </div>
+    </div>
+</div>
+
+<!-- 모델 비교 모달 -->
+<div class="modal-overlay" id="compareModal">
+    <div class="modal" style="width:650px;max-height:85vh;display:flex;flex-direction:column">
+        <h3>멀티 모델 비교</h3>
+        <textarea id="comparePrompt" rows="3" placeholder="비교할 프롬프트..." style="width:100%;padding:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;resize:vertical;margin-bottom:8px"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="cmpModel" value="sonnet" checked> Sonnet</label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="cmpModel" value="opus" checked> Opus</label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="cmpModel" value="haiku" checked> Haiku</label>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+            <button class="btn btn-primary btn-small" onclick="startCompare()">비교 시작</button>
+        </div>
+        <div id="compareResults" style="flex:1;overflow-y:auto"></div>
+        <div class="modal-actions"><button class="btn" onclick="hideModal('compareModal')">닫기</button></div>
+    </div>
+</div>
+
 <script>
-let activeSessionId = null;
+let activeSessionId = localStorage.getItem('sm_activeSessionId') || null;
 let ws = null;
 let autoScroll = true;
 
@@ -3094,6 +3573,8 @@ async function refreshSessions() {
                 ${statusText}${queueInfo}
                 &middot; ${s.work_dir}
                 ${s.model ? `&middot; <span style="color:var(--purple)">${s.model.replace('claude-','').split('-202')[0]}</span>` : ''}
+                ${s.skip_permissions ? '&middot; <span style="color:var(--green);font-size:10px" title="권한 자동 승인">&#9989;</span>' : ''}
+                ${(s.total_input_tokens + s.total_output_tokens) > 0 ? `&middot; <span style="font-size:10px;color:var(--text-dim)" title="토큰: ${s.total_input_tokens} in / ${s.total_output_tokens} out">${formatTokens(s.total_input_tokens + s.total_output_tokens)}</span>` : ''}
             </div>
         </div>`;
     }).join('');
@@ -3101,6 +3582,7 @@ async function refreshSessions() {
 
 function selectSession(id) {
     activeSessionId = id;
+    localStorage.setItem('sm_activeSessionId', id);
     document.getElementById('sessionActions').style.display = 'flex';
     refreshSessions();
     connectWebSocket(id);
@@ -3116,15 +3598,27 @@ function selectSession(id) {
 let wsReconnectTimer = null;
 let wsReconnectAttempts = 0;
 
+let wsConnectId = 0;  // 연결 ID — 세션 전환 시 stale 메시지 차단
+
 function connectWebSocket(sessionId) {
-    if (ws) { ws.close(); ws = null; }
+    wsConnectId++;  // 새 연결 ID 발급 — 이전 WS 메시지 무시
+    if (ws) {
+        ws.onmessage = null;  // 즉시 메시지 수신 차단
+        ws.onclose = null;    // 자동 재연결 차단
+        ws.close();
+        ws = null;
+    }
     if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
     wsReconnectAttempts = 0;
+
+    // 터미널 초기화 — 이전 세션 출력 잔상 제거
+    document.getElementById('terminalOutput').textContent = 'Connecting...';
 
     _doConnect(sessionId);
 }
 
 function _doConnect(sessionId) {
+    const myConnectId = wsConnectId;  // 클로저에 캡처
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsBase = window.location.port === '8006' ? '' : '/svc/claude';
     ws = new WebSocket(`${proto}//${location.host}${wsBase}/ws/${sessionId}`);
@@ -3132,9 +3626,10 @@ function _doConnect(sessionId) {
     ws.onopen = () => { wsReconnectAttempts = 0; };
 
     ws.onmessage = (e) => {
+        // 세션 전환 후 도착한 stale 메시지 차단
+        if (myConnectId !== wsConnectId) return;
         const data = JSON.parse(e.data);
         if (data.error) {
-            // 세션 제거됨 등
             ws.close();
             ws = null;
             return;
@@ -3142,6 +3637,15 @@ function _doConnect(sessionId) {
         if (data.output !== undefined) {
             const el = document.getElementById('terminalOutput');
             el.textContent = data.output;
+
+            // AskUserQuestion 클릭 가능 옵션 렌더
+            const qPanel = document.getElementById('questionPanel');
+            if (data.pending_question && !data.busy) {
+                renderQuestionPanel(data.pending_question);
+            } else {
+                qPanel.style.display = 'none';
+            }
+
             if (autoScroll) el.scrollTop = el.scrollHeight;
         }
         // 상태 배지 업데이트
@@ -3154,9 +3658,16 @@ function _doConnect(sessionId) {
             badge.textContent = q > 0 ? `${q} queued` : 'Idle';
             badge.className = 'status-badge';
         }
+        // 토큰 표시
+        if (data.tokens) {
+            const tb = document.getElementById('tokenBadge');
+            if (tb) tb.textContent = `${formatTokens(data.tokens.input + data.tokens.output)} tokens`;
+        }
     };
 
     ws.onclose = () => {
+        // 세션 전환으로 닫힌 경우 재연결 차단
+        if (myConnectId !== wsConnectId) return;
         ws = null;
         // 자동 재연결 (최대 10회, 점진적 대기)
         if (activeSessionId === sessionId && wsReconnectAttempts < 10) {
@@ -3172,7 +3683,9 @@ async function createSession() {
     const work_dir = document.getElementById('newWorkDir').value || '.';
     const prompt = document.getElementById('newPrompt').value || '';
     const model = document.getElementById('newModel').value || '';
-    const result = await api('POST', '/sessions', { work_dir, prompt, model });
+    const skip_permissions = document.getElementById('newSkipPermissions').checked;
+    const mcp_config = document.getElementById('newMcpConfig').value || '';
+    const result = await api('POST', '/sessions', { work_dir, prompt, model, skip_permissions, mcp_config });
 
     if (result.error) {
         alert('Error: ' + result.error);
@@ -3194,12 +3707,26 @@ async function killSession() {
 async function removeSession() {
     if (!activeSessionId) return;
     if (!confirm('Remove this session from list?')) return;
-    await api('DELETE', `/sessions/${activeSessionId}/remove`);
+    await api('DELETE', `/sessions/${activeSessionId}?remove=true`);
     activeSessionId = null;
+    localStorage.removeItem('sm_activeSessionId');
     document.getElementById('sessionActions').style.display = 'none';
     document.getElementById('terminalOutput').innerHTML = '<div class="empty-state"><span class="icon">&#9000;</span><p>Select or create a session to start</p></div>';
     if (ws) { ws.close(); ws = null; }
     refreshSessions();
+}
+
+function handleInputKeydown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendCommand();
+    }
+    // 입력 후 높이 자동 조절
+    requestAnimationFrame(() => {
+        const el = e.target;
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    });
 }
 
 async function sendCommand() {
@@ -3209,11 +3736,238 @@ async function sendCommand() {
     if (!command) return;
     await api('POST', `/sessions/${activeSessionId}/send`, { command });
     input.value = '';
+    input.style.height = '38px';  // 리셋
+}
+
+function renderQuestionPanel(questionData) {
+    const panel = document.getElementById('questionPanel');
+    const questions = questionData.questions || [];
+    if (questions.length === 0) { panel.style.display = 'none'; return; }
+
+    let html = '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:8px">&#10067; Claude가 질문합니다 — 클릭으로 답변하세요</div>';
+
+    for (const q of questions) {
+        html += `<div style="font-size:13px;color:var(--text);margin-bottom:6px;font-weight:500">${escapeHtml(q.question)}</div>`;
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+        const opts = q.options || [];
+        for (const opt of opts) {
+            const label = opt.label || '';
+            const desc = opt.description || '';
+            html += `<button onclick="answerQuestion('${escapeHtml(label)}')"
+                style="padding:6px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:12px;text-align:left;transition:all 0.15s;max-width:280px"
+                onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+                onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text)'"
+                title="${escapeHtml(desc)}">
+                <div style="font-weight:500">${escapeHtml(label)}</div>
+                ${desc ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px">${escapeHtml(desc)}</div>` : ''}
+            </button>`;
+        }
+        // "직접 입력" 버튼
+        html += `<button onclick="document.getElementById('commandInput').focus()"
+            style="padding:6px 12px;background:var(--bg);border:1px dashed var(--border);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:12px"
+            title="직접 답변 입력">
+            <div style="font-weight:500">직접 입력...</div>
+        </button>`;
+        html += '</div>';
+    }
+    panel.innerHTML = html;
+    panel.style.display = '';
+}
+
+function answerQuestion(answer) {
+    if (!activeSessionId) return;
+    api('POST', `/sessions/${activeSessionId}/send`, { command: answer });
+    document.getElementById('questionPanel').style.display = 'none';
 }
 
 async function interruptSession() {
     if (!activeSessionId) return;
     await api('POST', `/sessions/${activeSessionId}/interrupt`);
+}
+
+// ─── 유틸리티 함수 ─────────────────────────────────────────────
+function formatTokens(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+}
+
+function hideModal(id) {
+    document.getElementById(id).classList.remove('active');
+}
+
+// ─── 세션 이름 변경 ─────────────────────────────────────────────
+async function renameSession() {
+    if (!activeSessionId) return;
+    const name = prompt('새 세션 이름:');
+    if (!name) return;
+    await api('PATCH', `/sessions/${activeSessionId}/rename`, { name });
+    refreshSessions();
+}
+
+// ─── 세션 분기(Fork) ────────────────────────────────────────────
+async function forkSession() {
+    if (!activeSessionId) return;
+    const name = prompt('분기 세션 이름 (비워두면 자동 생성):') || '';
+    const res = await api('POST', `/sessions/${activeSessionId}/fork`, { new_name: name });
+    if (res.id) {
+        await refreshSessions();
+        selectSession(res.id);
+    }
+}
+
+// ─── 대화 내보내기 ──────────────────────────────────────────────
+async function exportSession() {
+    if (!activeSessionId) return;
+    const res = await api('GET', `/sessions/${activeSessionId}/export`);
+    if (!res.markdown) return;
+    const blob = new Blob([res.markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${res.name || 'session'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ─── 프롬프트 템플릿 ────────────────────────────────────────────
+async function showTemplates() {
+    document.getElementById('templateModal').classList.add('active');
+    await loadTemplateList();
+}
+
+async function loadTemplateList() {
+    const templates = await api('GET', '/templates');
+    const el = document.getElementById('templateList');
+    if (!templates.length) {
+        el.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px;font-size:13px">저장된 템플릿이 없습니다</div>';
+        return;
+    }
+    // 카테고리별 그룹핑
+    const groups = {};
+    for (const t of templates) {
+        const cat = t.category || '기타';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(t);
+    }
+    let html = '';
+    for (const [cat, items] of Object.entries(groups)) {
+        html += `<div style="font-size:11px;color:var(--accent);font-weight:600;margin:8px 0 4px">${escapeHtml(cat)}</div>`;
+        for (const t of items) {
+            html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer;margin-bottom:4px;background:var(--bg-secondary)" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                <div style="flex:1;min-width:0" onclick="useTemplate('${escapeHtml(t.prompt.replace(/'/g, "\\'").replace(/\n/g, "\\n"))}')">
+                    <div style="font-size:13px;font-weight:500;color:var(--text)">${escapeHtml(t.name)}</div>
+                    <div style="font-size:11px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(t.prompt.substring(0, 80))}</div>
+                </div>
+                <button onclick="deleteTemplate('${t.id}')" class="btn btn-small" style="font-size:10px;color:var(--red);padding:2px 6px" title="삭제">&#10005;</button>
+            </div>`;
+        }
+    }
+    el.innerHTML = html;
+}
+
+async function saveTemplate() {
+    const name = document.getElementById('tplName').value.trim();
+    const prompt = document.getElementById('tplPrompt').value.trim();
+    const category = document.getElementById('tplCategory').value.trim();
+    if (!name || !prompt) { alert('이름과 프롬프트를 입력하세요'); return; }
+    await api('POST', '/templates', { name, prompt, category });
+    document.getElementById('tplName').value = '';
+    document.getElementById('tplPrompt').value = '';
+    document.getElementById('tplCategory').value = '';
+    await loadTemplateList();
+}
+
+async function deleteTemplate(id) {
+    await api('DELETE', `/templates/${id}`);
+    await loadTemplateList();
+}
+
+function useTemplate(prompt) {
+    const el = document.getElementById('commandInput');
+    el.value = prompt.replace(/\\n/g, '\n');
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    hideModal('templateModal');
+    el.focus();
+}
+
+// ─── CLAUDE.md 편집기 ───────────────────────────────────────────
+async function showClaudeMdEditor() {
+    if (!activeSessionId) return;
+    const res = await api('GET', `/sessions/${activeSessionId}/claude-md`);
+    document.getElementById('claudeMdPath').textContent = res.path || '';
+    document.getElementById('claudeMdContent').value = res.content || '';
+    document.getElementById('claudeMdModal').classList.add('active');
+}
+
+async function saveClaudeMd() {
+    if (!activeSessionId) return;
+    const content = document.getElementById('claudeMdContent').value;
+    const res = await api('PUT', `/sessions/${activeSessionId}/claude-md`, { content });
+    if (res.status === 'saved') {
+        hideModal('claudeMdModal');
+    } else {
+        alert('저장 실패: ' + (res.detail || ''));
+    }
+}
+
+// ─── 멀티 모델 비교 ────────────────────────────────────────────
+async function showCompare() {
+    document.getElementById('compareModal').classList.add('active');
+    document.getElementById('compareResults').innerHTML = '';
+}
+
+let compareSessionIds = {};
+let comparePollTimer = null;
+
+async function startCompare() {
+    const prompt = document.getElementById('comparePrompt').value.trim();
+    if (!prompt) { alert('프롬프트를 입력하세요'); return; }
+    const models = [...document.querySelectorAll('.cmpModel:checked')].map(cb => cb.value);
+    if (models.length === 0) { alert('최소 1개 모델을 선택하세요'); return; }
+
+    // 현재 세션의 work_dir 사용
+    let work_dir = '.';
+    if (activeSessionId) {
+        const sessions = await api('GET', '/sessions');
+        const s = sessions.find(s => s.id === activeSessionId);
+        if (s) work_dir = s.work_dir;
+    }
+
+    const res = await api('POST', '/compare', { prompt, models, work_dir, skip_permissions: true });
+    if (res.error) { alert(res.error); return; }
+    compareSessionIds = res.sessions; // {model: sessionId}
+    document.getElementById('compareResults').innerHTML = models.map(m =>
+        `<div style="margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--purple);margin-bottom:4px">${m}</div>
+            <pre id="cmpResult_${m}" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;color:var(--text);max-height:300px;overflow-y:auto;white-space:pre-wrap;min-height:60px">실행 중...</pre>
+        </div>`
+    ).join('');
+
+    if (comparePollTimer) clearInterval(comparePollTimer);
+    comparePollTimer = setInterval(pollCompare, 2000);
+}
+
+async function pollCompare() {
+    let allDone = true;
+    for (const [model, sid] of Object.entries(compareSessionIds)) {
+        try {
+            const data = await api('GET', `/sessions/${sid}/output`);
+            const el = document.getElementById(`cmpResult_${model}`);
+            if (el) el.textContent = data.output || '(대기 중...)';
+        } catch (e) {}
+        // 아직 busy인지 확인
+        try {
+            const sessions = await api('GET', '/sessions');
+            const s = sessions.find(s => s.id === sid);
+            if (s && s.busy) allDone = false;
+        } catch (e) { allDone = false; }
+    }
+    if (allDone) {
+        clearInterval(comparePollTimer);
+        comparePollTimer = null;
+    }
 }
 
 function showNewSessionModal() {
@@ -3353,6 +4107,7 @@ function switchTab(tab) {
         loadLogs();
     } else if (tab === 'pipeline') {
         document.getElementById('pipelineView').style.display = 'flex';
+        loadPipelinesForSession();
     }
 }
 
@@ -3766,16 +4521,78 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-refreshSessions();
+refreshSessions().then(() => {
+    // 이전에 선택했던 세션 복원
+    if (activeSessionId) {
+        selectSession(activeSessionId);
+    }
+});
 setInterval(refreshSessions, 5000);
 
 // ─── Pipeline ──────────────────────────────────────────────────────
-let activePipelineId = null;
+let activePipelineId = localStorage.getItem('sm_activePipelineId') || null;
 let pipelinePollTimer = null;
 
 function onPipelineModeChange() {
     const mode = document.getElementById('pipelineMode').value;
     document.getElementById('pipelineApiKeyGroup').style.display = mode === 'api' ? '' : 'none';
+}
+
+async function loadPipelinesForSession() {
+    /* Pipeline 탭 진입 시 현재 세션의 파이프라인 목록 로드 */
+    try {
+        const all = await api('GET', '/pipelines');
+        // 현재 세션의 파이프라인만 필터
+        const mine = activeSessionId ? all.filter(p => p.session_id === activeSessionId) : all;
+
+        if (mine.length === 0 && !activePipelineId) {
+            document.getElementById('pipelineHistory').innerHTML =
+                '<div style="text-align:center;padding:40px;color:var(--text-dim)">' +
+                '<p style="font-size:14px">LLM 감독자가 Claude CLI를 자동으로 구동합니다</p>' +
+                '<p style="font-size:12px;margin-top:8px">세션을 선택하고, 목표를 입력한 후 Start를 누르세요</p></div>';
+            return;
+        }
+
+        // 가장 최근 running 파이프라인이 있으면 자동 선택
+        const running = mine.find(p => p.status === 'running');
+        const latest = running || mine[mine.length - 1];
+        if (latest && (!activePipelineId || !mine.find(p => p.id === activePipelineId))) {
+            activePipelineId = latest.id;
+            localStorage.setItem('sm_activePipelineId', activePipelineId);
+        }
+
+        // 파이프라인 목록이 여러개면 선택 UI 표시
+        if (mine.length > 1) {
+            let listHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
+            for (const p of mine) {
+                const active = p.id === activePipelineId;
+                const color = { running:'var(--orange)', completed:'var(--green)', failed:'var(--red)', stopped:'var(--text-dim)' }[p.status] || 'var(--text-dim)';
+                listHtml += `<button onclick="selectPipeline('${p.id}')" class="btn btn-small" style="font-size:11px;${active?'border-color:var(--accent);color:var(--accent)':''}">` +
+                    `<span style="color:${color}">&#9679;</span> #${p.id.substring(0,6)} (iter ${p.iteration}/${p.max_iterations})</button>`;
+            }
+            listHtml += '</div>';
+            const el = document.getElementById('pipelineListBar');
+            if (el) el.innerHTML = listHtml;
+        }
+
+        if (activePipelineId) {
+            // 현재 파이프라인 상태 복원
+            pollPipeline();
+            const ap = mine.find(p => p.id === activePipelineId);
+            if (ap && ap.status === 'running') {
+                document.getElementById('pipelineStartBtn').style.display = 'none';
+                document.getElementById('pipelineStopBtn').style.display = '';
+                document.getElementById('pipelineStatusBar').style.display = '';
+                startPipelinePolling();
+            }
+        }
+    } catch (e) { console.error('loadPipelinesForSession error:', e); }
+}
+
+function selectPipeline(id) {
+    activePipelineId = id;
+    localStorage.setItem('sm_activePipelineId', id);
+    pollPipeline();
 }
 
 async function startPipeline() {
@@ -3793,13 +4610,13 @@ async function startPipeline() {
         mode: mode,
         supervisor_model: document.getElementById('pipelineSupervisorModel').value,
         max_iterations: parseInt(document.getElementById('pipelineMaxIter').value) || 20,
-        // api_key는 서버 환경변수(ANTHROPIC_API_KEY)에서 읽음
     };
 
     try {
-        const res = await api('POST', '/pipeline/start', body);
+        const res = await api('POST', '/pipelines', body);
         if (res.error) { alert(res.error); return; }
         activePipelineId = res.pipeline_id;
+        localStorage.setItem('sm_activePipelineId', activePipelineId);
         document.getElementById('pipelineStartBtn').style.display = 'none';
         document.getElementById('pipelineStopBtn').style.display = '';
         document.getElementById('pipelineStatusBar').style.display = '';
@@ -3814,7 +4631,7 @@ async function startPipeline() {
 async function stopPipeline() {
     if (!activePipelineId) return;
     try {
-        await api('POST', `/pipeline/${activePipelineId}/stop`);
+        await api('POST', `/pipelines/${activePipelineId}/stop`);
     } catch (e) { console.error(e); }
 }
 
@@ -3827,7 +4644,7 @@ function startPipelinePolling() {
 async function pollPipeline() {
     if (!activePipelineId) return;
     try {
-        const data = await api('GET', `/pipeline/${activePipelineId}`);
+        const data = await api('GET', `/pipelines/${activePipelineId}`);
         if (data.error) return;
 
         // 상태 업데이트
@@ -3841,6 +4658,10 @@ async function pollPipeline() {
         const stEl = document.getElementById('pipelineStatusText');
         stEl.textContent = statusLabels[data.status] || data.status;
         stEl.style.color = statusColors[data.status] || 'var(--text)';
+
+        // 세션 정보 표시
+        const infoEl = document.getElementById('pipelineSessionInfo');
+        if (infoEl) infoEl.textContent = `세션: ${data.session_id} | 모드: ${modeLabel} | 모델: ${data.supervisor_model}`;
 
         // 히스토리 렌더
         renderPipelineHistory(data.history);
