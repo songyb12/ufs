@@ -40,4 +40,10 @@ node_modules/
 
 # Frontend build output
 frontend/*/dist/
+.vite/
+
+# Claude Code
 .claude/
+
+# Session Manager runtime data
+services/session-manager/data/sessions/
