@@ -560,3 +560,47 @@ class TestGitEndpoints:
     async def test_git_diff_400_for_missing_path(self, client):
         r = await client.get("/api/git/diff", params={"path": "/no/such/path"})
         assert r.status_code == 400
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 12. Admin API — /admin/status, /admin/restart, /admin/resume
+# ════════════════════════════════════════════════════════════════════════════════
+
+class TestAdminEndpoints:
+
+    async def test_admin_status_returns_structure(self, client):
+        """/admin/status 응답에 필수 키 + 타입 검증"""
+        r = await client.get("/admin/status")
+        assert r.status_code == 200
+        data = r.json()
+        assert "active_pipelines" in data
+        assert "resumable_runs" in data
+        assert "safe_to_restart" in data
+        assert isinstance(data["active_pipelines"], int)
+        assert isinstance(data["resumable_runs"], list)
+        assert isinstance(data["safe_to_restart"], bool)
+
+    async def test_admin_status_safe_to_restart_when_idle(self, client):
+        """파이프라인 없는 idle 상태 → safe_to_restart == True"""
+        r = await client.get("/admin/status")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["active_pipelines"] == 0
+        assert data["safe_to_restart"] is True
+
+    async def test_admin_resume_not_found(self, client):
+        """존재하지 않는 run_id → 404"""
+        r = await client.post("/admin/resume/nonexistent-id")
+        assert r.status_code == 404
+
+    async def test_admin_restart_returns_accepted(self, monkeypatch, client):
+        """POST /admin/restart → 200 응답 (os.execv는 monkeypatch로 차단)"""
+        import os
+        monkeypatch.setattr(os, "execv", lambda *_: None)
+        monkeypatch.setattr(main_module, "_shutting_down", False)
+        r = await client.post("/admin/restart")
+        assert r.status_code in (200, 202)
+        data = r.json()
+        assert "status" in data
+        # 테스트 이후 _shutting_down 복원 (monkeypatch가 자동 처리)
+
