@@ -1426,21 +1426,16 @@ class PipelineRunner:
                 self._supervisor_retries = 0
                 self._add_history("supervisor", supervisor_response)
 
-                # 2. DONE 체크 (마지막 사이클에서만 허용)
+                # 2. DONE 체크 — 사이클 제한 없이 즉시 수락
+                # 시스템 프롬프트가 조기 DONE을 금지하므로 코드 레벨 차단 불필요.
+                # 이중 차단 시 슈퍼바이저가 실제 완료 후에도 루프를 탈출하지 못하는 버그 발생.
                 if "PIPELINE_DONE:" in supervisor_response:
-                    if self.current_cycle >= self.max_cycles:
-                        idx = supervisor_response.index("PIPELINE_DONE:")
-                        self.summary = supervisor_response[idx + len("PIPELINE_DONE:"):].strip()
-                        self.status = "completed"
-                        self._add_history("system", f"파이프라인 완료: {self.summary}")
-                        mark_complete(self.id)
-                        return
-                    else:
-                        # 조기 DONE 무시 — 다음 iteration에서 supervisor 재호출
-                        self._add_history("system",
-                            f"감독자 조기 완료 신호 무시 (사이클 {self.current_cycle}/{self.max_cycles})")
-                        last_output = f"[사이클 {self.current_cycle}/{self.max_cycles} 진행 중 — 계속 작업하세요]"
-                        continue
+                    idx = supervisor_response.index("PIPELINE_DONE:")
+                    self.summary = supervisor_response[idx + len("PIPELINE_DONE:"):].strip()
+                    self.status = "completed"
+                    self._add_history("system", f"파이프라인 완료 (사이클 {self.current_cycle}/{self.max_cycles}): {self.summary}")
+                    mark_complete(self.id)
+                    return
 
                 # 3. 작업자 CLI에 프롬프트 전달 (선택한 세션에 직접)
                 await self.session.send_prompt(supervisor_response)
