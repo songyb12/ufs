@@ -28,6 +28,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import uvicorn
 
+from app.pipeline_store import (
+    create_run, update_stage, save_checkpoint,
+    mark_complete, mark_failed, mark_interrupted, get_resumable_runs,
+    cleanup_old_runs,
+)
+
 # ConPTY (Windows 터미널 에뮬레이션)
 try:
     from winpty import PtyProcess
@@ -258,6 +264,21 @@ async def lifespan(app):
     cleanup_task = asyncio.create_task(_cleanup_dead_sessions())
     print(f"  Session cleanup: every {CLEANUP_INTERVAL}s, TTL {SESSION_TTL_SECONDS}s")
 
+    # 이전 서버 종료 시 중단된 파이프라인 복구 대상 확인
+    resumable = get_resumable_runs()
+    if resumable:
+        ids = [r["id"] for r in resumable]
+        print(f"  [RECOVERY] {len(resumable)}개의 중단된 파이프라인 발견: {ids}")
+        for r in resumable:
+            # 이미 interrupted인 것도 포함하여 상태를 명확히 재확정
+            mark_interrupted(r["id"])
+        print(f"  [RECOVERY] 모든 중단 run의 status를 interrupted로 확정 (수동 재개 필요)")
+
+    # 30일 이상 된 completed/failed run 정리
+    deleted = cleanup_old_runs(days=30)
+    if deleted > 0:
+        print(f"  [CLEANUP] 오래된 파이프라인 기록 {deleted}개 삭제")
+
     yield
 
     # 정리 태스크 중단
@@ -266,6 +287,12 @@ async def lifespan(app):
         await cleanup_task
     except asyncio.CancelledError:
         pass
+
+    # 서버 종료 시 실행 중인 파이프라인을 interrupted로 마킹 (재시작 후 복구 대상)
+    for pid, pipe in list(pipelines.items()):
+        if pipe.status in ("running", "idle"):
+            mark_interrupted(pid)
+
     for session in sessions.values():
         await session.kill()
     for shell in list(shell_sessions.values()):
@@ -525,6 +552,10 @@ class ClaudeSession:
         - process.wait()에 타임아웃 적용
         - 프로세스 확실한 정리 보장
         """
+        if not CLAUDE_EXE:
+            self._append_output("error", "Claude CLI를 찾을 수 없습니다 (CLAUDE_EXE not set)")
+            return
+
         use_model = self.model if not _retry_without_model else ""
 
         cmd = [CLAUDE_EXE, "-p", "--output-format", "stream-json", "--verbose"]
@@ -560,7 +591,7 @@ class ClaudeSession:
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.work_dir if self.work_dir not in (".", "~") else None,
+                cwd=str(Path(self.work_dir).expanduser()) if self.work_dir not in (".",) else None,
                 env=env,
                 limit=10 * 1024 * 1024,  # 10MB - 큰 출력 처리
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
@@ -942,7 +973,7 @@ class ShellSession:
         else:
             exe = os.environ.get("COMSPEC", "cmd.exe")
 
-        cwd = self.work_dir if self.work_dir not in (".", "~") else None
+        cwd = str(Path(self.work_dir).expanduser()) if self.work_dir not in (".",) else None
 
         self.pty = PtyProcess.spawn(
             exe,
@@ -950,7 +981,7 @@ class ShellSession:
             cwd=cwd,
         )
         self.alive = True
-        self._loop = asyncio.get_event_loop()  # 스레드에서 call_soon_threadsafe 사용 위해 캡처
+        self._loop = asyncio.get_running_loop()  # 스레드에서 call_soon_threadsafe 사용 위해 캡처
 
         # stdout 읽기 스레드 시작
         self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
@@ -1080,6 +1111,7 @@ class ShellSession:
 # ─── 파이프라인 엔진 (LLM API / CLI → CLI 루프) ──────────────────────────────────
 
 pipelines: dict = {}
+_shutting_down: bool = False  # POST /admin/restart 시 True — 신규 파이프라인 생성 차단
 
 # 감독자 시스템 프롬프트 템플릿
 _SUPERVISOR_SYSTEM = """당신은 텍스트 생성기입니다. 도구를 사용하지 마세요. 코드를 실행하지 마세요. 파일을 읽지 마세요.
@@ -1255,6 +1287,7 @@ class PipelineRunner:
 
     def start(self):
         self.status = "running"
+        create_run(self.id, self._source_session.id, 0)
         try:
             # 전용 worker 세션 생성 (원본 세션은 계속 사용 가능)
             self.session = self._create_worker_session()
@@ -1265,9 +1298,16 @@ class PipelineRunner:
         # 원본 세션에 파이프라인 바인딩 표시 (중복 시작 방지용)
         self._source_session.pipeline_id = self.id
         self._source_session.save_state()
-        if self.mode == "cli":
-            self._create_supervisor_session()
-        self._task = asyncio.create_task(self._run_loop())
+        try:
+            if self.mode == "cli":
+                self._create_supervisor_session()
+            self._task = asyncio.create_task(self._run_loop())
+        except Exception:
+            # supervisor 생성 또는 태스크 생성 실패 시 부분 상태 롤백
+            sessions.pop(f"pw-{self.id}", None)
+            self._source_session.pipeline_id = None
+            self._source_session.save_state()
+            raise
 
     def _create_supervisor_session(self):
         """감독자용 CLI 세션 생성 (도구 차단 — 텍스트만 출력)
@@ -1342,6 +1382,7 @@ class PipelineRunner:
     async def _run_loop(self):
         """메인 파이프라인 루프 — mode에 따라 감독자 방식 분기, 자동 사이클"""
         last_output = ""
+        _step = 0  # 전역 누적 스텝 (DB checkpoint 키)
         try:
             while not self._stop_flag:
                 # 사이클 내 max_iterations 도달 → 자동 사이클 전환
@@ -1358,9 +1399,12 @@ class PipelineRunner:
                         self.status = "completed"
                         self.summary = f"최대 사이클({self.max_cycles})×반복({self.max_iterations})={total}회 도달하여 종료"
                         self._add_history("system", self.summary)
+                        mark_complete(self.id)
                         return
 
                 self.iteration += 1
+                _step = (self.current_cycle - 1) * self.max_iterations + self.iteration
+                update_stage(self.id, _step, "running")
 
                 # 1. 감독자 호출
                 try:
@@ -1375,6 +1419,7 @@ class PipelineRunner:
                         continue  # 같은 iteration 재시도
                     self._add_history("error", f"감독자 호출 실패: {str(e)}")
                     self.status = "failed"
+                    mark_failed(self.id, _step, str(e))
                     return
 
                 # 성공 시 재시도 카운터 리셋
@@ -1388,6 +1433,7 @@ class PipelineRunner:
                         self.summary = supervisor_response[idx + len("PIPELINE_DONE:"):].strip()
                         self.status = "completed"
                         self._add_history("system", f"파이프라인 완료: {self.summary}")
+                        mark_complete(self.id)
                         return
                     else:
                         # 조기 DONE 무시 — 다음 iteration에서 supervisor 재호출
@@ -1405,8 +1451,14 @@ class PipelineRunner:
                 if last_output == "[세션 종료]":
                     self.status = "failed"
                     self._add_history("error", "worker 세션(pw-*)이 예기치 않게 종료되었습니다.")
+                    mark_failed(self.id, _step, "worker 세션 비정상 종료")
                     return
                 self._add_history("cli_result", last_output)
+                save_checkpoint(self.id, _step, {
+                    "output": last_output,
+                    "cycle": self.current_cycle,
+                    "iteration": self.iteration,
+                })
 
         except asyncio.CancelledError:
             # 외부 태스크 취소(서버 shutdown 등) — finally 정리 후 재전파
@@ -1416,6 +1468,7 @@ class PipelineRunner:
             # stop()이 이미 status="stopped"를 설정한 경우 덮어쓰지 않음
             if not self._stop_flag:
                 self.status = "failed"
+                mark_failed(self.id, _step, str(e))
             self._add_history("error", f"파이프라인 오류: {str(e)}")
         finally:
             # 감독자 CLI 세션 정리 (kill + 디스크에서 삭제)
@@ -1663,7 +1716,11 @@ class PlanPhase:
         runner = PipelineRunner(session, enriched_goal, self.supervisor_model,
                                 max_iterations, self.mode, max_cycles)
         pipelines[runner.id] = runner
-        runner.start()
+        try:
+            runner.start()
+        except Exception:
+            pipelines.pop(runner.id, None)
+            raise
         self.pipeline_id = runner.id
         self.status = "approved"
         return runner.id
@@ -2716,7 +2773,9 @@ async def git_clone(body: GitCloneRequest):
             )
     else:
         # URL에서 repo 이름 추출
-        repo_name = url.rstrip("/").split("/")[-1].replace(".git", "")
+        repo_name = url.rstrip("/").split("/")[-1].replace(".git", "").strip()
+        if not repo_name:
+            raise HTTPException(status_code=400, detail="URL에서 repo 이름을 추출할 수 없습니다")
         dest_path = Path(".").resolve() / repo_name
 
     if dest_path.exists():
@@ -2774,6 +2833,8 @@ async def gh_repos(query: str = Query("")):
 @app.post("/api/pipelines")
 async def start_pipeline(body: PipelineStartRequest):
     """파이프라인 시작 — 감독자(API 또는 CLI)가 작업자 CLI를 반복 구동"""
+    if _shutting_down:
+        raise HTTPException(status_code=503, detail="서버 종료 준비 중 — 신규 파이프라인 생성 불가")
     if body.session_id not in sessions:
         raise HTTPException(status_code=400, detail="유효한 세션 ID 필요")
     if body.mode == "api":
@@ -3050,6 +3111,70 @@ async def monitor_latest():
     if screen_monitor.latest and screen_monitor.latest.exists():
         return {"path": str(screen_monitor.latest), "url": f"/screenshots/{screen_monitor.latest.name}"}
     return {"path": None, "url": None}
+
+
+# ─── Admin API ──────────────────────────────────────────────────────────────────
+
+@app.get("/admin/status")
+async def admin_status():
+    """서버 상태 및 재시작 안전 여부 반환"""
+    active = sum(1 for p in pipelines.values() if p.status == "running")
+    return {
+        "active_pipelines": active,
+        "resumable_runs": get_resumable_runs(),
+        "safe_to_restart": active == 0,
+        "shutting_down": _shutting_down,
+    }
+
+
+@app.post("/admin/restart")
+async def admin_restart():
+    """실행 중인 파이프라인 완료 대기 후 프로세스 재시작 (os.execv)"""
+    global _shutting_down
+    _shutting_down = True
+
+    # 실행 중인 파이프라인이 완료될 때까지 폴링 (최대 5분)
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        running = [p for p in pipelines.values() if p.status == "running"]
+        if not running:
+            break
+        await asyncio.sleep(2)
+
+    # 아직 실행 중인 파이프라인은 interrupted로 마킹 후 강제 종료
+    for p in list(pipelines.values()):
+        if p.status == "running":
+            mark_interrupted(p.id)
+            await p.stop()
+
+    # 프로세스 재시작 (비동기로 짧게 지연하여 응답 반환 후 실행)
+    async def _do_restart():
+        await asyncio.sleep(0.5)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    asyncio.create_task(_do_restart())
+    return {"status": "restarting", "message": "0.5초 후 프로세스 재시작"}
+
+
+@app.post("/admin/resume/{run_id}")
+async def admin_resume(run_id: str):
+    """중단된 파이프라인의 체크포인트 조회 및 재개 힌트 반환"""
+    runs = get_resumable_runs()
+    matched = next((r for r in runs if r["id"] == run_id), None)
+    if matched is None:
+        raise HTTPException(status_code=404, detail=f"재개 가능한 run_id 없음: {run_id}")
+    next_stage = matched["current_stage"] + 1
+    return {
+        "id": matched["id"],
+        "session_id": matched["session_id"],
+        "current_stage": matched["current_stage"],
+        "stage_outputs": matched["stage_outputs"],
+        "updated_at": matched.get("updated_at"),
+        "resume_hint": (
+            f"세션 {matched['session_id']}에서 "
+            f"스테이지 {next_stage}부터 새 파이프라인을 시작하세요"
+        ),
+    }
 
 
 # ─── Shell 터미널 API ────────────────────────────────────────────────────────────
@@ -4016,6 +4141,70 @@ body {
 }
 .gh-auth-dot.ok { background: var(--green); }
 .gh-auth-dot.fail { background: var(--red); }
+
+/* ===== Admin Panel ===== */
+.admin-panel {
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+.admin-panel-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+}
+.admin-stats {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.admin-badge {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-dim);
+}
+.admin-badge.warn { background: rgba(210,153,34,0.2); color: var(--orange); }
+.admin-badge.good { background: rgba(63,185,80,0.15); color: var(--green); }
+.btn-restart {
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 6px;
+}
+.btn-restart:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-restart.safe { color: var(--green); border-color: var(--green); }
+.resumable-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 110px;
+    overflow-y: auto;
+}
+.resumable-item {
+    padding: 5px 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+}
+.resumable-item-info {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: monospace;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 </style>
 </head>
 <body>
@@ -4042,6 +4231,19 @@ body {
         </div>
         <div class="session-list" id="sessionList">
             <div class="empty-state"><p>No sessions</p></div>
+        </div>
+
+        <!-- Admin Panel -->
+        <div class="admin-panel">
+            <div class="admin-panel-title">Admin</div>
+            <div class="admin-stats" id="adminStats">
+                <span class="admin-badge" id="adminActiveBadge">실행 중: 0개</span>
+            </div>
+            <button class="btn btn-small btn-restart" id="adminRestartBtn"
+                    onclick="adminRestart()" disabled>
+                &#8635; 안전 재시작
+            </button>
+            <div class="resumable-list" id="resumableList" style="display:none"></div>
         </div>
     </div>
 
@@ -6351,6 +6553,93 @@ async function killShellSession() {
         const res = await api('GET', '/../health');
     } catch(e) {}
 })();
+
+// ─── Admin Panel ────────────────────────────────────────────────────
+// /admin/* 엔드포인트는 API_BASE(/api)와 별도 경로
+const ADMIN_BASE = window.location.port === '8006' ? '/admin' : '/api/claude/admin';
+
+async function adminFetch(method, path, body = null) {
+    try {
+        const opts = { method, headers: { 'Content-Type': 'application/json' } };
+        if (body) opts.body = JSON.stringify(body);
+        const res = await fetch(`${ADMIN_BASE}${path}`, opts);
+        return res.ok ? await res.json() : null;
+    } catch (e) {
+        console.error('[admin]', e);
+        return null;
+    }
+}
+
+async function pollAdminStatus() {
+    const data = await adminFetch('GET', '/status');
+    if (!data) return;
+
+    const active = data.active_pipelines ?? 0;
+    const resumable = data.resumable_runs ?? [];
+
+    // 통계 배지 갱신
+    const activeBadge = document.getElementById('adminActiveBadge');
+    activeBadge.textContent = `실행 중: ${active}개`;
+    activeBadge.className = 'admin-badge' + (active > 0 ? ' warn' : '');
+
+    const statsEl = document.getElementById('adminStats');
+    // 기존 복구 배지 제거 후 재렌더
+    const oldResumeBadge = document.getElementById('adminResumableBadge');
+    if (oldResumeBadge) oldResumeBadge.remove();
+    if (resumable.length > 0) {
+        const badge = document.createElement('span');
+        badge.id = 'adminResumableBadge';
+        badge.className = 'admin-badge warn';
+        badge.textContent = `복구 가능: ${resumable.length}개`;
+        statsEl.appendChild(badge);
+    }
+
+    // 재시작 버튼 활성/비활성
+    const btn = document.getElementById('adminRestartBtn');
+    if (data.safe_to_restart) {
+        btn.disabled = false;
+        btn.classList.add('safe');
+    } else {
+        btn.disabled = true;
+        btn.classList.remove('safe');
+    }
+
+    // 복구 가능 목록
+    const listEl = document.getElementById('resumableList');
+    if (resumable.length === 0) {
+        listEl.style.display = 'none';
+        listEl.innerHTML = '';
+    } else {
+        listEl.style.display = 'flex';
+        listEl.innerHTML = resumable.map(r => {
+            const ts = (r.updated_at || r.created_at || '').replace('T', ' ').slice(0, 16);
+            return `<div class="resumable-item">
+                <span class="resumable-item-info" title="${r.id} | ${r.session_id}">
+                    ${r.id} · S${r.current_stage} · ${ts}
+                </span>
+                <button class="btn btn-small" onclick="resumeRun('${r.id}')">재개</button>
+            </div>`;
+        }).join('');
+    }
+}
+
+async function adminRestart() {
+    if (!confirm('파이프라인이 없습니다. 서버를 재시작하시겠습니까?')) return;
+    const btn = document.getElementById('adminRestartBtn');
+    btn.disabled = true;
+    btn.textContent = '재시작 중...';
+    await adminFetch('POST', '/restart');
+    setTimeout(() => location.reload(), 3000);
+}
+
+async function resumeRun(runId) {
+    const data = await adminFetch('POST', `/resume/${runId}`);
+    if (data) alert(`재개 요청: ${runId}\n(현재 미구현 — DB 체크포인트만 조회됩니다)`);
+}
+
+// 초기 로드 + 5초 폴링
+pollAdminStatus();
+setInterval(pollAdminStatus, 5000);
 
 </script>
 
