@@ -6656,4 +6656,4 @@ if __name__ == "__main__":
     print(f"  http://localhost:{port}")
     print("  Ctrl+C to stop")
     print("=" * 60)
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port, timeout_graceful_shutdown=30)
