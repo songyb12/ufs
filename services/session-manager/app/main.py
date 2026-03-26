@@ -6,20 +6,25 @@ Windows 네이티브 - Claude CLI 세션을 웹 UI로 관리하는 프로그램
 import asyncio
 import json
 import os
+import re
+import shlex
 import shutil
 import signal
+import string
 import subprocess
 import sys
 import threading
 import time
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, Query, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -39,6 +44,10 @@ DATA_DIR = APP_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 SESSIONS_DIR = DATA_DIR / "sessions"
 SESSIONS_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR = DATA_DIR / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
+SCREENSHOTS_DIR = DATA_DIR / "screenshots"
+SCREENSHOTS_DIR.mkdir(exist_ok=True)
 PROJECTS_FILE = DATA_DIR / "projects.json"
 
 # 호스트 실행 시 .env 파일 로드 (Docker 외부)
@@ -60,13 +69,20 @@ CLAUDE_EXE = None  # 런타임에 탐색
 def load_projects() -> list[dict]:
     """저장된 프로젝트 목록 로드"""
     if PROJECTS_FILE.exists():
-        return json.loads(PROJECTS_FILE.read_text(encoding="utf-8"))
+        try:
+            return json.loads(PROJECTS_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            # 손상된 파일 보존 후 빈 목록 반환
+            PROJECTS_FILE.replace(PROJECTS_FILE.with_suffix(".json.bak"))
+            return []
     return []
 
 
 def save_projects(projects: list[dict]):
-    """프로젝트 목록 저장"""
-    PROJECTS_FILE.write_text(json.dumps(projects, ensure_ascii=False, indent=2), encoding="utf-8")
+    """프로젝트 목록 저장 (원자적 쓰기 — partial write 방지)"""
+    tmp = Path(str(PROJECTS_FILE) + ".tmp")
+    tmp.write_text(json.dumps(projects, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, PROJECTS_FILE)
 
 
 def find_claude_exe() -> str:
@@ -85,7 +101,10 @@ def find_claude_exe() -> str:
         claude_code_dir = Path(appdata) / "Claude" / "claude-code"
         if claude_code_dir.exists():
             # 버전 폴더들 중 가장 최신 선택
-            versions = sorted(claude_code_dir.iterdir(), reverse=True)
+            try:
+                versions = sorted(claude_code_dir.iterdir(), reverse=True)
+            except (PermissionError, OSError):
+                versions = []
             for v in versions:
                 exe = v / "claude.exe"
                 if exe.exists():
@@ -102,6 +121,7 @@ def find_claude_exe() -> str:
 
 SESSION_TTL_SECONDS = 3600  # 1시간 비활성 세션 자동 정리
 CLEANUP_INTERVAL = 300     # 5분마다 정리 실행
+CMP_SESSION_TTL_SECONDS = 600  # 비교(cmp-*) 세션은 완료 후 10분 TTL
 
 
 async def _cleanup_dead_sessions():
@@ -116,27 +136,43 @@ async def _cleanup_dead_sessions():
                 to_remove.append(sid)
                 continue
 
-            if not session.alive and not session.busy:
-                # created_at으로부터 TTL 초과 확인
-                try:
-                    created = datetime.fromisoformat(session.created_at)
-                    if (now - created).total_seconds() > SESSION_TTL_SECONDS:
-                        to_remove.append(sid)
-                except Exception:
-                    pass
-        for sid in to_remove:
             try:
-                sessions[sid].delete_state()
-                await sessions[sid].kill()
+                created = datetime.fromisoformat(session.created_at)
+                elapsed = (now - created).total_seconds()
             except Exception:
-                pass
-            sessions.pop(sid, None)
+                continue
+
+            if not session.alive and not session.busy:
+                # 죽은 세션 — 일반/cmp TTL 적용
+                ttl = CMP_SESSION_TTL_SECONDS if sid.startswith("cmp-") else SESSION_TTL_SECONDS
+                if elapsed > ttl:
+                    to_remove.append(sid)
+            elif sid.startswith("cmp-") and not session.busy and session._queue.empty():
+                # cmp-* 세션: alive이지만 비교 완료(idle) → 단기 TTL 적용
+                if elapsed > CMP_SESSION_TTL_SECONDS:
+                    to_remove.append(sid)
+            elif (sid.startswith("pw-") and not session.pipeline_id
+                  and not session.busy and session._queue.empty()):
+                # pw-* 세션: 파이프라인 종료 후 바인딩 해제된 idle worker → 단기 TTL 적용
+                if elapsed > CMP_SESSION_TTL_SECONDS:
+                    to_remove.append(sid)
+
+        for sid in to_remove:
+            s = sessions.pop(sid, None)
+            if s is None:
+                continue
+            try:
+                if s.alive:
+                    await s.kill()
+                s.delete_state()
+            except Exception as e:
+                print(f"  [cleanup] error removing session {sid}: {e}")
         if to_remove:
             print(f"  [cleanup] {len(to_remove)} dead session(s) removed")
 
         # 완료된 파이프라인도 정리
         pipe_remove = []
-        for pid, pipe in pipelines.items():
+        for pid, pipe in list(pipelines.items()):
             if pipe.status in ("completed", "failed", "stopped"):
                 try:
                     created = datetime.fromisoformat(pipe.created_at)
@@ -152,10 +188,19 @@ async def _cleanup_dead_sessions():
         # 죽은 Shell 세션 정리
         shell_remove = [sid for sid, sh in shell_sessions.items() if not sh.alive]
         for sid in shell_remove:
-            shell_sessions[sid].kill()
             shell_sessions.pop(sid, None)
         if shell_remove:
             print(f"  [cleanup] {len(shell_remove)} dead shell(s) removed")
+
+        # _session_create_log 오래된 IP 항목 정리 (1시간 이상 된 타임스탬프 제거)
+        old_threshold = time.time() - 3600
+        stale_ips = []
+        for ip, timestamps in _session_create_log.items():
+            _session_create_log[ip] = [t for t in timestamps if t > old_threshold]
+            if not _session_create_log[ip]:
+                stale_ips.append(ip)
+        for ip in stale_ips:
+            del _session_create_log[ip]
 
 
 @asynccontextmanager
@@ -184,17 +229,17 @@ async def lifespan(app):
                 sv_cleaned += 1
                 continue
 
+            # pw-* (파이프라인 전용 worker) → 재시작 후 불필요, 삭제
+            if sid.startswith("pw-"):
+                sf.unlink(missing_ok=True)
+                pw_converted += 1
+                continue
+
             session = ClaudeSession.load_state(sid)
 
-            # pw-* (고아 worker) → 파이프라인 바인딩 해제, 일반 세션으로 전환
-            if sid.startswith("pw-"):
-                session.pipeline_id = None
-                session.pipeline_role = None
-                pw_converted += 1
-
-            # 저장된 opus 모델 → 기본 모델로 전환 (구독 미지원 방지)
-            if session.model == "opus":
-                session.model = ""
+            # 서버 재시작 시 파이프라인 바인딩 해제 (파이프라인은 메모리 전용)
+            session.pipeline_id = None
+            session.pipeline_role = None
 
             session.start_worker()
             sessions[session.id] = session
@@ -207,7 +252,7 @@ async def lifespan(app):
     if sv_cleaned:
         print(f"  Cleaned {sv_cleaned} supervisor zombie file(s)")
     if pw_converted:
-        print(f"  Converted {pw_converted} orphan worker(s) to normal session(s)")
+        print(f"  Cleaned up {pw_converted} orphan worker session file(s)")
 
     # 자동 정리 태스크 시작
     cleanup_task = asyncio.create_task(_cleanup_dead_sessions())
@@ -228,6 +273,20 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Claude Session Manager", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
+
+
+# 정적 파일 서빙 (업로드, 스크린샷)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+app.mount("/screenshots", StaticFiles(directory=str(SCREENSHOTS_DIR)), name="screenshots")
 
 # 활성 세션 관리
 sessions: dict = {}
@@ -270,6 +329,7 @@ class CreateSessionRequest(BaseModel):
 
 class SendCommandRequest(BaseModel):
     command: str = Field(..., min_length=1, description="실행할 프롬프트")
+    attachments: list[str] = Field(default=[], description="첨부 파일 경로 목록")
 
 class GitExecRequest(BaseModel):
     path: str = Field(..., min_length=1)
@@ -288,6 +348,7 @@ class PipelineStartRequest(BaseModel):
     goal: str = Field(..., min_length=1)
     supervisor_model: str = "sonnet"
     max_iterations: int = Field(default=20, ge=1, le=100)
+    max_cycles: int = Field(default=100, ge=1, le=200)
     mode: str = Field(default="cli", pattern="^(api|cli)$")
 
 class ShellCreateRequest(BaseModel):
@@ -298,6 +359,9 @@ class ShellCreateRequest(BaseModel):
 
 class RenameSessionRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
+
+class ChangeModelRequest(BaseModel):
+    model: str = Field(..., max_length=80, description="적용할 모델명 (예: sonnet, opus, haiku, 빈 문자열=CLI 기본값)")
 
 class ForkSessionRequest(BaseModel):
     new_name: str = ""
@@ -315,6 +379,20 @@ class CompareRequest(BaseModel):
     models: list[str] = Field(default=["sonnet", "opus", "haiku"])
     work_dir: str = "."
     skip_permissions: bool = True
+
+class PlanPhaseStartRequest(BaseModel):
+    session_id: str = Field(..., min_length=1)
+    goal: str = Field(..., min_length=1)
+    mode: str = Field(default="cli", pattern="^(api|cli)$")
+    supervisor_model: str = "sonnet"
+
+class PlanPhaseAnswerRequest(BaseModel):
+    answers: dict[str, str]  # {"q1": "선택한 답변", "q2": "직접 입력", ...}
+
+class PlanPhaseApproveRequest(BaseModel):
+    plan_text: str | None = None  # 유저가 편집한 경우 (None이면 원본 사용)
+    max_iterations: int = Field(default=20, ge=1, le=100)
+    max_cycles: int = Field(default=100, ge=1, le=200)
 
 
 # ─── 세션 클래스 ─────────────────────────────────────────────────────────────────
@@ -355,6 +433,7 @@ class ClaudeSession:
         self.total_output_tokens = 0
         self.pipeline_id: Optional[str] = None       # 바인딩된 파이프라인 ID
         self.pipeline_role: Optional[str] = None      # None | "worker" | "supervisor"
+        self._output_event: asyncio.Event = asyncio.Event()  # WS 이벤트 기반 wake-up
 
     @property
     def _save_path(self) -> Path:
@@ -459,7 +538,11 @@ class ClaudeSession:
             cmd.extend(["--model", use_model])
 
         if self.mcp_config:
-            cmd.extend(["--mcp-config", self.mcp_config])
+            _mcp_path = Path(self.mcp_config).resolve()
+            _allowed_mcp = (APP_DIR, Path.home() / ".claude")
+            if not any(_mcp_path.is_relative_to(base) for base in _allowed_mcp):
+                raise RuntimeError(f"mcp_config 경로가 허용 범위 밖입니다: {_mcp_path}")
+            cmd.extend(["--mcp-config", str(_mcp_path)])
 
         # 이전 세션 이어가기
         if self.session_uuid:
@@ -525,7 +608,10 @@ class ClaudeSession:
                 all_output.append(decoded)
                 try:
                     event = json.loads(decoded)
-                    self._handle_stream_event(event)
+                    if isinstance(event, dict):
+                        self._handle_stream_event(event)
+                    else:
+                        self._append_output("text", decoded)
                 except json.JSONDecodeError:
                     self._append_output("text", decoded)
 
@@ -596,6 +682,8 @@ class ClaudeSession:
 
     def _handle_stream_event(self, event: dict):
         """stream-json 이벤트 처리"""
+        if not isinstance(event, dict):
+            return
         etype = event.get("type", "")
 
         if etype == "system":
@@ -701,9 +789,15 @@ class ClaudeSession:
             self.output_lines = self.output_lines[-self.max_lines:]
 
         self._output_version += 1
+        self._output_event.set()  # WS 핸들러 즉시 wake-up
 
         # 로그 파일 기록 (에러 시 무시 - 이벤트 루프 차단 방지)
         try:
+            _LOG_MAX = 10 * 1024 * 1024  # 10MB
+            if self.log_path.exists() and self.log_path.stat().st_size >= _LOG_MAX:
+                # 로테이션: 기존 파일을 .1로 교체, 새 파일 시작
+                rotated = self.log_path.with_suffix(".log.1")
+                self.log_path.replace(rotated)
             with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(f"[{entry['time']}] [{otype}] {text}\n")
         except Exception:
@@ -711,6 +805,8 @@ class ClaudeSession:
 
     async def send_prompt(self, prompt: str):
         """프롬프트를 큐에 추가"""
+        if not self.alive:
+            raise RuntimeError(f"세션 {self.id}가 종료된 상태입니다")
         await self._queue.put(prompt)
 
     async def interrupt(self):
@@ -746,6 +842,7 @@ class ClaudeSession:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 pass
         self.busy = False
+        self._output_event.set()  # 대기 중인 WebSocket 핸들러를 즉시 깨워 종료 감지
 
     def get_formatted_output(self, lines: int = 200) -> str:
         """포맷된 출력 텍스트"""
@@ -828,10 +925,12 @@ class ShellSession:
         self.rows = rows
         self.pty: Optional[PtyProcess] = None
         self._read_thread: Optional[threading.Thread] = None
-        self._buffer: list[str] = []  # 최근 출력 버퍼
+        self._buffer: deque = deque()  # 최근 출력 버퍼 (deque: popleft O(1))
         self._buffer_lock = threading.Lock()
         self._max_buffer = 50000  # 최대 버퍼 문자 수
         self._subscribers: list[asyncio.Queue] = []  # WebSocket 구독자 큐
+        self._subscribers_lock = threading.Lock()  # _read_loop 스레드와의 경합 방지
+        self._loop: Optional[asyncio.AbstractEventLoop] = None  # call_soon_threadsafe 용
 
     def start(self):
         """PTY 프로세스 시작"""
@@ -851,6 +950,7 @@ class ShellSession:
             cwd=cwd,
         )
         self.alive = True
+        self._loop = asyncio.get_event_loop()  # 스레드에서 call_soon_threadsafe 사용 위해 캡처
 
         # stdout 읽기 스레드 시작
         self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
@@ -862,11 +962,17 @@ class ShellSession:
             self._buffer.append(data)
             total = sum(len(s) for s in self._buffer)
             while total > self._max_buffer and len(self._buffer) > 1:
-                removed = self._buffer.pop(0)
+                removed = self._buffer.popleft()  # deque: O(1) (기존 list.pop(0)은 O(n))
                 total -= len(removed)
-        for q in self._subscribers[:]:
+        with self._subscribers_lock:
+            subscribers_snapshot = list(self._subscribers)
+        for q in subscribers_snapshot:
             try:
-                q.put_nowait(data)
+                # 스레드에서 asyncio.Queue에 안전하게 접근 (call_soon_threadsafe)
+                if self._loop and self._loop.is_running():
+                    self._loop.call_soon_threadsafe(q.put_nowait, data)
+                else:
+                    q.put_nowait(data)
             except Exception:
                 pass
 
@@ -892,7 +998,8 @@ class ShellSession:
                         last_flush = now
             except EOFError:
                 break
-            except Exception:
+            except Exception as e:
+                print(f"[shell {self.id}] _read_loop unexpected error: {e}")
                 break
 
         # 남은 버퍼 flush
@@ -909,7 +1016,9 @@ class ShellSession:
             pass
 
         # 종료 신호를 구독자에게 전달
-        for q in self._subscribers[:]:
+        with self._subscribers_lock:
+            subscribers_snapshot = list(self._subscribers)
+        for q in subscribers_snapshot:
             try:
                 q.put_nowait(None)
             except Exception:
@@ -930,13 +1039,15 @@ class ShellSession:
     def subscribe(self) -> asyncio.Queue:
         """WebSocket 구독자 등록"""
         q: asyncio.Queue = asyncio.Queue(maxsize=1000)
-        self._subscribers.append(q)
+        with self._subscribers_lock:
+            self._subscribers.append(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue):
         """WebSocket 구독자 해제"""
-        if q in self._subscribers:
-            self._subscribers.remove(q)
+        with self._subscribers_lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
 
     def get_buffer(self) -> str:
         """현재 버퍼 내용 반환"""
@@ -988,11 +1099,99 @@ _SUPERVISOR_SYSTEM = """당신은 텍스트 생성기입니다. 도구를 사용
 ## 진행 규칙
 - 이전 CLI 결과를 분석하여 다음 단계를 결정하세요
 - 에러가 발생했으면 복구/수정 프롬프트를 생성하세요
-- 목표가 완전히 달성되었으면: PIPELINE_DONE: [완료 요약]
+- 사이클이 마지막({cycle}/{max_cycles})이 아닌 이상 절대 PIPELINE_DONE을 출력하지 마세요
+- 진행 중인 작업이 없더라도 목표를 더 완성도 있게 다듬는 다음 프롬프트를 계속 생성하세요
+- 목표가 완전히 달성되었고 마지막 사이클이면: PIPELINE_DONE: [완료 요약]
 
 ## 현재 상태
+- 사이클: {cycle}/{max_cycles}
 - 반복: {iteration}/{max_iterations}
 - 작업자 CLI 작업 디렉토리: {work_dir}"""
+
+
+# ─── 계획 수립 시스템 프롬프트 ────────────────────────────────────────────────────
+
+_PLAN_QUESTIONS_SYSTEM = """당신은 소프트웨어 프로젝트 분석가입니다. 도구를 사용하지 마세요. 코드를 실행하지 마세요.
+오직 JSON만 출력하세요.
+
+사용자의 목표를 분석하고, 실행 계획을 세우기 전에 명확히 해야 할 질문들을 생성하세요.
+사람은 실수하거나 놓치는 부분이 있으므로, 다양한 관점에서 질문하세요.
+
+## 목표
+{goal}
+
+## 작업 디렉토리
+{work_dir}
+
+## 프로젝트 컨텍스트
+{project_context}
+
+## 출력 형식 (반드시 JSON만 출력)
+```json
+{{
+  "questions": [
+    {{
+      "id": "q1",
+      "question": "구체적인 질문 텍스트",
+      "why": "이 질문이 중요한 이유 (한 줄)",
+      "options": [
+        {{"label": "선택지 제목", "description": "선택지 설명"}},
+        {{"label": "선택지 제목", "description": "선택지 설명"}}
+      ]
+    }}
+  ]
+}}
+```
+
+## 규칙
+- 5~10개의 질문을 생성하세요
+- 각 질문에 2~4개의 예상 답변(options)을 제공하세요
+- 프로젝트 컨텍스트를 참고하여 현실적인 옵션을 추천하세요
+- 질문은 구체적이고 실행 가능해야 합니다
+- 아키텍처, 기술 선택, 범위, 우선순위, 에러 처리, 테스트 등 다양한 관점을 포함하세요
+- JSON 외의 텍스트(설명, 머리말, 꼬리말)를 절대 출력하지 마세요"""
+
+_PLAN_GENERATION_SYSTEM = """당신은 소프트웨어 프로젝트 설계자입니다. 도구를 사용하지 마세요. 코드를 실행하지 마세요.
+오직 마크다운 형식의 실행 계획만 출력하세요.
+
+사용자의 목표와 질의응답 결과를 바탕으로, 구체적인 단계별 실행 계획을 생성하세요.
+
+## 목표
+{goal}
+
+## 작업 디렉토리
+{work_dir}
+
+## 프로젝트 컨텍스트
+{project_context}
+
+## 질의응답 결과
+{qa_summary}
+
+## 출력 형식 (마크다운)
+실행 계획을 다음 구조로 작성하세요:
+
+### 요약
+- 한 줄 요약
+
+### 단계별 계획
+1. **단계 제목** - 설명
+   - 대상 파일/경로
+   - 구체적 작업 내용
+2. **단계 제목** - 설명
+   ...
+
+### 주의사항
+- 리스크, 의존성, 주의점
+
+### 예상 결과
+- 완료 시 기대 결과
+
+## 규칙
+- 각 단계는 Claude CLI가 한 번의 프롬프트로 수행할 수 있는 크기여야 합니다
+- 파일 경로와 작업 내용을 구체적으로 명시하세요
+- 불필요한 단계를 추가하지 마세요
+- 설명이나 머리말 없이 바로 계획을 출력하세요"""
 
 
 class PipelineRunner:
@@ -1011,13 +1210,15 @@ class PipelineRunner:
 
     def __init__(self, source_session: ClaudeSession, goal: str,
                  supervisor_model: str, max_iterations: int,
-                 mode: str = "api"):
+                 mode: str = "api", max_cycles: int = 100):
         self.id = str(uuid.uuid4())[:8]
-        self._source_session = source_session  # 참조용 원본 세션 (설정 복사 목적)
-        self.session: Optional[ClaudeSession] = None  # 전용 worker 세션 (start()에서 생성)
+        self._source_session = source_session  # 원본 세션 (사용자가 선택한 세션)
+        self.session: Optional[ClaudeSession] = None  # pw-* 전용 worker (start()에서 생성)
         self.goal = goal
         self.supervisor_model = supervisor_model
         self.max_iterations = max_iterations
+        self.max_cycles = max_cycles
+        self.current_cycle = 1
         self.mode = mode                # "api" | "cli"
         self.iteration = 0
         self.status = "idle"            # idle | running | completed | failed | stopped
@@ -1032,7 +1233,11 @@ class PipelineRunner:
         self._max_supervisor_retries = 3
 
     def _create_worker_session(self) -> ClaudeSession:
-        """파이프라인 전용 worker 세션 생성 — 원본 세션의 설정을 복사"""
+        """파이프라인 전용 worker 세션(pw-*) 생성
+
+        원본 세션의 work_dir/model/skip_permissions/mcp_config를 상속.
+        sessions dict에 등록하여 UI에서 실시간 출력 확인 가능.
+        """
         src = self._source_session
         wid = f"pw-{self.id}"
         worker = ClaudeSession(
@@ -1044,15 +1249,20 @@ class PipelineRunner:
         worker.pipeline_id = self.id
         worker.pipeline_role = "worker"
         worker.start_worker()
-        # sessions dict에 등록 (UI에서 확인 가능)
         sessions[wid] = worker
         worker.save_state()
         return worker
 
     def start(self):
         self.status = "running"
-        self.session = self._create_worker_session()
-        # 원본 세션에 파이프라인 바인딩 마킹
+        try:
+            # 전용 worker 세션 생성 (원본 세션은 계속 사용 가능)
+            self.session = self._create_worker_session()
+        except Exception as e:
+            self.status = "failed"
+            self._add_history("error", f"worker 세션 생성 실패: {str(e)}")
+            raise  # 호출자(start_pipeline)에서 HTTPException으로 변환
+        # 원본 세션에 파이프라인 바인딩 표시 (중복 시작 방지용)
         self._source_session.pipeline_id = self.id
         self._source_session.save_state()
         if self.mode == "cli":
@@ -1066,9 +1276,9 @@ class PipelineRunner:
         오버라이드하여 좀비 파일을 방지한다.
         """
         sid = f"sv-{self.id}"
-        sv = ClaudeSession(sid, self.session.work_dir, self.supervisor_model,
+        sv = ClaudeSession(sid, self._source_session.work_dir, self.supervisor_model,
                            no_tools=True,
-                           skip_permissions=self.session.skip_permissions)
+                           skip_permissions=self._source_session.skip_permissions)
         sv.pipeline_id = self.id
         sv.pipeline_role = "supervisor"
         sv.save_state = lambda: None  # 디스크에 좀비 파일 방지
@@ -1080,9 +1290,11 @@ class PipelineRunner:
         self._stop_flag = True
         self.status = "stopped"
         self._add_history("system", "파이프라인이 사용자에 의해 중단되었습니다.")
-        # 감독자 세션도 종료
+        # 감독자/worker 세션 실행 중단 (finally에서 완전 정리됨)
         if self._supervisor_session:
             await self._supervisor_session.kill()
+        if self.session:
+            await self.session.interrupt()
 
     def _add_history(self, role: str, content: str):
         self.history.append({
@@ -1106,6 +1318,8 @@ class PipelineRunner:
         for _ in range(60):
             if self._stop_flag:
                 return "[파이프라인 중단됨]"
+            if not session.alive:
+                return "[세션 종료]"
             if session.busy or session._output_version != version_before:
                 break
             await asyncio.sleep(0.5)
@@ -1114,6 +1328,8 @@ class PipelineRunner:
         while session.busy:
             if self._stop_flag:
                 return "[파이프라인 중단됨]"
+            if not session.alive:
+                return "[세션 종료]"
             if time.time() - start > timeout:
                 self._add_history("system", f"세션 실행 시간 초과 ({timeout}초)")
                 return "[시간 초과]"
@@ -1124,10 +1340,26 @@ class PipelineRunner:
     # ─── 메인 루프 ─────────────────────────────────────
 
     async def _run_loop(self):
-        """메인 파이프라인 루프 — mode에 따라 감독자 방식 분기"""
+        """메인 파이프라인 루프 — mode에 따라 감독자 방식 분기, 자동 사이클"""
         last_output = ""
         try:
-            while self.iteration < self.max_iterations and not self._stop_flag:
+            while not self._stop_flag:
+                # 사이클 내 max_iterations 도달 → 자동 사이클 전환
+                if self.iteration >= self.max_iterations:
+                    if self.current_cycle < self.max_cycles:
+                        self.current_cycle += 1
+                        self.iteration = 0
+                        self._supervisor_retries = 0
+                        self._add_history("system",
+                            f"=== 사이클 {self.current_cycle}/{self.max_cycles} 시작 ===")
+                        continue
+                    else:
+                        total = (self.current_cycle - 1) * self.max_iterations + self.iteration
+                        self.status = "completed"
+                        self.summary = f"최대 사이클({self.max_cycles})×반복({self.max_iterations})={total}회 도달하여 종료"
+                        self._add_history("system", self.summary)
+                        return
+
                 self.iteration += 1
 
                 # 1. 감독자 호출
@@ -1149,29 +1381,41 @@ class PipelineRunner:
                 self._supervisor_retries = 0
                 self._add_history("supervisor", supervisor_response)
 
-                # 2. DONE 체크
+                # 2. DONE 체크 (마지막 사이클에서만 허용)
                 if "PIPELINE_DONE:" in supervisor_response:
-                    idx = supervisor_response.index("PIPELINE_DONE:")
-                    self.summary = supervisor_response[idx + len("PIPELINE_DONE:"):].strip()
-                    self.status = "completed"
-                    self._add_history("system", f"파이프라인 완료: {self.summary}")
-                    return
+                    if self.current_cycle >= self.max_cycles:
+                        idx = supervisor_response.index("PIPELINE_DONE:")
+                        self.summary = supervisor_response[idx + len("PIPELINE_DONE:"):].strip()
+                        self.status = "completed"
+                        self._add_history("system", f"파이프라인 완료: {self.summary}")
+                        return
+                    else:
+                        # 조기 DONE 무시 — 다음 iteration에서 supervisor 재호출
+                        self._add_history("system",
+                            f"감독자 조기 완료 신호 무시 (사이클 {self.current_cycle}/{self.max_cycles})")
+                        last_output = f"[사이클 {self.current_cycle}/{self.max_cycles} 진행 중 — 계속 작업하세요]"
+                        continue
 
-                # 3. 작업자 CLI에 프롬프트 전달
+                # 3. 작업자 CLI에 프롬프트 전달 (선택한 세션에 직접)
                 await self.session.send_prompt(supervisor_response)
 
                 # 4. 작업자 CLI 완료 대기
                 last_output = await self._wait_for_session(self.session)
+                # worker 세션이 비정상 종료된 경우 파이프라인 실패 처리
+                if last_output == "[세션 종료]":
+                    self.status = "failed"
+                    self._add_history("error", "worker 세션(pw-*)이 예기치 않게 종료되었습니다.")
+                    return
                 self._add_history("cli_result", last_output)
 
-            # 최대 반복 도달
-            if self.iteration >= self.max_iterations and not self._stop_flag:
-                self.status = "completed"
-                self.summary = f"최대 반복 횟수({self.max_iterations})에 도달하여 종료"
-                self._add_history("system", self.summary)
-
+        except asyncio.CancelledError:
+            # 외부 태스크 취소(서버 shutdown 등) — finally 정리 후 재전파
+            self.status = "stopped"
+            raise
         except Exception as e:
-            self.status = "failed"
+            # stop()이 이미 status="stopped"를 설정한 경우 덮어쓰지 않음
+            if not self._stop_flag:
+                self.status = "failed"
             self._add_history("error", f"파이프라인 오류: {str(e)}")
         finally:
             # 감독자 CLI 세션 정리 (kill + 디스크에서 삭제)
@@ -1179,13 +1423,13 @@ class PipelineRunner:
                 await self._supervisor_session.kill()
                 self._supervisor_session.delete_state()
 
-            # worker 세션의 파이프라인 바인딩 해제 (세션 자체는 살려둠)
+            # worker 세션(pw-*) 파이프라인 바인딩 해제 (세션 자체는 유지 — UI에서 출력 확인 가능)
             if self.session:
                 self.session.pipeline_id = None
                 self.session.pipeline_role = None
                 self.session.save_state()
 
-            # 원본 세션의 파이프라인 바인딩도 해제
+            # 원본 세션 파이프라인 바인딩 해제 (다시 일반 세션으로)
             if self._source_session:
                 self._source_session.pipeline_id = None
                 self._source_session.save_state()
@@ -1212,9 +1456,11 @@ class PipelineRunner:
 
         system_prompt = _SUPERVISOR_SYSTEM.format(
             goal=self.goal,
+            cycle=self.current_cycle,
+            max_cycles=self.max_cycles,
             iteration=self.iteration,
             max_iterations=self.max_iterations,
-            work_dir=self.session.work_dir,
+            work_dir=self._source_session.work_dir,
         )
 
         messages = self._build_messages(last_output)
@@ -1226,6 +1472,8 @@ class PipelineRunner:
             messages=messages,
         )
 
+        if not response.content:
+            raise RuntimeError("Anthropic API가 빈 content를 반환했습니다")
         return response.content[0].text.strip()
 
     async def _call_supervisor_cli(self, last_output: str) -> str:
@@ -1237,15 +1485,17 @@ class PipelineRunner:
         # 감독자에게 보낼 메시지 구성
         system_context = _SUPERVISOR_SYSTEM.format(
             goal=self.goal,
+            cycle=self.current_cycle,
+            max_cycles=self.max_cycles,
             iteration=self.iteration,
             max_iterations=self.max_iterations,
-            work_dir=self.session.work_dir,
+            work_dir=self._source_session.work_dir,
         )
 
         if last_output:
             prompt = (
                 f"{system_context}\n\n"
-                f"---\n[반복 {self.iteration}/{self.max_iterations}]\n"
+                f"---\n[사이클 {self.current_cycle}/{self.max_cycles} | 반복 {self.iteration}/{self.max_iterations}]\n"
                 f"작업자 CLI 실행 결과 (최근):\n"
                 f"{last_output[-3000:]}\n\n"
                 f"위 결과를 분석하고, 다음에 작업자 CLI에 보낼 프롬프트를 생성하세요. "
@@ -1254,7 +1504,7 @@ class PipelineRunner:
         else:
             prompt = (
                 f"{system_context}\n\n"
-                f"---\n[반복 {self.iteration}/{self.max_iterations}]\n"
+                f"---\n[사이클 {self.current_cycle}/{self.max_cycles} | 반복 {self.iteration}/{self.max_iterations}]\n"
                 f"목표를 달성하기 위한 첫 번째 작업자 CLI 프롬프트를 생성하세요. "
                 f"프롬프트 본문만 출력하세요."
             )
@@ -1278,7 +1528,6 @@ class PipelineRunner:
 
         도구 호출 XML이 텍스트로 출력된 경우 필터링.
         """
-        import re
         response_parts = []
         for entry in reversed(sv.output_lines):
             if entry["type"] in ("assistant", "result"):
@@ -1327,27 +1576,294 @@ class PipelineRunner:
                 messages.append({"role": "user", "content": h["content"]})
 
         if last_output:
-            user_msg = f"[반복 {self.iteration}/{self.max_iterations}]\nCLI 실행 결과:\n{last_output[-3000:]}"
+            user_msg = f"[사이클 {self.current_cycle}/{self.max_cycles} | 반복 {self.iteration}/{self.max_iterations}]\nCLI 실행 결과:\n{last_output[-3000:]}"
         else:
-            user_msg = f"[반복 {self.iteration}/{self.max_iterations}]\n목표를 달성하기 위한 첫 번째 프롬프트를 생성하세요."
+            user_msg = f"[사이클 {self.current_cycle}/{self.max_cycles} | 반복 {self.iteration}/{self.max_iterations}]\n목표를 달성하기 위한 첫 번째 프롬프트를 생성하세요."
         messages.append({"role": "user", "content": user_msg})
         return messages
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
-            "session_id": self.session.id if self.session else None,
-            "source_session_id": self._source_session.id if self._source_session else None,
+            "session_id": self.session.id if self.session else None,           # pw-* worker 세션 ID
+            "source_session_id": self._source_session.id,                      # 원본 세션 ID
             "goal": self.goal,
             "supervisor_model": self.supervisor_model,
             "mode": self.mode,
             "status": self.status,
             "iteration": self.iteration,
             "max_iterations": self.max_iterations,
+            "current_cycle": self.current_cycle,
+            "max_cycles": self.max_cycles,
+            "total_iterations": (self.current_cycle - 1) * self.max_iterations + self.iteration,
             "summary": self.summary,
             "created_at": self.created_at,
             "history": self.history[-50:],
             "supervisor_retries": self._supervisor_retries,
+        }
+
+
+# ─── 계획 수립 엔진 (Plan Phase) ──────────────────────────────────────────────────
+
+plan_phases: dict = {}
+
+class PlanPhase:
+    """목표 분석 → 질의 생성 → 답변 수집 → 실행계획 생성 → 승인 → 파이프라인 실행
+
+    상태 머신:
+    questions_generating → questions_ready → plan_generating → plan_ready → approved / error
+    """
+
+    def __init__(self, source_session: ClaudeSession, goal: str,
+                 mode: str = "cli", supervisor_model: str = "sonnet"):
+        self.id = f"plan-{str(uuid.uuid4())[:8]}"
+        self._source_session = source_session
+        self.goal = goal
+        self.mode = mode
+        self.supervisor_model = supervisor_model
+        self.status = "idle"
+        self.questions: list[dict] = []
+        self.answers: dict[str, str] = {}
+        self.plan_text = ""
+        self.error = ""
+        self.pipeline_id: str | None = None
+        self.created_at = datetime.now().isoformat()
+        self._task: Optional[asyncio.Task] = None
+        self._supervisor_session: Optional[ClaudeSession] = None
+
+    def start(self):
+        """질문 생성 시작"""
+        self.status = "questions_generating"
+        self._task = asyncio.create_task(self._generate_questions())
+
+    async def submit_answers(self, answers: dict[str, str]):
+        """답변 제출 → 실행계획 생성 시작"""
+        self.answers = answers
+        self.status = "plan_generating"
+        self._task = asyncio.create_task(self._generate_plan())
+
+    async def approve(self, plan_text: str | None,
+                      max_iterations: int, max_cycles: int) -> str:
+        """계획 승인 → PipelineRunner 생성/시작"""
+        if plan_text is not None:
+            self.plan_text = plan_text
+
+        # enriched goal 구성
+        qa_text = "\n".join(
+            f"Q: {self._find_question_text(qid)}\nA: {ans}"
+            for qid, ans in self.answers.items()
+        )
+        enriched_goal = (
+            f"## 원래 목표\n{self.goal}\n\n"
+            f"## 명확화 Q&A\n{qa_text}\n\n"
+            f"## 실행 계획\n{self.plan_text}"
+        )
+
+        session = self._source_session
+        runner = PipelineRunner(session, enriched_goal, self.supervisor_model,
+                                max_iterations, self.mode, max_cycles)
+        pipelines[runner.id] = runner
+        runner.start()
+        self.pipeline_id = runner.id
+        self.status = "approved"
+        return runner.id
+
+    async def regenerate(self):
+        """계획 재생성"""
+        self.status = "plan_generating"
+        self._task = asyncio.create_task(self._generate_plan())
+
+    # ─── LLM 호출 ──────────────────────────────────────
+
+    async def _generate_questions(self):
+        """LLM으로 질의 생성"""
+        try:
+            project_context = self._get_project_context()
+            system_prompt = _PLAN_QUESTIONS_SYSTEM.format(
+                goal=self.goal,
+                work_dir=self._source_session.work_dir,
+                project_context=project_context,
+            )
+            messages = [{"role": "user", "content": f"다음 목표에 대해 명확화 질문을 생성해주세요:\n{self.goal}"}]
+            raw = await self._call_llm(system_prompt, messages)
+            self.questions = self._parse_questions_json(raw)
+            self.status = "questions_ready"
+        except Exception as e:
+            self.error = str(e)
+            self.status = "error"
+        finally:
+            await self._cleanup_supervisor()
+
+    async def _generate_plan(self):
+        """LLM으로 실행계획 생성"""
+        try:
+            project_context = self._get_project_context()
+            qa_summary = "\n".join(
+                f"Q: {self._find_question_text(qid)}\nA: {ans}"
+                for qid, ans in self.answers.items()
+            )
+            system_prompt = _PLAN_GENERATION_SYSTEM.format(
+                goal=self.goal,
+                work_dir=self._source_session.work_dir,
+                project_context=project_context,
+                qa_summary=qa_summary,
+            )
+            messages = [{"role": "user", "content": f"목표와 Q&A를 바탕으로 실행 계획을 생성해주세요."}]
+            raw = await self._call_llm(system_prompt, messages)
+            self.plan_text = raw.strip()
+            self.status = "plan_ready"
+        except Exception as e:
+            self.error = str(e)
+            self.status = "error"
+        finally:
+            await self._cleanup_supervisor()
+
+    async def _call_llm(self, system_prompt: str, messages: list[dict]) -> str:
+        """API/CLI 모드 분기 LLM 호출"""
+        if self.mode == "api":
+            return await self._call_llm_api(system_prompt, messages)
+        else:
+            return await self._call_llm_cli(system_prompt, messages)
+
+    async def _call_llm_api(self, system_prompt: str, messages: list[dict]) -> str:
+        """Anthropic API 비동기 호출"""
+        try:
+            import anthropic
+        except ImportError:
+            raise RuntimeError("anthropic 패키지 미설치. pip install anthropic")
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("LLM_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY 환경변수 미설정")
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+
+        response = await client.messages.create(
+            model=self.supervisor_model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
+        )
+        if not response.content:
+            raise RuntimeError("Anthropic API가 빈 content를 반환했습니다")
+        return response.content[0].text.strip()
+
+    async def _call_llm_cli(self, system_prompt: str, messages: list[dict]) -> str:
+        """CLI 세션으로 LLM 호출"""
+        if not CLAUDE_EXE:
+            raise RuntimeError("Claude CLI를 찾을 수 없습니다")
+
+        sid = f"plan-sv-{self.id}"
+        sv = ClaudeSession(sid, self._source_session.work_dir, self.supervisor_model,
+                           no_tools=True,
+                           skip_permissions=self._source_session.skip_permissions)
+        sv.save_state = lambda: None
+        sv.start_worker()
+        self._supervisor_session = sv
+
+        prompt = f"{system_prompt}\n\n---\n{messages[0]['content']}"
+        await sv.send_prompt(prompt)
+
+        # 완료 대기 — Phase 1: 세션 시작 감지, Phase 2: 완료 대기
+        start_wait = time.time()
+        version_before = sv._output_version
+
+        # Phase 1: busy=True 또는 새 출력이 나올 때까지 최대 30초 대기 (CLI 시작 지연 대비)
+        for _ in range(60):
+            if sv.busy or sv._output_version != version_before:
+                break
+            await asyncio.sleep(0.5)
+
+        # Phase 2: busy=False가 될 때까지 최대 3분 대기
+        while sv.busy:
+            if time.time() - start_wait > 180:
+                break
+            await asyncio.sleep(1)
+
+        # 응답 추출: 마지막 프롬프트 경계(>>> 시스템 메시지) 이후의 assistant/result만 수집
+        response_parts = []
+        for entry in reversed(sv.output_lines):
+            if entry["type"] in ("assistant", "result"):
+                response_parts.insert(0, entry["text"])
+            elif entry["type"] == "system" and ">>>" in entry["text"]:
+                break  # 프롬프트 전송 경계 — 이전 출력 제외
+        result = "\n".join(response_parts).strip()
+
+        if not result:
+            raise RuntimeError("CLI 감독자가 빈 응답을 반환했습니다")
+        return result
+
+    async def _cleanup_supervisor(self):
+        """CLI 감독자 세션 정리"""
+        if self._supervisor_session:
+            sv = self._supervisor_session
+            self._supervisor_session = None  # 중복 정리 방지
+            try:
+                await sv.kill()
+            except Exception:
+                pass
+
+    # ─── 유틸리티 ──────────────────────────────────────
+
+    def _get_project_context(self) -> str:
+        """CLAUDE.md 등에서 프로젝트 컨텍스트 추출"""
+        context_parts = []
+        work_dir = self._source_session.work_dir
+        for name in ["CLAUDE.md", "README.md"]:
+            fpath = os.path.join(work_dir, name)
+            if os.path.isfile(fpath):
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        content = f.read(3000)
+                    context_parts.append(f"=== {name} ===\n{content}")
+                except Exception:
+                    pass
+        return "\n\n".join(context_parts) if context_parts else "(프로젝트 컨텍스트 없음)"
+
+    def _find_question_text(self, qid: str) -> str:
+        """질문 ID로 질문 텍스트 찾기"""
+        for q in self.questions:
+            if q.get("id") == qid:
+                return q.get("question", qid)
+        return qid
+
+    def _parse_questions_json(self, raw: str) -> list[dict]:
+        """LLM 응답에서 질문 JSON 파싱"""
+        # markdown code fence 제거
+        match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
+        text = match.group(1) if match else raw
+
+        try:
+            data = json.loads(text.strip())
+        except json.JSONDecodeError:
+            # 한 번 더 시도: 앞뒤 텍스트 제거 후 JSON 블록만 추출
+            json_match = re.search(r'\{[\s\S]*\}', text)
+            if json_match:
+                data = json.loads(json_match.group())
+            else:
+                raise RuntimeError(f"JSON 파싱 실패: {text[:200]}")
+
+        questions = data.get("questions", [])
+        for i, q in enumerate(questions):
+            q.setdefault("id", f"q{i+1}")
+            q.setdefault("question", "")
+            q.setdefault("why", "")
+            q.setdefault("options", [])
+        return questions
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "session_id": self._source_session.id,
+            "goal": self.goal,
+            "mode": self.mode,
+            "supervisor_model": self.supervisor_model,
+            "status": self.status,
+            "questions": self.questions,
+            "answers": self.answers,
+            "plan_text": self.plan_text,
+            "error": self.error,
+            "pipeline_id": self.pipeline_id,
+            "created_at": self.created_at,
         }
 
 
@@ -1385,7 +1901,7 @@ async def stats():
 
 @app.get("/api/sessions")
 async def list_sessions():
-    return [s.to_dict() for s in sessions.values()]
+    return [s.to_dict() for s in list(sessions.values())]
 
 
 @app.post("/api/sessions")
@@ -1430,9 +1946,69 @@ async def send_command(session_id: str, body: SendCommandRequest):
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="세션 없음")
 
+    prompt = body.command
+    if body.attachments:
+        safe_paths = []
+        for p in body.attachments:
+            try:
+                resolved = Path(p).resolve()
+                if resolved.is_relative_to(UPLOADS_DIR) or resolved.is_relative_to(SCREENSHOTS_DIR):
+                    safe_paths.append(str(resolved))
+                # else: 범위 밖 경로 무시
+            except Exception:
+                pass
+        if safe_paths:
+            file_refs = "\n".join(f"- {p}" for p in safe_paths)
+            prompt = f"다음 파일을 확인하세요:\n{file_refs}\n\n{prompt}"
+
     session = sessions[session_id]
-    await session.send_prompt(body.command)
+    if not session.alive:
+        raise HTTPException(status_code=409, detail="세션이 종료된 상태입니다")
+    await session.send_prompt(prompt)
     return {"status": "queued", "queue_size": session._queue.qsize()}
+
+
+@app.post("/api/sessions/{session_id}/upload")
+async def upload_file(session_id: str, file: UploadFile = File(...)):
+    """파일 업로드 — 이미지, PDF, 텍스트 등"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="세션 없음")
+
+    allowed = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf", ".txt", ".md"}
+    ext = Path(file.filename or "unknown").suffix.lower()
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail=f"허용되지 않은 파일 형식: {ext}")
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="파일 크기 10MB 초과")
+
+    # 파일명 정규화 — path traversal 차단
+    raw_name = file.filename or "upload"
+    base_name = os.path.basename(raw_name.replace("\\", "/"))  # Windows 경로 구분자도 처리
+    if not base_name or ".." in base_name:
+        raise HTTPException(status_code=400, detail="잘못된 파일명")
+
+    session_dir = UPLOADS_DIR / session_id
+    session_dir.mkdir(exist_ok=True)
+    if session_dir.exists() and len(list(session_dir.iterdir())) >= 50:
+        raise HTTPException(status_code=429, detail="업로드 파일 수 한도 초과 (최대 50개)")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = f"{ts}_{base_name}"
+    filepath = session_dir / safe_name
+
+    # resolved path가 upload 디렉토리 밖이면 거부 (심볼릭 링크 등 우회 방지)
+    if not filepath.resolve().is_relative_to(session_dir.resolve()):
+        raise HTTPException(status_code=400, detail="잘못된 파일 경로")
+
+    filepath.write_bytes(content)
+
+    return {
+        "filename": safe_name,
+        "path": str(filepath.resolve()),
+        "url": f"/uploads/{session_id}/{safe_name}",
+        "size": len(content),
+    }
 
 
 @app.post("/api/sessions/{session_id}/interrupt")
@@ -1461,6 +2037,19 @@ async def rename_session(session_id: str, body: RenameSessionRequest):
     return {"status": "renamed", "name": body.name.strip()}
 
 
+@app.patch("/api/sessions/{session_id}/model")
+async def change_session_model(session_id: str, body: ChangeModelRequest):
+    """세션 모델 변경"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="세션 없음")
+    new_model = body.model.strip()
+    sessions[session_id].model = new_model
+    # 다음 실행부터 새 모델 적용 (session_uuid 리셋하여 새 세션으로)
+    sessions[session_id].session_uuid = None
+    sessions[session_id].save_state()
+    return {"status": "model_changed", "model": new_model}
+
+
 @app.get("/api/sessions/{session_id}/export")
 async def export_session(session_id: str):
     """세션 대화를 Markdown으로 내보내기"""
@@ -1471,10 +2060,12 @@ async def export_session(session_id: str):
 
 
 @app.post("/api/sessions/{session_id}/fork")
-async def fork_session(session_id: str, body: ForkSessionRequest):
+async def fork_session(session_id: str, body: ForkSessionRequest, request: Request):
     """세션 복제 — 대화 기록과 session_uuid를 복사하여 분기"""
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="세션 없음")
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_ip)
     src = sessions[session_id]
     new_id = str(uuid.uuid4())[:8]
     forked = ClaudeSession(new_id, src.work_dir, src.model,
@@ -1499,13 +2090,20 @@ TEMPLATES_FILE = DATA_DIR / "templates.json"
 
 def _load_templates() -> list[dict]:
     if TEMPLATES_FILE.exists():
-        return json.loads(TEMPLATES_FILE.read_text(encoding="utf-8"))
+        try:
+            return json.loads(TEMPLATES_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            # 손상된 파일 보존 후 빈 목록 반환
+            TEMPLATES_FILE.replace(TEMPLATES_FILE.with_suffix(".json.bak"))
+            return []
     return []
 
 
 def _save_templates(templates: list[dict]):
-    TEMPLATES_FILE.write_text(json.dumps(templates, ensure_ascii=False, indent=2),
-                              encoding="utf-8")
+    """템플릿 저장 (원자적 쓰기 — partial write 방지)"""
+    tmp = Path(str(TEMPLATES_FILE) + ".tmp")
+    tmp.write_text(json.dumps(templates, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, TEMPLATES_FILE)
 
 
 @app.get("/api/templates")
@@ -1546,7 +2144,8 @@ async def get_claude_md(session_id: str):
         try:
             content = claude_md.read_text(encoding="utf-8")
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            print(f"ERROR [get_claude_md]: {e}")
+            raise HTTPException(status_code=500, detail="내부 서버 오류가 발생했습니다")
     return {"content": content, "path": str(claude_md)}
 
 
@@ -1560,17 +2159,28 @@ async def update_claude_md(session_id: str, body: ClaudeMdRequest):
     try:
         claude_md.write_text(body.content, encoding="utf-8")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"ERROR [update_claude_md]: {e}")
+        raise HTTPException(status_code=500, detail="내부 서버 오류가 발생했습니다")
     return {"status": "saved", "path": str(claude_md)}
 
 
 # ─── 멀티 모델 비교 ──────────────────────────────────────────────────────────
 
 @app.post("/api/compare")
-async def compare_models(body: CompareRequest):
+async def compare_models(body: CompareRequest, request: Request):
     """같은 프롬프트를 여러 모델에 보내고 결과 비교"""
     if not CLAUDE_EXE:
         raise HTTPException(status_code=503, detail="Claude CLI not available")
+    client_ip = request.client.host if request.client else "unknown"
+    model_count = len(body.models[:4])
+    # 생성할 세션 수만큼 여유가 있는지 사전 확인 (rate limit 1회 체크 후 N개 생성 우회 방지)
+    active_count = sum(1 for s in sessions.values() if s.alive)
+    if active_count + model_count > MAX_SESSIONS_PER_CLIENT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"세션 한도 초과: 현재 {active_count}개 활성, {model_count}개 추가 시 한도({MAX_SESSIONS_PER_CLIENT}) 초과"
+        )
+    _check_rate_limit(client_ip)
 
     results = {}
     for model in body.models[:4]:  # 최대 4개
@@ -1597,7 +2207,7 @@ async def websocket_output(websocket: WebSocket, session_id: str):
 
     session = sessions[session_id]
     last_version = -1
-    dead_count = 0  # 죽은 세션 감지 카운터
+    dead_count = 0  # 죽은 세션 감지 카운터 (각 카운트 ≈ 30초)
 
     try:
         while True:
@@ -1607,6 +2217,9 @@ async def websocket_output(websocket: WebSocket, session_id: str):
                 break
 
             if session._output_version != last_version:
+                # 새 출력 있음 → 이벤트 클리어 후 즉시 전송 (clear를 send 전에 수행해야
+                # send 완료 ~ clear 사이에 도착한 이벤트를 소실하지 않음)
+                session._output_event.clear()
                 try:
                     output = session.get_formatted_output(200)
                     msg = {
@@ -1629,19 +2242,23 @@ async def websocket_output(websocket: WebSocket, session_id: str):
                     dead_count = 0
                 except asyncio.TimeoutError:
                     break  # 클라이언트 응답 없음 → 연결 종료
-
-            # 죽은 세션이면 간격을 늘림 (리소스 절약)
-            if not session.alive and not session.busy:
-                dead_count += 1
-                if dead_count > 150:  # 30초(0.2s*150) 이상 죽은 상태 → 연결 종료
-                    break
-                await asyncio.sleep(0.5)
             else:
-                await asyncio.sleep(0.2)
+                # 변경 없음 → 이벤트 대기 (최대 30초, 연결 유지 ping 역할)
+                session._output_event.clear()
+                try:
+                    await asyncio.wait_for(session._output_event.wait(), timeout=30)
+                except asyncio.TimeoutError:
+                    pass  # timeout → 죽은 세션 체크 후 루프 재진입
+
+                # 죽은 세션이 30초 이상 응답 없으면 종료 (3회 × 30초 = 90초)
+                if not session.alive and not session.busy:
+                    dead_count += 1
+                    if dead_count > 3:
+                        break
     except WebSocketDisconnect:
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ws/output:{session_id}] unexpected error: {e}")
 
 
 # ─── 로그 관리 ───────────────────────────────────────────────────────────────────
@@ -1688,7 +2305,6 @@ async def browse_folder(path: str = Query("")):
     if not path:
         # 기본: 드라이브 목록 (Windows)
         if sys.platform == "win32":
-            import string
             drives = []
             for letter in string.ascii_uppercase:
                 dp = Path(f"{letter}:\\")
@@ -1780,6 +2396,11 @@ async def run_git(args: list[str], cwd: str) -> dict:
             "stderr": stderr.decode("utf-8", errors="replace").strip(),
         }
     except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await proc.wait()
+        except Exception:
+            pass
         return {"ok": False, "stdout": "", "stderr": "Timeout (30s)"}
     except FileNotFoundError:
         return {"ok": False, "stdout": "", "stderr": "git not found"}
@@ -1802,7 +2423,16 @@ async def run_gh(args: list[str], cwd: str) -> dict:
             "stdout": stdout.decode("utf-8", errors="replace").strip(),
             "stderr": stderr.decode("utf-8", errors="replace").strip(),
         }
-    except (asyncio.TimeoutError, FileNotFoundError, Exception) as e:
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await proc.wait()
+        except Exception:
+            pass
+        return {"ok": False, "stdout": "", "stderr": "Timeout (30s)"}
+    except FileNotFoundError:
+        return {"ok": False, "stdout": "", "stderr": "gh CLI not found — gh를 설치하거나 PATH에 추가하세요"}
+    except Exception as e:
         return {"ok": False, "stdout": "", "stderr": str(e)}
 
 
@@ -1827,7 +2457,7 @@ async def git_status(path: str = Query(...)):
     files = []
     if status_res["ok"] and status_res["stdout"]:
         for line in status_res["stdout"].splitlines():
-            if len(line) >= 3:
+            if len(line) >= 4:
                 xy = line[:2]
                 fname = line[3:]
                 files.append({"status": xy.strip(), "file": fname})
@@ -1911,7 +2541,6 @@ async def git_exec(body: GitExecRequest):
         raise HTTPException(status_code=400, detail="경로 없음")
 
     # 보안: allow-list 기반 git 명령 제어 (shell injection 방지)
-    import shlex
     try:
         parts = shlex.split(command)
     except ValueError as e:
@@ -1965,6 +2594,11 @@ async def git_exec(body: GitExecRequest):
             "stderr": stderr.decode("utf-8", errors="replace").strip(),
         }
     except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await proc.wait()
+        except Exception:
+            pass
         return {"ok": False, "stdout": "", "stderr": "Timeout (60s)"}
     except Exception as e:
         return {"ok": False, "stdout": "", "stderr": str(e)}
@@ -2061,16 +2695,37 @@ async def git_clone(body: GitCloneRequest):
     url = body.url.strip()
     dest = body.dest.strip()
 
+    # URL 프로토콜 검증 — https:// 또는 git@ 만 허용 (file://, ftp:// 등 차단)
+    if not (url.startswith("https://") or url.startswith("git@")):
+        raise HTTPException(status_code=400, detail="허용되지 않은 URL 프로토콜. https:// 또는 git@ 만 사용 가능 (http:// 차단)")
+
+    # 셸 메타문자 차단 (command injection 방지)
+    if re.search(r'[;|&$`\'"\\\n\r]', url):
+        raise HTTPException(status_code=400, detail="URL에 허용되지 않은 문자가 포함됨")
+
     # dest가 없으면 현재 디렉토리에 repo 이름으로
     if dest:
-        dest_path = Path(dest)
+        dest_path = Path(dest).resolve()
+        # path traversal 및 시스템 디렉토리 보호:
+        # 절대 경로로 정규화 후 홈 디렉토리 또는 프로젝트 루트 하위여야 함
+        _allowed_clone_roots = (Path.home(), APP_DIR.parent.parent)
+        if not any(dest_path.is_relative_to(r) for r in _allowed_clone_roots):
+            raise HTTPException(
+                status_code=400,
+                detail=f"허용되지 않는 대상 경로입니다. 홈 디렉토리 또는 프로젝트 루트 하위만 허용됩니다."
+            )
     else:
         # URL에서 repo 이름 추출
         repo_name = url.rstrip("/").split("/")[-1].replace(".git", "")
-        dest_path = Path(".") / repo_name
+        dest_path = Path(".").resolve() / repo_name
 
-    if dest_path.exists() and any(dest_path.iterdir()):
-        raise HTTPException(status_code=400, detail=f"디렉토리가 이미 존재함: {dest_path}")
+    if dest_path.exists():
+        try:
+            not_empty = any(dest_path.iterdir())
+        except PermissionError:
+            raise HTTPException(status_code=400, detail=f"디렉토리 접근 권한 없음: {dest_path}")
+        if not_empty:
+            raise HTTPException(status_code=400, detail=f"디렉토리가 이미 존재함: {dest_path}")
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -2087,6 +2742,11 @@ async def git_clone(body: GitCloneRequest):
             "stderr": stderr.decode("utf-8", errors="replace").strip(),
         }
     except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await proc.wait()
+        except Exception:
+            pass
         return {"ok": False, "path": "", "stdout": "", "stderr": "Timeout (120s)"}
     except Exception as e:
         return {"ok": False, "path": "", "stdout": "", "stderr": str(e)}
@@ -2132,13 +2792,18 @@ async def start_pipeline(body: PipelineStartRequest):
             detail=f"Session already bound to pipeline {session.pipeline_id}")
 
     runner = PipelineRunner(session, body.goal, body.supervisor_model,
-                            body.max_iterations, body.mode)
+                            body.max_iterations, body.mode, body.max_cycles)
     pipelines[runner.id] = runner
-    runner.start()
+    try:
+        runner.start()
+    except Exception as e:
+        pipelines.pop(runner.id, None)
+        raise HTTPException(status_code=500, detail=f"파이프라인 시작 실패: {str(e)}")
 
     return {
         "pipeline_id": runner.id,
-        "worker_session_id": runner.session.id if runner.session else None,
+        "session_id": session.id,
+        "worker_session_id": runner.session.id if runner.session else None,  # pw-* worker
         "status": runner.status,
         "mode": body.mode,
     }
@@ -2193,6 +2858,200 @@ async def remove_pipeline(pipeline_id: str):
     return {"status": "removed"}
 
 
+# ─── 계획 수립 API ─────────────────────────────────────────────────────────────────
+
+@app.post("/api/plan-phases")
+async def create_plan_phase(body: PlanPhaseStartRequest):
+    """계획 수립 시작 — 질문 생성 개시"""
+    if body.session_id not in sessions:
+        raise HTTPException(status_code=400, detail="유효한 세션 ID 필요")
+    if body.mode == "api":
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("LLM_API_KEY", "")
+        if not api_key:
+            raise HTTPException(status_code=400, detail="API 모드에서는 ANTHROPIC_API_KEY 환경변수 필요")
+    if body.mode == "cli" and not CLAUDE_EXE:
+        raise HTTPException(status_code=400, detail="CLI 모드에서는 Claude CLI 필요")
+
+    session = sessions[body.session_id]
+    phase = PlanPhase(session, body.goal, body.mode, body.supervisor_model)
+    plan_phases[phase.id] = phase
+    phase.start()
+
+    return {"plan_id": phase.id, "status": phase.status}
+
+
+@app.get("/api/plan-phases")
+async def list_plan_phases():
+    """활성 plan phase 목록"""
+    # 1시간 이상 된 항목 자동 만료
+    now = datetime.now()
+    expired = [
+        pid for pid, p in plan_phases.items()
+        if (now - datetime.fromisoformat(p.created_at)).total_seconds() > 3600
+        and p.status not in ("approved",)
+    ]
+    for pid in expired:
+        del plan_phases[pid]
+    return [p.to_dict() for p in plan_phases.values()]
+
+
+@app.get("/api/plan-phases/{plan_id}")
+async def get_plan_phase(plan_id: str):
+    """특정 plan phase 상태 조회 (폴링용)"""
+    if plan_id not in plan_phases:
+        raise HTTPException(status_code=404, detail="Plan phase 없음")
+    return plan_phases[plan_id].to_dict()
+
+
+@app.post("/api/plan-phases/{plan_id}/answers")
+async def submit_plan_answers(plan_id: str, body: PlanPhaseAnswerRequest):
+    """답변 제출 → 실행계획 생성 시작"""
+    if plan_id not in plan_phases:
+        raise HTTPException(status_code=404, detail="Plan phase 없음")
+    phase = plan_phases[plan_id]
+    if phase.status != "questions_ready":
+        raise HTTPException(status_code=409, detail=f"현재 상태({phase.status})에서는 답변 제출 불가")
+    await phase.submit_answers(body.answers)
+    return {"status": phase.status}
+
+
+@app.post("/api/plan-phases/{plan_id}/approve")
+async def approve_plan_phase(plan_id: str, body: PlanPhaseApproveRequest):
+    """계획 승인 → 파이프라인 시작"""
+    if plan_id not in plan_phases:
+        raise HTTPException(status_code=404, detail="Plan phase 없음")
+    phase = plan_phases[plan_id]
+    if phase.status != "plan_ready":
+        raise HTTPException(status_code=409, detail=f"현재 상태({phase.status})에서는 승인 불가")
+
+    try:
+        pipeline_id = await phase.approve(body.plan_text, body.max_iterations, body.max_cycles)
+        return {
+            "status": "approved",
+            "pipeline_id": pipeline_id,
+            "worker_session_id": pipelines[pipeline_id].session.id if pipelines.get(pipeline_id) and pipelines[pipeline_id].session else None,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"파이프라인 시작 실패: {str(e)}")
+
+
+@app.post("/api/plan-phases/{plan_id}/regenerate")
+async def regenerate_plan(plan_id: str):
+    """계획 재생성"""
+    if plan_id not in plan_phases:
+        raise HTTPException(status_code=404, detail="Plan phase 없음")
+    phase = plan_phases[plan_id]
+    if phase.status not in ("plan_ready", "error"):
+        raise HTTPException(status_code=409, detail=f"현재 상태({phase.status})에서는 재생성 불가")
+    await phase.regenerate()
+    return {"status": phase.status}
+
+
+@app.delete("/api/plan-phases/{plan_id}")
+async def delete_plan_phase(plan_id: str):
+    """Plan phase 삭제"""
+    if plan_id not in plan_phases:
+        raise HTTPException(status_code=404, detail="Plan phase 없음")
+    phase = plan_phases[plan_id]
+    await phase._cleanup_supervisor()
+    del plan_phases[plan_id]
+    return {"status": "removed"}
+
+
+# ─── 스크린 모니터링 ─────────────────────────────────────────────────────────────
+
+class ScreenMonitor:
+    """Windows 스크린 캡처 (mss + Pillow)"""
+
+    def __init__(self):
+        self._running = False
+        self._task: Optional[asyncio.Task] = None
+        self._interval = 30
+        self._latest_path: Optional[Path] = None
+
+    def capture(self) -> Path:
+        import mss
+        from PIL import Image
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filepath = SCREENSHOTS_DIR / f"screen_{ts}.jpg"
+
+        with mss.mss() as sct:
+            monitor = sct.monitors[0]
+            img = sct.grab(monitor)
+            pil_img = Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
+            pil_img.save(str(filepath), "JPEG", quality=65)
+
+        self._latest_path = filepath
+        self._cleanup()
+        return filepath
+
+    def _cleanup(self):
+        screenshots = sorted(SCREENSHOTS_DIR.glob("screen_*.jpg"))
+        for old in screenshots[:-50]:
+            old.unlink(missing_ok=True)
+
+    async def start_periodic(self, interval: int = 30):
+        self._interval = interval
+        self._running = True
+        if self._task:
+            self._task.cancel()
+        self._task = asyncio.create_task(self._loop())
+
+    async def _loop(self):
+        while self._running:
+            try:
+                await asyncio.to_thread(self.capture)
+            except Exception as e:
+                print(f"  [monitor] capture error: {e}")
+            await asyncio.sleep(self._interval)
+
+    async def stop(self):
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            self._task = None
+
+    @property
+    def latest(self) -> Optional[Path]:
+        return self._latest_path
+
+
+screen_monitor = ScreenMonitor()
+
+
+@app.post("/api/monitor/start")
+async def monitor_start(interval: int = Query(30, ge=5, le=300)):
+    await screen_monitor.start_periodic(interval)
+    return {"status": "started", "interval": interval}
+
+
+@app.post("/api/monitor/stop")
+async def monitor_stop():
+    await screen_monitor.stop()
+    return {"status": "stopped"}
+
+
+@app.get("/api/monitor/capture")
+async def monitor_capture():
+    try:
+        path = await asyncio.to_thread(screen_monitor.capture)
+        return {"path": str(path), "url": f"/screenshots/{path.name}",
+                "timestamp": datetime.now().isoformat()}
+    except ImportError:
+        raise HTTPException(status_code=503, detail="mss/Pillow 미설치. pip install mss Pillow")
+    except Exception as e:
+        print(f"ERROR [capture_screen]: {e}")
+        raise HTTPException(status_code=500, detail="내부 서버 오류가 발생했습니다")
+
+
+@app.get("/api/monitor/latest")
+async def monitor_latest():
+    if screen_monitor.latest and screen_monitor.latest.exists():
+        return {"path": str(screen_monitor.latest), "url": f"/screenshots/{screen_monitor.latest.name}"}
+    return {"path": None, "url": None}
+
+
 # ─── Shell 터미널 API ────────────────────────────────────────────────────────────
 
 @app.post("/api/shells")
@@ -2208,20 +3067,21 @@ async def create_shell(body: ShellCreateRequest, request: Request):
     try:
         shell.start()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"ERROR [create_shell]: {e}")
+        raise HTTPException(status_code=500, detail="내부 서버 오류가 발생했습니다")
     shell_sessions[shell_id] = shell
     return shell.to_dict()
 
 
 # 하위호환
 @app.post("/api/shell/create")
-async def create_shell_compat(body: ShellCreateRequest):
-    return await create_shell(body)
+async def create_shell_compat(body: ShellCreateRequest, request: Request):
+    return await create_shell(body, request)
 
 
 @app.get("/api/shells")
 async def list_shells():
-    return [s.to_dict() for s in shell_sessions.values()]
+    return [s.to_dict() for s in list(shell_sessions.values())]
 
 
 @app.delete("/api/shells/{shell_id}")
@@ -2278,23 +3138,26 @@ async def websocket_shell(websocket: WebSocket, shell_id: str):
             # 텍스트: 키 입력
             if "text" in msg:
                 text = msg["text"]
-                # resize 명령 감지
-                if text.startswith("\x1b[8;"):
-                    # xterm.js resize: ESC[8;rows;colst
+                # resize JSON 메시지 감지: {"type": "resize", "rows": N, "cols": N}
+                if text.startswith('{"'):
                     try:
-                        parts = text[4:-1].split(";")
-                        rows, cols = int(parts[0]), int(parts[1])
-                        shell.resize(cols, rows)
+                        payload = json.loads(text)
+                        if payload.get("type") == "resize":
+                            cols = max(40, min(400, int(payload["cols"])))
+                            rows = max(10, min(200, int(payload["rows"])))
+                            shell.resize(cols, rows)
+                        else:
+                            shell.write(text)
                     except Exception:
-                        pass
+                        shell.write(text)
                 else:
                     shell.write(text)
             elif "bytes" in msg:
                 shell.write(msg["bytes"].decode("utf-8", errors="replace"))
     except WebSocketDisconnect:
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ws/shell:{shell_id}] unexpected error: {e}")
     finally:
         shell.unsubscribe(output_queue)
         send_task.cancel()
@@ -3233,8 +4096,20 @@ body {
                 </div>
                 <div id="questionPanel" style="display:none;border-top:1px solid var(--border);background:var(--bg-tertiary);padding:10px 12px;max-height:220px;overflow-y:auto"></div>
                 <div class="terminal-input-bar">
-                    <textarea id="commandInput" rows="1" placeholder="Enter prompt for Claude... (Shift+Enter = 줄바꿈)"
-                              onkeydown="handleInputKeydown(event)"></textarea>
+                    <input type="file" id="fileUploadInput" multiple accept="image/*,.pdf,.txt,.md"
+                           style="display:none" onchange="handleFileSelect(event)">
+                    <button class="btn btn-small" onclick="document.getElementById('fileUploadInput').click()"
+                            title="파일 첨부" style="align-self:flex-end;margin-bottom:2px;font-size:14px;padding:4px 6px">&#128206;</button>
+                    <button class="btn btn-small" onclick="toggleMonitorPanel()"
+                            title="스크린 모니터" style="align-self:flex-end;margin-bottom:2px;font-size:14px;padding:4px 6px">&#128247;</button>
+                    <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+                        <div id="attachmentPreview" style="display:none;padding:4px 0;gap:4px;flex-wrap:wrap"></div>
+                        <textarea id="commandInput" rows="1" placeholder="Enter prompt for Claude... (Shift+Enter = 줄바꿈)"
+                                  onkeydown="handleInputKeydown(event)"
+                                  ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+                                  ondragleave="this.style.borderColor='var(--border)'"
+                                  ondrop="handleFileDrop(event)"></textarea>
+                    </div>
                     <button class="btn btn-primary btn-small" onclick="sendCommand()" style="align-self:flex-end;margin-bottom:2px">Send</button>
                 </div>
             </div>
@@ -3392,17 +4267,27 @@ body {
                             <option value="opus">Opus (latest)</option>
                         </select>
                     </div>
-                    <div style="width:90px">
-                        <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">최대 반복</label>
+                    <div style="width:100px">
+                        <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px" title="한 사이클당 반복 횟수">반복 (1사이클)</label>
                         <input type="number" id="pipelineMaxIter" value="20" min="1" max="100" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:12px">
+                    </div>
+                    <div style="width:100px">
+                        <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px" title="사이클 반복 횟수 (20×100=최대2000회)">사이클 수</label>
+                        <input type="number" id="pipelineMaxCycles" value="100" min="1" max="200" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:12px">
                     </div>
                     <div id="pipelineApiKeyGroup" style="flex:1;min-width:180px;display:none">
                         <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">API Key</label>
                         <span style="font-size:11px;color:var(--text-dim)">서버 환경변수(ANTHROPIC_API_KEY) 사용</span>
                     </div>
+                    <button class="btn btn-small" onclick="startPlanPhase()" id="planPhaseBtn" style="background:var(--purple);color:white">&#128203; Plan</button>
                     <button class="btn btn-primary btn-small" onclick="startPipeline()" id="pipelineStartBtn">&#9654; Start</button>
                     <button class="btn btn-small btn-danger" onclick="stopPipeline()" id="pipelineStopBtn" style="display:none">&#9632; Stop</button>
                 </div>
+            </div>
+
+            <!-- Plan Phase 컨테이너 -->
+            <div id="planPhaseContainer" style="display:none;padding:16px;border-bottom:1px solid var(--border);max-height:65vh;overflow-y:auto;background:var(--bg)">
+                <div id="planPhaseContent"></div>
             </div>
 
             <!-- 파이프라인 목록 (여러개일 때) -->
@@ -3527,6 +4412,30 @@ body {
     </div>
 </div>
 
+<!-- 스크린 모니터 패널 -->
+<div id="monitorPanel" style="display:none;position:fixed;bottom:60px;right:20px;width:420px;max-height:400px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:1000;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg-tertiary);border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:13px;color:var(--text)">&#128247; Screen Monitor</span>
+        <button onclick="toggleMonitorPanel()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px">&times;</button>
+    </div>
+    <div style="padding:8px">
+        <img id="monitorImage" style="width:100%;border-radius:4px;display:none;cursor:pointer" onclick="window.open(this.src)">
+        <div id="monitorPlaceholder" style="text-align:center;color:var(--text-dim);padding:30px;font-size:12px">캡처된 스크린샷이 없습니다</div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button class="btn btn-small" onclick="captureScreen()">Capture Now</button>
+            <button class="btn btn-small btn-primary" id="monitorStartBtn" onclick="startMonitor()">Auto Start</button>
+            <button class="btn btn-small btn-danger" id="monitorStopBtn" onclick="stopMonitor()" style="display:none">Auto Stop</button>
+            <button class="btn btn-small" onclick="attachScreenshot()" title="프롬프트에 첨부">Attach</button>
+            <select id="monitorInterval" style="padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:11px">
+                <option value="10">10초</option>
+                <option value="30" selected>30초</option>
+                <option value="60">60초</option>
+                <option value="120">2분</option>
+            </select>
+        </div>
+    </div>
+</div>
+
 <script>
 let activeSessionId = localStorage.getItem('sm_activeSessionId') || null;
 let ws = null;
@@ -3542,17 +4451,40 @@ function toggleSidebar() {
 // Auto-detect API base: direct access (port 8006) uses /api,
 // shell iframe (port 3000) uses /api/claude proxy prefix
 const API_BASE = window.location.port === '8006' ? '/api' : '/api/claude/api';
+// 정적 파일(screenshots, uploads)은 Session Manager에서 직접 서빙
+const STATIC_BASE = window.location.port === '8006' ? '' : '/api/claude';
 
 async function api(method, path, body = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(`${API_BASE}${path}`, opts);
-    return res.json();
+    let data;
+    try {
+        data = await res.json();
+    } catch (_) {
+        return { error: 'Invalid server response', status: res.status };
+    }
+    // FastAPI HTTPException: {"detail":"..."} → {"error":"..."} 로 정규화
+    if (!res.ok && data.detail && !data.error) data.error = data.detail;
+    return data;
+}
+
+function staticUrl(path) {
+    return `${STATIC_BASE}${path}`;
 }
 
 async function refreshSessions() {
     const list = await api('GET', '/sessions');
+    if (!Array.isArray(list)) return;  // API 오류 시 렌더 스킵
     const el = document.getElementById('sessionList');
+
+    // activeSessionId가 현재 목록에 없으면 초기화
+    if (activeSessionId && !list.find(s => s.id === activeSessionId)) {
+        activeSessionId = null;
+        try { localStorage.removeItem('sm_activeSessionId'); } catch(e) {}
+        document.getElementById('sessionActions').style.display = 'none';
+        if (list.length > 0) selectSession(list[0].id);
+    }
 
     if (list.length === 0) {
         el.innerHTML = '<div class="empty-state"><p>No sessions</p></div>';
@@ -3567,12 +4499,12 @@ async function refreshSessions() {
         return `
         <div class="session-item ${s.id === activeSessionId ? 'active' : ''}"
              onclick="selectSession('${s.id}')">
-            <div class="session-name">${s.name}</div>
+            <div class="session-name">${escHtml(s.name)}</div>
             <div class="session-meta">
                 <span class="status-dot ${statusClass}"></span>
                 ${statusText}${queueInfo}
-                &middot; ${s.work_dir}
-                ${s.model ? `&middot; <span style="color:var(--purple)">${s.model.replace('claude-','').split('-202')[0]}</span>` : ''}
+                &middot; ${escHtml(s.work_dir)}
+                ${s.model ? `&middot; <span style="color:var(--purple)">${escHtml(s.model.replace('claude-','').split('-202')[0])}</span>` : ''}
                 ${s.skip_permissions ? '&middot; <span style="color:var(--green);font-size:10px" title="권한 자동 승인">&#9989;</span>' : ''}
                 ${(s.total_input_tokens + s.total_output_tokens) > 0 ? `&middot; <span style="font-size:10px;color:var(--text-dim)" title="토큰: ${s.total_input_tokens} in / ${s.total_output_tokens} out">${formatTokens(s.total_input_tokens + s.total_output_tokens)}</span>` : ''}
             </div>
@@ -3582,10 +4514,18 @@ async function refreshSessions() {
 
 function selectSession(id) {
     activeSessionId = id;
-    localStorage.setItem('sm_activeSessionId', id);
+    try { localStorage.setItem('sm_activeSessionId', id); } catch(e) { console.warn('localStorage 저장 실패', e); }
     document.getElementById('sessionActions').style.display = 'flex';
     refreshSessions();
     connectWebSocket(id);
+    // 세션 전환 시 파이프라인 상태 갱신
+    if (pipelinePollTimer) { clearInterval(pipelinePollTimer); pipelinePollTimer = null; }
+    activePipelineId = getActivePipelineForSession();
+    // 현재 pipeline 탭이 활성이면 바로 리로드
+    const pipelineView = document.getElementById('pipelineView');
+    if (pipelineView && pipelineView.style.display !== 'none') {
+        loadPipelinesForSession();
+    }
     // Auto-close sidebar on mobile
     if (window.innerWidth <= 768) {
         const sidebar = document.getElementById('sidebar');
@@ -3618,6 +4558,8 @@ function connectWebSocket(sessionId) {
 }
 
 function _doConnect(sessionId) {
+    // stale reconnect 차단: 타이머가 이미 큐에 들어간 후 세션 전환된 경우
+    if (activeSessionId !== sessionId) return;
     const myConnectId = wsConnectId;  // 클로저에 캡처
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsBase = window.location.port === '8006' ? '' : '/svc/claude';
@@ -3626,9 +4568,12 @@ function _doConnect(sessionId) {
     ws.onopen = () => { wsReconnectAttempts = 0; };
 
     ws.onmessage = (e) => {
-        // 세션 전환 후 도착한 stale 메시지 차단
+        // 세션 전환 후 도착한 stale 메시지 차단 (이중 검증)
         if (myConnectId !== wsConnectId) return;
-        const data = JSON.parse(e.data);
+        if (activeSessionId !== sessionId) return;  // activeSessionId 불일치 시 무시
+        let data;
+        try { data = JSON.parse(e.data); }
+        catch (_) { console.warn('WS: JSON 파싱 실패', e.data?.substring?.(0, 100)); return; }
         if (data.error) {
             ws.close();
             ws = null;
@@ -3712,8 +4657,134 @@ async function removeSession() {
     localStorage.removeItem('sm_activeSessionId');
     document.getElementById('sessionActions').style.display = 'none';
     document.getElementById('terminalOutput').innerHTML = '<div class="empty-state"><span class="icon">&#9000;</span><p>Select or create a session to start</p></div>';
-    if (ws) { ws.close(); ws = null; }
+    if (ws) { ws.onmessage = null; ws.onclose = null; ws.close(); ws = null; }
     refreshSessions();
+}
+
+// ─── 파일 첨부 ──────────────────────────────────────────────
+let pendingAttachments = [];
+
+async function handleFileSelect(event) {
+    for (const file of event.target.files) await uploadFile(file);
+    event.target.value = '';
+}
+
+async function handleFileDrop(event) {
+    event.preventDefault();
+    event.target.style.borderColor = 'var(--border)';
+    for (const file of event.dataTransfer.files) await uploadFile(file);
+}
+
+async function uploadFile(file) {
+    if (!activeSessionId) { alert('세션을 선택하세요'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('파일 크기는 10MB 이하여야 합니다'); return; }
+    const _allowedExts = ['png','jpg','jpeg','gif','bmp','webp','pdf','txt','md'];
+    const _ext = file.name.split('.').pop()?.toLowerCase() || '';
+    if (!_allowedExts.includes(_ext)) { alert('지원하지 않는 파일 형식입니다'); return; }
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await fetch(`${API_BASE}/sessions/${activeSessionId}/upload`, {
+            method: 'POST', body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(data.detail || 'Upload failed'); return; }
+        pendingAttachments.push(data);
+        renderAttachmentPreview();
+    } catch (e) { alert('Upload error: ' + e.message); }
+}
+
+function renderAttachmentPreview() {
+    const el = document.getElementById('attachmentPreview');
+    if (pendingAttachments.length === 0) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    el.innerHTML = pendingAttachments.map((a, i) =>
+        `<div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;display:flex;align-items:center;gap:4px">` +
+        (a.url.match(/\.(jpg|jpeg|png|gif|webp)$/i)
+            ? `<img src="${staticUrl(a.url)}" style="height:24px;border-radius:2px">` : '&#128196;') +
+        `<span>${escapeHtml(a.filename)}</span>` +
+        `<span onclick="removeAttachment(${i})" style="cursor:pointer;color:var(--red)">&times;</span>` +
+        `</div>`
+    ).join('');
+}
+
+function removeAttachment(index) {
+    pendingAttachments.splice(index, 1);
+    renderAttachmentPreview();
+}
+
+// 클립보드 이미지 붙여넣기
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('commandInput');
+    if (input) input.addEventListener('paste', async (e) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (const item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const blob = item.getAsFile();
+                const ext = item.type.split('/')[1] || 'png';
+                const file = new File([blob], `clipboard_${Date.now()}.${ext}`, {type: item.type});
+                await uploadFile(file);
+            }
+        }
+    });
+});
+
+// ─── 스크린 모니터 ──────────────────────────────────────────
+let monitorAutoRefresh = null;
+
+function toggleMonitorPanel() {
+    const panel = document.getElementById('monitorPanel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+async function captureScreen() {
+    try {
+        const data = await api('GET', '/monitor/capture');
+        if (data.url) {
+            const img = document.getElementById('monitorImage');
+            img.src = staticUrl(data.url) + '?t=' + Date.now();
+            img.style.display = '';
+            img._path = data.path;
+            document.getElementById('monitorPlaceholder').style.display = 'none';
+        }
+    } catch (e) { alert('캡처 실패: ' + (e.message || e)); }
+}
+
+async function startMonitor() {
+    const interval = parseInt(document.getElementById('monitorInterval').value) || 30;
+    await api('POST', `/monitor/start?interval=${interval}`);
+    document.getElementById('monitorStartBtn').style.display = 'none';
+    document.getElementById('monitorStopBtn').style.display = '';
+    // 프론트엔드 자동 갱신
+    if (monitorAutoRefresh) clearInterval(monitorAutoRefresh);
+    monitorAutoRefresh = setInterval(async () => {
+        const data = await api('GET', '/monitor/latest');
+        if (data.url) {
+            const img = document.getElementById('monitorImage');
+            img.src = staticUrl(data.url) + '?t=' + Date.now();
+            img.style.display = '';
+            document.getElementById('monitorPlaceholder').style.display = 'none';
+        }
+    }, (interval + 2) * 1000);
+    captureScreen();
+}
+
+async function stopMonitor() {
+    await api('POST', '/monitor/stop');
+    document.getElementById('monitorStartBtn').style.display = '';
+    document.getElementById('monitorStopBtn').style.display = 'none';
+    if (monitorAutoRefresh) { clearInterval(monitorAutoRefresh); monitorAutoRefresh = null; }
+}
+
+async function attachScreenshot() {
+    let data = await api('GET', '/monitor/latest');
+    if (!data.path) data = await api('GET', '/monitor/capture');
+    if (data.path) {
+        pendingAttachments.push({ filename: 'screenshot.jpg', path: data.path, url: data.url });
+        renderAttachmentPreview();
+    }
 }
 
 function handleInputKeydown(e) {
@@ -3729,14 +4800,30 @@ function handleInputKeydown(e) {
     });
 }
 
+let isSending = false;
+
 async function sendCommand() {
     if (!activeSessionId) return;
+    if (isSending) return;
     const input = document.getElementById('commandInput');
     const command = input.value.trim();
-    if (!command) return;
-    await api('POST', `/sessions/${activeSessionId}/send`, { command });
-    input.value = '';
-    input.style.height = '38px';  // 리셋
+    if (!command && pendingAttachments.length === 0) return;
+
+    const body = { command: command || '첨부된 파일을 확인하세요.' };
+    if (pendingAttachments.length > 0) {
+        body.attachments = pendingAttachments.map(a => a.path);
+    }
+
+    isSending = true;
+    try {
+        await api('POST', `/sessions/${activeSessionId}/send`, body);
+        input.value = '';
+        input.style.height = '38px';
+        pendingAttachments = [];
+        renderAttachmentPreview();
+    } finally {
+        isSending = false;
+    }
 }
 
 function renderQuestionPanel(questionData) {
@@ -3836,14 +4923,18 @@ async function showTemplates() {
     await loadTemplateList();
 }
 
+// 템플릿 프롬프트를 인덱스로 참조 — onclick에 사용자 데이터 직접 삽입 방지
+let _tplPrompts = [];
+
 async function loadTemplateList() {
     const templates = await api('GET', '/templates');
     const el = document.getElementById('templateList');
-    if (!templates.length) {
+    if (!Array.isArray(templates) || templates.length === 0) {
         el.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px;font-size:13px">저장된 템플릿이 없습니다</div>';
         return;
     }
     // 카테고리별 그룹핑
+    _tplPrompts = [];  // 인덱스 배열 초기화
     const groups = {};
     for (const t of templates) {
         const cat = t.category || '기타';
@@ -3854,8 +4945,10 @@ async function loadTemplateList() {
     for (const [cat, items] of Object.entries(groups)) {
         html += `<div style="font-size:11px;color:var(--accent);font-weight:600;margin:8px 0 4px">${escapeHtml(cat)}</div>`;
         for (const t of items) {
+            const promptIdx = _tplPrompts.length;
+            _tplPrompts.push(t.prompt);  // 사용자 데이터는 배열에 저장, onclick엔 숫자 인덱스만
             html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer;margin-bottom:4px;background:var(--bg-secondary)" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
-                <div style="flex:1;min-width:0" onclick="useTemplate('${escapeHtml(t.prompt.replace(/'/g, "\\'").replace(/\n/g, "\\n"))}')">
+                <div style="flex:1;min-width:0" onclick="useTemplate(_tplPrompts[${promptIdx}])">
                     <div style="font-size:13px;font-weight:500;color:var(--text)">${escapeHtml(t.name)}</div>
                     <div style="font-size:11px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(t.prompt.substring(0, 80))}</div>
                 </div>
@@ -3931,7 +5024,7 @@ async function startCompare() {
     let work_dir = '.';
     if (activeSessionId) {
         const sessions = await api('GET', '/sessions');
-        const s = sessions.find(s => s.id === activeSessionId);
+        const s = Array.isArray(sessions) ? sessions.find(s => s.id === activeSessionId) : null;
         if (s) work_dir = s.work_dir;
     }
 
@@ -3951,18 +5044,20 @@ async function startCompare() {
 
 async function pollCompare() {
     let allDone = true;
+    // /sessions를 루프 외부에서 1회만 호출 (이전: 모델 수만큼 반복 호출)
+    let sessions = [];
+    try {
+        const res = await api('GET', '/sessions');
+        sessions = Array.isArray(res) ? res : [];
+    } catch (e) { allDone = false; }
     for (const [model, sid] of Object.entries(compareSessionIds)) {
         try {
             const data = await api('GET', `/sessions/${sid}/output`);
             const el = document.getElementById(`cmpResult_${model}`);
             if (el) el.textContent = data.output || '(대기 중...)';
         } catch (e) {}
-        // 아직 busy인지 확인
-        try {
-            const sessions = await api('GET', '/sessions');
-            const s = sessions.find(s => s.id === sid);
-            if (s && s.busy) allDone = false;
-        } catch (e) { allDone = false; }
+        const s = sessions.find(s => s.id === sid);
+        if (!s || s.busy) allDone = false;
     }
     if (allDone) {
         clearInterval(comparePollTimer);
@@ -4000,7 +5095,7 @@ async function browseTo(path) {
 
     // 프로젝트 목록에서 starred 경로 가져오기
     const projects = await api('GET', '/projects');
-    starredPaths = new Set(projects.map(p => p.path));
+    starredPaths = new Set(Array.isArray(projects) ? projects.map(p => p.path) : []);
 
     // 빵 부스러기 네비게이션
     const bc = document.getElementById('browserBreadcrumb');
@@ -4010,7 +5105,7 @@ async function browseTo(path) {
         let crumbs = '<span onclick="browseTo(\'\')">Drives</span>';
         for (let i = 0; i < parts.length; i++) {
             accumulated += parts[i] + (i === 0 && parts[i].endsWith(':') ? '\\' : '\\');
-            crumbs += ` / <span onclick="browseTo('${accumulated.replace(/\\/g, '\\\\')}')">${parts[i]}</span>`;
+            crumbs += ` / <span onclick="browseTo('${accumulated.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')">${escHtml(parts[i])}</span>`;
         }
         bc.innerHTML = crumbs;
     } else {
@@ -4020,7 +5115,7 @@ async function browseTo(path) {
     // 아이템 목록
     const el = document.getElementById('browserItems');
     if (data.parent) {
-        el.innerHTML = `<div class="browser-item" onclick="browseTo('${data.parent.replace(/\\/g, '\\\\')}')">
+        el.innerHTML = `<div class="browser-item" onclick="browseTo('${data.parent.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')">
             <span class="icon">&#8592;</span><span class="name">..</span></div>`;
     } else {
         el.innerHTML = '';
@@ -4029,12 +5124,14 @@ async function browseTo(path) {
     el.innerHTML += data.items.map(item => {
         let icon = item.type === 'drive' ? '&#128430;' : item.type === 'project' ? '&#128193;' : '&#128194;';
         let isStarred = starredPaths.has(item.path);
+        const safePath = item.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const safeName = item.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         return `<div class="browser-item">
             <span class="icon">${icon}</span>
-            <span class="name" onclick="onBrowserItemClick('${item.path.replace(/\\/g, '\\\\')}', '${item.type}')">${item.name}${item.type === 'project' ? ' (git)' : ''}</span>
+            <span class="name" onclick="onBrowserItemClick('${safePath}', '${item.type}')">${escHtml(item.name)}${item.type === 'project' ? ' (git)' : ''}</span>
             <span class="actions">
-                ${item.type !== 'drive' ? `<span class="star-btn ${isStarred ? 'starred' : ''}" onclick="toggleStar('${item.path.replace(/\\/g, '\\\\')}', '${item.name}')">&#9733;</span>` : ''}
-                <button class="btn btn-small" onclick="selectFolder('${item.path.replace(/\\/g, '\\\\')}')">Select</button>
+                ${item.type !== 'drive' ? `<span class="star-btn ${isStarred ? 'starred' : ''}" onclick="toggleStar('${safePath}', '${safeName}')">&#9733;</span>` : ''}
+                <button class="btn btn-small" onclick="selectFolder('${safePath}')">Select</button>
             </span>
         </div>`;
     }).join('');
@@ -4068,18 +5165,21 @@ async function loadProjects() {
     const projects = await api('GET', '/projects');
     const el = document.getElementById('projectsSection');
 
-    if (projects.length === 0) {
+    if (!Array.isArray(projects) || projects.length === 0) {
         el.innerHTML = '';
         return;
     }
 
     el.innerHTML = `<h4>Saved Projects</h4>` +
-        projects.map(p => `
-            <span class="project-chip" onclick="selectFolder('${p.path.replace(/\\/g, '\\\\')}')">
-                &#128193; ${p.name}
-                <span class="remove" onclick="event.stopPropagation(); removeProject('${p.path.replace(/\\/g, '\\\\')}')">&#10005;</span>
+        projects.map(p => {
+            const safePath = p.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            return `
+            <span class="project-chip" onclick="selectFolder('${safePath}')">
+                &#128193; ${escHtml(p.name)}
+                <span class="remove" onclick="event.stopPropagation(); removeProject('${safePath}')">&#10005;</span>
             </span>
-        `).join('');
+        `;
+        }).join('');
 }
 
 async function removeProject(path) {
@@ -4089,7 +5189,7 @@ async function removeProject(path) {
 
 function switchTab(tab) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    event.target.classList.add('active');
+    event.target.closest('.tab').classList.add('active');  // 자식 클릭 시에도 탭 div에 active 적용
 
     document.getElementById('terminalView').classList.add('hidden');
     document.getElementById('logsView').classList.remove('active');
@@ -4128,7 +5228,7 @@ function autoFillGitPath() {
             const meta = item.textContent;
             const parts = meta.split('·');
             if (parts.length > 1) {
-                const wd = parts[parts.length - 1].trim();
+                const wd = parts[1].trim();  // work_dir는 항상 두 번째 파트 (parts[0]=상태, parts[1]=work_dir)
                 if (wd && wd !== '.') {
                     input.value = wd;
                     return;
@@ -4142,15 +5242,16 @@ async function loadGitProjects() {
     const projects = await api('GET', '/projects');
     const el = document.getElementById('gitProjectChips');
 
-    if (projects.length === 0) {
+    if (!Array.isArray(projects) || projects.length === 0) {
         el.style.display = 'none';
         return;
     }
 
     el.style.display = 'flex';
-    el.innerHTML = projects.map(p =>
-        `<span class="project-chip" onclick="selectGitRepo('${p.path.replace(/\\/g, '\\\\')}')">&#128193; ${p.name}</span>`
-    ).join('');
+    el.innerHTML = projects.map(p => {
+        const safePath = p.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `<span class="project-chip" onclick="selectGitRepo('${safePath}')">&#128193; ${escHtml(p.name)}</span>`;
+    }).join('');
 }
 
 function selectGitRepo(path) {
@@ -4185,7 +5286,7 @@ async function loadGitStatus(path) {
     } else {
         listEl.innerHTML = data.files.map(f => {
             let cls = f.status.includes('M') ? 'M' : f.status.includes('A') ? 'A' : f.status.includes('D') ? 'D' : f.status === '??' ? 'QQ' : 'U';
-            return `<li class="git-file-item"><span class="git-file-status ${cls}">${f.status}</span><span>${f.file}</span></li>`;
+            return `<li class="git-file-item"><span class="git-file-status ${cls}">${f.status}</span><span>${escHtml(f.file)}</span></li>`;
         }).join('');
     }
 }
@@ -4206,7 +5307,7 @@ async function loadGitLog(path) {
         `<li class="git-commit-item">
             <span class="git-commit-hash">${c.short}</span>
             <span class="git-commit-msg">${escHtml(c.message)}</span>
-            <span class="git-commit-meta">${c.author} · ${c.date}</span>
+            <span class="git-commit-meta">${escHtml(c.author)} · ${escHtml(c.date)}</span>
         </li>`
     ).join('');
 }
@@ -4231,8 +5332,8 @@ async function loadGitPRs(state) {
         `<li class="pr-item">
             <span class="pr-number">#${pr.number}</span>
             <span class="pr-title">${escHtml(pr.title)}</span>
-            ${pr.headRefName ? `<span class="pr-branch">${pr.headRefName}</span>` : ''}
-            <a href="${pr.url}" target="_blank">Open</a>
+            ${pr.headRefName ? `<span class="pr-branch">${escHtml(pr.headRefName)}</span>` : ''}
+            <a href="${pr.url && pr.url.startsWith('https://') ? pr.url : '#'}" target="_blank">Open</a>
         </li>`
     ).join('');
 }
@@ -4261,7 +5362,7 @@ async function loadGitIssues(state) {
             <span class="issue-number">#${issue.number}</span>
             <span class="issue-title">${escHtml(issue.title)}</span>
             ${labels}
-            <a href="${issue.url}" target="_blank">Open</a>
+            <a href="${issue.url && issue.url.startsWith('https://') ? issue.url : '#'}" target="_blank">Open</a>
         </li>`;
     }).join('');
 }
@@ -4308,7 +5409,7 @@ async function loadRemoteInfo() {
         const vis = gh.isPrivate ? '<span class="gh-repo-badge private">Private</span>' : '<span class="gh-repo-badge public">Public</span>';
         const defBranch = gh.defaultBranchRef ? gh.defaultBranchRef.name : '-';
         html += `<div style="width:100%;margin-top:6px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-            <a href="${gh.url}" target="_blank" style="color:var(--accent);font-weight:600;text-decoration:none">${escHtml(gh.owner?.login || '')}/${escHtml(gh.name)}</a>
+            <a href="${gh.url && gh.url.startsWith('https://') ? gh.url : '#'}" target="_blank" style="color:var(--accent);font-weight:600;text-decoration:none">${escHtml(gh.owner?.login || '')}/${escHtml(gh.name)}</a>
             ${vis}
             <span class="gh-stat">&#9733; ${gh.stargazerCount || 0}</span>
             <span class="gh-stat">&#128259; ${gh.forkCount || 0}</span>
@@ -4329,7 +5430,9 @@ async function handleCloneSearch() {
     // If it looks like a URL or owner/repo, treat as direct ref; otherwise search
     const isUrl = input.startsWith('http') || input.startsWith('git@') || /^[\w.-]+\/[\w.-]+$/.test(input);
     if (isUrl) {
-        // Put it in the URL field ready for clone
+        // URL/owner-repo 형식 — 리스트에 안내 표시 후 Clone 버튼 대기
+        document.getElementById('ghRepoList').innerHTML =
+            '<li style="padding:12px 14px;color:var(--text-dim);font-size:12px">&#10003; Clone 준비 완료 — 아래 Clone 버튼을 누르세요.</li>';
         return;
     }
 
@@ -4353,7 +5456,8 @@ async function handleCloneSearch() {
         const url = r.url || '';
         const desc = r.description || '';
         const vis = r.isPrivate ? '<span class="gh-repo-badge private">Private</span>' : '<span class="gh-repo-badge public">Public</span>';
-        return `<li class="gh-repo-item" onclick="selectGhRepo('${escHtml(url)}')">
+        const safeUrl = url.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `<li class="gh-repo-item" onclick="selectGhRepo('${safeUrl}')">
             <span class="gh-repo-name">${escHtml(name)}</span>
             ${vis}
             <span class="gh-repo-desc">${escHtml(desc)}</span>
@@ -4398,7 +5502,7 @@ async function loadMyRepos() {
 
     const data = await api('GET', '/git/gh-repos');
     if (!data.repos || data.repos.length === 0) {
-        el.innerHTML = `<li style="padding:12px 14px;color:var(--text-dim);font-size:12px">${data.error || 'No repos found'}</li>`;
+        el.innerHTML = `<li style="padding:12px 14px;color:var(--text-dim);font-size:12px">${escHtml(data.error || 'No repos found')}</li>`;
         return;
     }
 
@@ -4407,7 +5511,8 @@ async function loadMyRepos() {
         const url = r.url || '';
         const desc = r.description || '';
         const vis = r.isPrivate ? '<span class="gh-repo-badge private">Private</span>' : '<span class="gh-repo-badge public">Public</span>';
-        return `<li class="gh-repo-item" onclick="selectGhRepo('${escHtml(url)}')">
+        const safeUrl = url.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `<li class="gh-repo-item" onclick="selectGhRepo('${safeUrl}')">
             <span class="gh-repo-name">${escHtml(name)}</span>
             ${vis}
             <span class="gh-repo-desc">${escHtml(desc)}</span>
@@ -4448,50 +5553,67 @@ function escHtml(s) {
     return d.innerHTML;
 }
 
+let _logFilenames = [];
+
 async function loadLogs() {
     const logs = await api('GET', '/logs');
     const el = document.getElementById('logsList');
     document.getElementById('logViewer').style.display = 'none';
     el.style.display = 'block';
 
-    if (logs.length === 0) {
+    if (!Array.isArray(logs) || logs.length === 0) {
         el.innerHTML = '<div class="empty-state"><p>No logs yet</p></div>';
         return;
     }
 
-    el.innerHTML = logs.map(l => `
-        <div class="log-item" onclick="viewLog('${l.filename}')">
-            <span class="log-name">${l.filename}</span>
+    _logFilenames = [];
+    el.innerHTML = logs.map(l => {
+        const idx = _logFilenames.length;
+        _logFilenames.push(l.filename);
+        return `
+        <div class="log-item" onclick="viewLog(_logFilenames[${idx}])">
+            <span class="log-name">${escHtml(l.filename)}</span>
             <span class="log-meta">${formatSize(l.size)} &middot; ${formatDate(l.modified)}</span>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 async function viewLog(filename) {
-    const data = await api('GET', `/logs/${filename}`);
+    const data = await api('GET', `/logs/${encodeURIComponent(filename)}`);
     document.getElementById('logsList').style.display = 'none';
     const viewer = document.getElementById('logViewer');
     viewer.style.display = 'block';
     viewer.textContent = data.content || 'Empty log';
 }
 
+let _searchLogsTimer = null;
 async function searchLogs() {
+    // 300ms 디바운스 — 연속 클릭/Enter 시 마지막 호출만 실행
+    clearTimeout(_searchLogsTimer);
+    await new Promise(resolve => { _searchLogsTimer = setTimeout(resolve, 300); });
+
     const query = document.getElementById('logSearchInput').value;
     if (!query) { loadLogs(); return; }
 
     const logs = await api('GET', '/logs');
+    if (!Array.isArray(logs)) return;
     const viewer = document.getElementById('logViewer');
     const listEl = document.getElementById('logsList');
     listEl.style.display = 'none';
     viewer.style.display = 'block';
+    viewer.textContent = '검색 중...';
 
-    let results = [];
-    for (const log of logs) {
-        const data = await api('GET', `/logs/${log.filename}?search=${encodeURIComponent(query)}`);
+    // 순차 N회 호출 → Promise.all 병렬 호출로 교체
+    const responses = await Promise.all(
+        logs.map(log => api('GET', `/logs/${encodeURIComponent(log.filename)}?search=${encodeURIComponent(query)}`))
+    );
+
+    const results = [];
+    responses.forEach((data, i) => {
         if (data.matches > 0) {
-            results.push(`=== ${log.filename} (${data.matches} matches) ===\n${data.content}`);
+            results.push(`=== ${logs[i].filename} (${data.matches} matches) ===\n${data.content}`);
         }
-    }
+    });
 
     viewer.textContent = results.length > 0 ? results.join('\n\n') : 'No matches found.';
 }
@@ -4527,11 +5649,25 @@ refreshSessions().then(() => {
         selectSession(activeSessionId);
     }
 });
-setInterval(refreshSessions, 5000);
+window._refreshSessionsTimer = setInterval(refreshSessions, 5000);
 
 // ─── Pipeline ──────────────────────────────────────────────────────
-let activePipelineId = localStorage.getItem('sm_activePipelineId') || null;
+// 세션별 파이프라인 관리
+let activePipelineId = null;
 let pipelinePollTimer = null;
+const sessionPipelineMap = (() => { try { return JSON.parse(localStorage.getItem('sm_sessionPipelineMap') || '{}'); } catch(e) { return {}; } })();
+
+function getActivePipelineForSession() {
+    return activeSessionId ? (sessionPipelineMap[activeSessionId] || null) : null;
+}
+
+function setActivePipelineForSession(pipelineId) {
+    activePipelineId = pipelineId;
+    if (activeSessionId) {
+        sessionPipelineMap[activeSessionId] = pipelineId;
+        try { localStorage.setItem('sm_sessionPipelineMap', JSON.stringify(sessionPipelineMap)); } catch(e) { console.warn('localStorage 저장 실패', e); }
+    }
+}
 
 function onPipelineModeChange() {
     const mode = document.getElementById('pipelineMode').value;
@@ -4540,12 +5676,27 @@ function onPipelineModeChange() {
 
 async function loadPipelinesForSession() {
     /* Pipeline 탭 진입 시 현재 세션의 파이프라인 목록 로드 */
+    // 세션별 파이프라인 ID 복원
+    activePipelineId = getActivePipelineForSession();
+
+    // 이전 폴링 중지
+    if (pipelinePollTimer) { clearInterval(pipelinePollTimer); pipelinePollTimer = null; }
+
+    // UI 초기화
+    document.getElementById('pipelineStartBtn').style.display = '';
+    document.getElementById('pipelineStopBtn').style.display = 'none';
+    document.getElementById('pipelineStatusBar').style.display = 'none';
+    document.getElementById('pipelineSummary').style.display = 'none';
+    document.getElementById('pipelineListBar').innerHTML = '';
+
     try {
         const all = await api('GET', '/pipelines');
+        if (!Array.isArray(all)) return;
         // 현재 세션의 파이프라인만 필터
-        const mine = activeSessionId ? all.filter(p => p.session_id === activeSessionId) : all;
+        const mine = activeSessionId ? all.filter(p => p.session_id === activeSessionId || p.worker_session_id === activeSessionId) : all;
 
-        if (mine.length === 0 && !activePipelineId) {
+        if (mine.length === 0) {
+            activePipelineId = null;
             document.getElementById('pipelineHistory').innerHTML =
                 '<div style="text-align:center;padding:40px;color:var(--text-dim)">' +
                 '<p style="font-size:14px">LLM 감독자가 Claude CLI를 자동으로 구동합니다</p>' +
@@ -4558,31 +5709,29 @@ async function loadPipelinesForSession() {
         const latest = running || mine[mine.length - 1];
         if (latest && (!activePipelineId || !mine.find(p => p.id === activePipelineId))) {
             activePipelineId = latest.id;
-            localStorage.setItem('sm_activePipelineId', activePipelineId);
+            setActivePipelineForSession(activePipelineId);
         }
 
-        // 파이프라인 목록이 여러개면 선택 UI 표시
-        if (mine.length > 1) {
-            let listHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
-            for (const p of mine) {
-                const active = p.id === activePipelineId;
-                const color = { running:'var(--orange)', completed:'var(--green)', failed:'var(--red)', stopped:'var(--text-dim)' }[p.status] || 'var(--text-dim)';
-                listHtml += `<button onclick="selectPipeline('${p.id}')" class="btn btn-small" style="font-size:11px;${active?'border-color:var(--accent);color:var(--accent)':''}">` +
-                    `<span style="color:${color}">&#9679;</span> #${p.id.substring(0,6)} (iter ${p.iteration}/${p.max_iterations})</button>`;
-            }
-            listHtml += '</div>';
-            const el = document.getElementById('pipelineListBar');
-            if (el) el.innerHTML = listHtml;
+        // 파이프라인 목록 (항상 표시 — 세션별 히스토리)
+        let listHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+        for (const p of mine) {
+            const active = p.id === activePipelineId;
+            const color = { running:'var(--orange)', completed:'var(--green)', failed:'var(--red)', stopped:'var(--text-dim)' }[p.status] || 'var(--text-dim)';
+            const cycleInfo = p.max_cycles > 1 ? ` C${p.current_cycle}` : '';
+            listHtml += `<button onclick="selectPipeline('${p.id}')" class="btn btn-small" style="font-size:11px;${active?'border-color:var(--accent);color:var(--accent)':''}">` +
+                `<span style="color:${color}">&#9679;</span> #${p.id.substring(0,6)} (iter ${p.iteration}/${p.max_iterations}${cycleInfo})</button>`;
         }
+        listHtml += '</div>';
+        document.getElementById('pipelineListBar').innerHTML = listHtml;
 
         if (activePipelineId) {
             // 현재 파이프라인 상태 복원
+            document.getElementById('pipelineStatusBar').style.display = '';
             pollPipeline();
             const ap = mine.find(p => p.id === activePipelineId);
             if (ap && ap.status === 'running') {
                 document.getElementById('pipelineStartBtn').style.display = 'none';
                 document.getElementById('pipelineStopBtn').style.display = '';
-                document.getElementById('pipelineStatusBar').style.display = '';
                 startPipelinePolling();
             }
         }
@@ -4590,9 +5739,22 @@ async function loadPipelinesForSession() {
 }
 
 function selectPipeline(id) {
-    activePipelineId = id;
-    localStorage.setItem('sm_activePipelineId', id);
+    setActivePipelineForSession(id);
+    if (pipelinePollTimer) { clearInterval(pipelinePollTimer); pipelinePollTimer = null; }
+    // UI 리셋
+    document.getElementById('pipelineStartBtn').style.display = '';
+    document.getElementById('pipelineStopBtn').style.display = 'none';
+    document.getElementById('pipelineSummary').style.display = 'none';
+    document.getElementById('pipelineStatusBar').style.display = '';
     pollPipeline();
+    // running이면 폴링 재개
+    api('GET', `/pipelines/${id}`).then(data => {
+        if (data.status === 'running') {
+            document.getElementById('pipelineStartBtn').style.display = 'none';
+            document.getElementById('pipelineStopBtn').style.display = '';
+            startPipelinePolling();
+        }
+    });
 }
 
 async function startPipeline() {
@@ -4610,19 +5772,24 @@ async function startPipeline() {
         mode: mode,
         supervisor_model: document.getElementById('pipelineSupervisorModel').value,
         max_iterations: parseInt(document.getElementById('pipelineMaxIter').value) || 20,
+        max_cycles: parseInt(document.getElementById('pipelineMaxCycles').value) || 100,
     };
 
     try {
         const res = await api('POST', '/pipelines', body);
         if (res.error) { alert(res.error); return; }
-        activePipelineId = res.pipeline_id;
-        localStorage.setItem('sm_activePipelineId', activePipelineId);
+        setActivePipelineForSession(res.pipeline_id);
         document.getElementById('pipelineStartBtn').style.display = 'none';
         document.getElementById('pipelineStopBtn').style.display = '';
         document.getElementById('pipelineStatusBar').style.display = '';
         document.getElementById('pipelineSummary').style.display = 'none';
         document.getElementById('pipelineHistory').innerHTML = '';
         startPipelinePolling();
+        // pw-* worker 세션으로 자동 전환하여 파이프라인 출력 즉시 확인
+        if (res.worker_session_id) {
+            try { await refreshSessions(); } catch (_) { /* 갱신 실패해도 선택은 진행 */ }
+            selectSession(res.worker_session_id);
+        }
     } catch (e) {
         alert('파이프라인 시작 실패: ' + e.message);
     }
@@ -4645,12 +5812,20 @@ async function pollPipeline() {
     if (!activePipelineId) return;
     try {
         const data = await api('GET', `/pipelines/${activePipelineId}`);
-        if (data.error) return;
+        if (data.error) {
+            // 파이프라인 없음(404) 등 → 폴링 중지
+            clearInterval(pipelinePollTimer);
+            pipelinePollTimer = null;
+            return;
+        }
 
-        // 상태 업데이트
-        const pct = data.max_iterations > 0 ? Math.round((data.iteration / data.max_iterations) * 100) : 0;
+        // 상태 업데이트 (사이클 포함)
+        const totalMax = data.max_cycles * data.max_iterations;
+        const totalIter = data.total_iterations || ((data.current_cycle - 1) * data.max_iterations + data.iteration);
+        const pct = totalMax > 0 ? Math.round((totalIter / totalMax) * 100) : 0;
         document.getElementById('pipelineProgressBar').style.width = pct + '%';
-        document.getElementById('pipelineIterText').textContent = `${data.iteration}/${data.max_iterations}`;
+        const cycleText = data.max_cycles > 1 ? `Cycle ${data.current_cycle}/${data.max_cycles} | ` : '';
+        document.getElementById('pipelineIterText').textContent = `${cycleText}Iter ${data.iteration}/${data.max_iterations} (${totalIter} total)`;
 
         const statusColors = { running: 'var(--orange)', completed: 'var(--green)', failed: 'var(--red)', stopped: 'var(--text-dim)' };
         const modeLabel = data.mode === 'cli' ? 'CLI' : 'API';
@@ -4692,7 +5867,7 @@ function renderPipelineHistory(history) {
             html += `<div style="font-size:11px;color:var(--accent);font-weight:600;margin:12px 0 6px;padding-top:8px;border-top:1px solid var(--border)">Iteration ${currentIter}</div>`;
         }
 
-        const time = `<span style="color:var(--text-dim);font-size:11px;margin-right:6px">${h.timestamp}</span>`;
+        const time = `<span style="color:var(--text-dim);font-size:11px;margin-right:6px">${escHtml(h.timestamp)}</span>`;
 
         if (h.role === 'supervisor') {
             html += `<div style="margin:4px 0;padding:8px 10px;background:var(--bg-secondary);border-radius:6px;border-left:3px solid var(--purple);font-size:12px">
@@ -4718,13 +5893,281 @@ function renderPipelineHistory(history) {
 }
 
 function escapeHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+}
+
+// ─── Plan Phase (계획 수립) ──────────────────────────────────────
+let activePlanId = null;
+let planPollTimer = null;
+
+async function startPlanPhase() {
+    if (!activeSessionId) {
+        alert('먼저 세션을 선택하세요');
+        return;
+    }
+    const goal = document.getElementById('pipelineGoal').value.trim();
+    if (!goal) { alert('목표를 입력하세요'); return; }
+
+    const mode = document.getElementById('pipelineMode').value;
+    const body = {
+        session_id: activeSessionId,
+        goal: goal,
+        mode: mode,
+        supervisor_model: document.getElementById('pipelineSupervisorModel').value,
+    };
+
+    try {
+        const res = await api('POST', '/plan-phases', body);
+        if (res.error) { alert(res.error); return; }
+        activePlanId = res.plan_id;
+        document.getElementById('planPhaseContainer').style.display = '';
+        document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>질문 생성 중...</div>';
+        startPlanPolling();
+    } catch (e) {
+        alert('계획 수립 시작 실패: ' + e.message);
+    }
+}
+
+function startPlanPolling() {
+    if (planPollTimer) clearInterval(planPollTimer);
+    planPollTimer = setInterval(pollPlanPhase, 1500);
+    pollPlanPhase();
+}
+
+async function pollPlanPhase() {
+    if (!activePlanId) return;
+    try {
+        const data = await api('GET', `/plan-phases/${activePlanId}`);
+        if (data.error) {
+            clearInterval(planPollTimer);
+            planPollTimer = null;
+            return;
+        }
+
+        if (data.status === 'questions_generating') {
+            document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>질문 생성 중...</div>';
+        } else if (data.status === 'questions_ready') {
+            clearInterval(planPollTimer);
+            planPollTimer = null;
+            renderPlanQuestions(data.questions);
+        } else if (data.status === 'plan_generating') {
+            document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>실행 계획 생성 중...</div>';
+        } else if (data.status === 'plan_ready') {
+            clearInterval(planPollTimer);
+            planPollTimer = null;
+            renderPlanReview(data.plan_text);
+        } else if (data.status === 'approved') {
+            clearInterval(planPollTimer);
+            planPollTimer = null;
+            closePlanPhase();
+        } else if (data.status === 'error') {
+            clearInterval(planPollTimer);
+            planPollTimer = null;
+            document.getElementById('planPhaseContent').innerHTML = `
+                <div style="padding:16px;color:var(--red)">
+                    <div style="font-weight:600;margin-bottom:8px">오류 발생</div>
+                    <div style="font-size:12px;margin-bottom:12px">${escapeHtml(data.error)}</div>
+                    <button class="btn btn-small" onclick="retryPlanPhase()" style="background:var(--orange);color:white">재시도</button>
+                    <button class="btn btn-small" onclick="closePlanPhase()" style="margin-left:6px">닫기</button>
+                </div>`;
+        }
+    } catch (e) { console.error('Plan poll error:', e); }
+}
+
+function renderPlanQuestions(questions) {
+    const el = document.getElementById('planPhaseContent');
+    let html = '<div style="font-size:13px;color:var(--purple);font-weight:600;margin-bottom:12px">&#128203; 계획 수립 — 아래 질문에 답변해주세요</div>';
+
+    for (const q of questions) {
+        const qid = q.id || 'q0';
+        html += `<div style="margin-bottom:16px;padding:12px;background:var(--bg-secondary);border-radius:8px;border-left:3px solid var(--purple)">`;
+        html += `<div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:4px">${escapeHtml(q.question)}</div>`;
+        if (q.why) {
+            html += `<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">${escapeHtml(q.why)}</div>`;
+        }
+        html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">`;
+        for (const opt of (q.options || [])) {
+            const label = opt.label || '';
+            const desc = opt.description || '';
+            html += `<button onclick="selectPlanOption('${qid}', this, '${escapeHtml(label).replace(/'/g, "\\'")}')"
+                class="plan-opt-btn" data-qid="${qid}"
+                style="padding:6px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:12px;text-align:left;transition:all 0.15s;max-width:280px"
+                onmouseover="this.style.borderColor='var(--purple)'"
+                onmouseout="if(!this.classList.contains('plan-selected'))this.style.borderColor='var(--border)'">
+                <div style="font-weight:500">${escapeHtml(label)}</div>
+                ${desc ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px">${escapeHtml(desc)}</div>` : ''}
+            </button>`;
+        }
+        html += `</div>`;
+        html += `<input type="text" placeholder="직접 입력..." data-qid="${qid}" class="plan-custom-input"
+            oninput="onPlanCustomInput('${qid}', this)"
+            style="width:100%;padding:6px 8px;background:var(--bg);border:1px dashed var(--border);border-radius:4px;color:var(--text);font-size:12px;box-sizing:border-box">`;
+        html += `</div>`;
+    }
+
+    html += `<div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-primary btn-small" onclick="submitPlanAnswers()">답변 제출</button>
+        <button class="btn btn-small" onclick="closePlanPhase()">취소</button>
+    </div>`;
+
+    el.innerHTML = html;
+}
+
+// 질문별 선택 상태 저장
+const planSelectedAnswers = {};
+
+function selectPlanOption(qid, btnEl, label) {
+    // 같은 질문의 다른 버튼 선택 해제
+    document.querySelectorAll(`button.plan-opt-btn[data-qid="${qid}"]`).forEach(b => {
+        b.classList.remove('plan-selected');
+        b.style.borderColor = 'var(--border)';
+        b.style.background = 'var(--bg)';
+    });
+    // 선택 하이라이트
+    btnEl.classList.add('plan-selected');
+    btnEl.style.borderColor = 'var(--purple)';
+    btnEl.style.background = 'rgba(137,87,229,0.1)';
+    planSelectedAnswers[qid] = label;
+    // 직접 입력 필드 초기화
+    const input = document.querySelector(`input.plan-custom-input[data-qid="${qid}"]`);
+    if (input) input.value = '';
+}
+
+function onPlanCustomInput(qid, inputEl) {
+    if (inputEl.value.trim()) {
+        planSelectedAnswers[qid] = inputEl.value.trim();
+        // 옵션 버튼 선택 해제
+        document.querySelectorAll(`button.plan-opt-btn[data-qid="${qid}"]`).forEach(b => {
+            b.classList.remove('plan-selected');
+            b.style.borderColor = 'var(--border)';
+            b.style.background = 'var(--bg)';
+        });
+    }
+}
+
+async function submitPlanAnswers() {
+    if (!activePlanId) return;
+    if (Object.keys(planSelectedAnswers).length === 0) {
+        alert('최소 하나의 질문에 답변해주세요');
+        return;
+    }
+
+    try {
+        const res = await api('POST', `/plan-phases/${activePlanId}/answers`, { answers: planSelectedAnswers });
+        if (res.error) { alert(res.error); return; }
+        document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>실행 계획 생성 중...</div>';
+        startPlanPolling();
+    } catch (e) {
+        alert('답변 제출 실패: ' + e.message);
+    }
+}
+
+function renderPlanReview(planText) {
+    const el = document.getElementById('planPhaseContent');
+    // simple markdown → HTML (headers, bold, lists)
+    let rendered = escapeHtml(planText)
+        .replace(/^### (.+)$/gm, '<h4 style="color:var(--accent);margin:12px 0 6px;font-size:13px">$1</h4>')
+        .replace(/^## (.+)$/gm, '<h3 style="color:var(--text);margin:14px 0 8px;font-size:14px">$1</h3>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/^- (.+)$/gm, '<div style="padding-left:12px;margin:2px 0">&#8226; $1</div>')
+        .replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:12px;margin:4px 0"><strong>$1.</strong> $2</div>')
+        .replace(/\n/g, '<br>');
+
+    let html = `<div style="font-size:13px;color:var(--purple);font-weight:600;margin-bottom:12px">&#128203; 실행 계획 검토</div>`;
+    html += `<div id="planReviewDisplay" style="font-size:12px;line-height:1.6;padding:12px;background:var(--bg-secondary);border-radius:8px;border-left:3px solid var(--green);margin-bottom:8px">${rendered}</div>`;
+    html += `<div style="margin-bottom:12px">
+        <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">계획 편집 (선택사항)</label>
+        <textarea id="planEditArea" rows="6" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:12px;resize:vertical;font-family:monospace;box-sizing:border-box;display:none">${escapeHtml(planText)}</textarea>
+        <button class="btn btn-small" onclick="togglePlanEdit()" style="font-size:11px;margin-top:4px">편집 모드</button>
+    </div>`;
+    html += `<div style="display:flex;gap:8px">
+        <button class="btn btn-primary btn-small" onclick="approvePlan()">승인 및 실행</button>
+        <button class="btn btn-small" onclick="regeneratePlan()" style="background:var(--orange);color:white">재생성</button>
+        <button class="btn btn-small" onclick="closePlanPhase()">취소</button>
+    </div>`;
+
+    el.innerHTML = html;
+}
+
+function togglePlanEdit() {
+    const area = document.getElementById('planEditArea');
+    const display = document.getElementById('planReviewDisplay');
+    if (area.style.display === 'none') {
+        area.style.display = '';
+        display.style.display = 'none';
+    } else {
+        area.style.display = 'none';
+        display.style.display = '';
+    }
+}
+
+async function approvePlan() {
+    if (!activePlanId) return;
+    const editArea = document.getElementById('planEditArea');
+    const edited = editArea && editArea.style.display !== 'none' ? editArea.value : null;
+
+    const body = {
+        plan_text: edited,
+        max_iterations: parseInt(document.getElementById('pipelineMaxIter').value) || 20,
+        max_cycles: parseInt(document.getElementById('pipelineMaxCycles').value) || 100,
+    };
+
+    try {
+        const res = await api('POST', `/plan-phases/${activePlanId}/approve`, body);
+        if (res.error) { alert(res.error); return; }
+
+        closePlanPhase();
+
+        // 파이프라인 시작됨 → 파이프라인 UI로 전환
+        if (res.pipeline_id) {
+            setActivePipelineForSession(res.pipeline_id);
+            document.getElementById('pipelineStartBtn').style.display = 'none';
+            document.getElementById('pipelineStopBtn').style.display = '';
+            document.getElementById('pipelineStatusBar').style.display = '';
+            document.getElementById('pipelineSummary').style.display = 'none';
+            document.getElementById('pipelineHistory').innerHTML = '';
+            startPipelinePolling();
+            if (res.worker_session_id) {
+                try { await refreshSessions(); } catch (_) {}
+                selectSession(res.worker_session_id);
+            }
+        }
+    } catch (e) {
+        alert('계획 승인 실패: ' + e.message);
+    }
+}
+
+async function regeneratePlan() {
+    if (!activePlanId) return;
+    try {
+        await api('POST', `/plan-phases/${activePlanId}/regenerate`);
+        document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>실행 계획 재생성 중...</div>';
+        startPlanPolling();
+    } catch (e) {
+        alert('재생성 실패: ' + e.message);
+    }
+}
+
+async function retryPlanPhase() {
+    closePlanPhase();
+    // 선택 상태 초기화 후 다시 시작
+    Object.keys(planSelectedAnswers).forEach(k => delete planSelectedAnswers[k]);
+    startPlanPhase();
+}
+
+function closePlanPhase() {
+    if (planPollTimer) { clearInterval(planPollTimer); planPollTimer = null; }
+    document.getElementById('planPhaseContainer').style.display = 'none';
+    document.getElementById('planPhaseContent').innerHTML = '';
+    activePlanId = null;
+    Object.keys(planSelectedAnswers).forEach(k => delete planSelectedAnswers[k]);
 }
 
 // ─── Shell Terminal (xterm.js) ────────────────────────────────
 let shellTerm = null;
 let shellWs = null;
 let activeShellId = null;
+let shellWsConnectId = 0;  // Shell WS stale 메시지 차단용
 
 function onTerminalModeChange() {
     const mode = document.getElementById('terminalMode').value;
@@ -4798,7 +6241,7 @@ function initShellTerminal() {
         try {
             fitAddon.fit();
             if (shellWs && shellWs.readyState === WebSocket.OPEN) {
-                shellWs.send(`\x1b[8;${shellTerm.rows};${shellTerm.cols}t`);
+                shellWs.send(JSON.stringify({ type: 'resize', rows: shellTerm.rows, cols: shellTerm.cols }));
             }
         } catch(e) {}
     });
@@ -4812,9 +6255,14 @@ async function createShellSession() {
     const shellType = document.getElementById('shellTypeSelect').value;
     // 작업 디렉토리: 활성 Claude 세션의 work_dir 사용
     let workDir = '.';
-    if (activeSessionId && sessionList) {
-        const s = sessionList.find(s => s.id === activeSessionId);
-        if (s) workDir = s.work_dir;
+    if (activeSessionId) {
+        try {
+            const allSessions = await api('GET', '/sessions');
+            if (Array.isArray(allSessions)) {
+                const s = allSessions.find(s => s.id === activeSessionId);
+                if (s) workDir = s.work_dir;
+            }
+        } catch(e) {}
     }
 
     if (!shellTerm) initShellTerminal();
@@ -4822,7 +6270,7 @@ async function createShellSession() {
     // 기존 shell 종료
     if (activeShellId) {
         try { await api('DELETE', `/shell/${activeShellId}`); } catch(e) {}
-        if (shellWs) { shellWs.close(); shellWs = null; }
+        if (shellWs) { shellWs.onmessage = null; shellWs.onclose = null; shellWs.close(); shellWs = null; }
         activeShellId = null;
     }
 
@@ -4847,27 +6295,37 @@ async function createShellSession() {
 }
 
 function connectShellWebSocket(shellId) {
-    if (shellWs) { shellWs.close(); shellWs = null; }
+    shellWsConnectId++;  // 새 연결 ID — 이전 Shell WS 메시지 무시
+    if (shellWs) {
+        shellWs.onmessage = null;  // 즉시 메시지 수신 차단
+        shellWs.onclose = null;    // 자동 종료 핸들러 차단
+        shellWs.close();
+        shellWs = null;
+    }
 
+    const myShellConnectId = shellWsConnectId;  // 클로저에 캡처
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsBase = window.location.port === '8006' ? '' : '/svc/claude';
     shellWs = new WebSocket(`${proto}//${location.host}${wsBase}/ws/shell/${shellId}`);
 
     shellWs.onopen = () => {
+        if (myShellConnectId !== shellWsConnectId) return;
         // fit 후 resize 전달
         if (window._shellFitAddon) {
             try { window._shellFitAddon.fit(); } catch(e) {}
         }
-        if (shellTerm && shellWs.readyState === WebSocket.OPEN) {
-            shellWs.send(`\x1b[8;${shellTerm.rows};${shellTerm.cols}t`);
+        if (shellTerm && shellWs && shellWs.readyState === WebSocket.OPEN) {
+            shellWs.send(JSON.stringify({ type: 'resize', rows: shellTerm.rows, cols: shellTerm.cols }));
         }
     };
 
     shellWs.onmessage = (e) => {
+        if (myShellConnectId !== shellWsConnectId) return;  // stale guard
         if (shellTerm) shellTerm.write(e.data);
     };
 
     shellWs.onclose = () => {
+        if (myShellConnectId !== shellWsConnectId) return;  // stale guard
         shellWs = null;
         if (shellTerm) {
             shellTerm.writeln('\r\n\x1b[90m[ 연결 종료됨 ]\x1b[0m');
@@ -4881,7 +6339,7 @@ function connectShellWebSocket(shellId) {
 async function killShellSession() {
     if (!activeShellId) return;
     try { await api('DELETE', `/shell/${activeShellId}`); } catch(e) {}
-    if (shellWs) { shellWs.close(); shellWs = null; }
+    if (shellWs) { shellWs.onmessage = null; shellWs.onclose = null; shellWs.close(); shellWs = null; }
     activeShellId = null;
     document.getElementById('shellKillBtn').style.display = 'none';
     if (shellTerm) shellTerm.writeln('\r\n\x1b[90m[ Shell 종료됨 ]\x1b[0m');
