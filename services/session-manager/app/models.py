@@ -204,6 +204,10 @@ class PlanPhaseApproveRequest(BaseModel):
     max_cycles: int = Field(default=100, ge=1, le=200)
 
 
+class PlanPhaseRejectRequest(BaseModel):
+    feedback: str = Field(..., min_length=1)
+
+
 class DismissSessionsRequest(BaseModel):
     session_ids: list[str] = Field(..., min_length=1)
 

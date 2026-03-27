@@ -31,7 +31,8 @@ from app.models import (
     ProjectRequest, PipelineStartRequest, ShellCreateRequest, RenameSessionRequest,
     ChangeModelRequest, ForkSessionRequest, PromptTemplate, ClaudeMdRequest,
     CompareRequest, PlanPhaseStartRequest, PlanPhaseAnswerRequest,
-    PlanPhaseApproveRequest, DismissSessionsRequest, CleanupPipelinesRequest,
+    PlanPhaseApproveRequest, PlanPhaseRejectRequest,
+    DismissSessionsRequest, CleanupPipelinesRequest,
 )
 from app.session import ClaudeSession, _check_rate_limit
 from app.shell import ShellSession, HAS_WINPTY
@@ -1121,6 +1122,24 @@ async def regenerate_plan(plan_id: str):
     if phase.status not in ("plan_ready", "error"):
         raise HTTPException(status_code=409, detail=f"현재 상태({phase.status})에서는 재생성 불가")
     await phase.regenerate()
+    return {"status": phase.status}
+
+
+@router.post("/plan-phases/{plan_id}/reject")
+async def reject_plan_phase(plan_id: str, body: PlanPhaseRejectRequest):
+    """플랜 거부 + 피드백 기반 추가 질의 (최대 1회)"""
+    if plan_id not in plan_phases:
+        raise HTTPException(status_code=404, detail="Plan phase 없음")
+    phase = plan_phases[plan_id]
+    if phase.status != "plan_ready":
+        raise HTTPException(
+            status_code=409,
+            detail=f"현재 상태({phase.status})에서는 거부 불가 (plan_ready 상태 필요)",
+        )
+    try:
+        await phase.reject_and_refine(body.feedback)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     return {"status": phase.status}
 
 

@@ -2873,10 +2873,14 @@ async function pollPlanPhase() {
 
         if (data.status === 'questions_generating') {
             document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>질문 생성 중...</div>';
+        } else if (data.status === 'processing_answers') {
+            document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>답변 처리 중...</div>';
+        } else if (data.status === 'checking_need_more') {
+            document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>추가 질의 필요 여부 확인 중...</div>';
         } else if (data.status === 'questions_ready') {
             clearInterval(planPollTimer);
             planPollTimer = null;
-            renderPlanQuestions(data.questions);
+            renderPlanQuestions(data);
         } else if (data.status === 'plan_generating') {
             document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>실행 계획 생성 중...</div>';
         } else if (data.status === 'plan_ready') {
@@ -2901,10 +2905,35 @@ async function pollPlanPhase() {
     } catch (e) { console.error('Plan poll error:', e); }
 }
 
-function renderPlanQuestions(questions) {
+function renderPlanQuestions(data) {
     const el = document.getElementById('planPhaseContent');
-    let html = '<div style="font-size:13px;color:var(--purple);font-weight:600;margin-bottom:12px">&#128203; 계획 수립 — 아래 질문에 답변해주세요</div>';
+    const questions = data.questions || [];
+    const qaRound = data.qa_round || 0;
+    const maxRounds = data.max_rounds || 3;
+    const qaHistory = data.qa_history || [];
+    const displayRound = qaRound + 1;
 
+    // 헤더: 타이틀 + 라운드 배지
+    let html = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <div style="font-size:13px;color:var(--purple);font-weight:600">&#128203; 계획 수립 — 아래 질문에 답변해주세요</div>
+        <span style="font-size:11px;padding:2px 8px;background:rgba(188,140,255,0.15);border:1px solid var(--purple);border-radius:10px;color:var(--purple)">라운드 ${displayRound}/${maxRounds}</span>
+    </div>`;
+
+    // 이전 라운드 Q&A 요약 (접이식, 기본 닫힘)
+    if (qaHistory.length > 0) {
+        html += `<details style="margin-bottom:12px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
+            <summary style="padding:8px 12px;font-size:12px;color:var(--text-dim);cursor:pointer;user-select:none">&#128221; 이전 라운드 Q&amp;A 요약 (${qaHistory.length}라운드 완료)</summary>
+            <div style="padding:8px 12px;border-top:1px solid var(--border)">`;
+        for (const h of qaHistory) {
+            html += `<div style="font-size:12px;margin-bottom:6px;display:flex;gap:6px">
+                <span style="font-size:11px;color:var(--purple);font-weight:600;white-space:nowrap">라운드 ${h.round}</span>
+                <span style="color:var(--text-dim)">${escapeHtml(h.summary || '(요약 없음)')}</span>
+            </div>`;
+        }
+        html += `</div></details>`;
+    }
+
+    // 질문 카드
     for (const q of questions) {
         const qid = q.id || 'q0';
         html += `<div style="margin-bottom:16px;padding:12px;background:var(--bg-secondary);border-radius:8px;border-left:3px solid var(--purple)">`;
@@ -2932,10 +2961,18 @@ function renderPlanQuestions(questions) {
         html += `</div>`;
     }
 
-    html += `<div style="display:flex;gap:8px;margin-top:12px">
+    // 하단: 추가 질문 요청 체크박스 (마지막 라운드가 아닐 때만) + 제출 버튼
+    html += `<div style="margin-top:12px">`;
+    if (displayRound < maxRounds) {
+        html += `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);margin-bottom:10px;cursor:pointer">
+            <input type="checkbox" id="planRequestMoreCb" style="accent-color:var(--purple)">
+            추가 질문 요청 (더 명확히 해야 할 내용이 있으면 체크)
+        </label>`;
+    }
+    html += `<div style="display:flex;gap:8px">
         <button class="btn btn-primary btn-small" onclick="submitPlanAnswers()">답변 제출</button>
         <button class="btn btn-small" onclick="closePlanPhase()">취소</button>
-    </div>`;
+    </div></div>`;
 
     el.innerHTML = html;
 }
@@ -2979,10 +3016,16 @@ async function submitPlanAnswers() {
         return;
     }
 
+    const answersToSend = Object.assign({}, planSelectedAnswers);
+    const moreCb = document.getElementById('planRequestMoreCb');
+    if (moreCb && moreCb.checked) {
+        answersToSend['_request_more'] = 'true';
+    }
+
     try {
-        const res = await api('POST', `/plan-phases/${activePlanId}/answers`, { answers: planSelectedAnswers });
+        const res = await api('POST', `/plan-phases/${activePlanId}/answers`, { answers: answersToSend });
         if (res.error) { alert(res.error); return; }
-        document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>실행 계획 생성 중...</div>';
+        document.getElementById('planPhaseContent').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>답변 처리 중...</div>';
         startPlanPolling();
     } catch (e) {
         alert('답변 제출 실패: ' + e.message);
@@ -3007,13 +3050,45 @@ function renderPlanReview(planText) {
         <textarea id="planEditArea" rows="6" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:12px;resize:vertical;font-family:monospace;box-sizing:border-box;display:none">${escapeHtml(planText)}</textarea>
         <button class="btn btn-small" onclick="togglePlanEdit()" style="font-size:11px;margin-top:4px">편집 모드</button>
     </div>`;
+    // 수정 요청 패널 (기본 숨김)
+    html += `<div id="planRejectPanel" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:6px;border-left:3px solid var(--red)">
+        <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">&#9888;&#65039; 수정 피드백 — 어떤 점이 부족한지 설명해주세요 (재질의 1회 허용)</label>
+        <textarea id="planRejectFeedback" rows="3" placeholder="예: 에러 처리 전략이 빠져있습니다. 롤백 시나리오도 포함해주세요."
+            style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px;resize:vertical;box-sizing:border-box"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn btn-small" onclick="submitPlanReject()" style="background:var(--red);color:white">재질의 시작</button>
+            <button class="btn btn-small" onclick="document.getElementById('planRejectPanel').style.display='none'">취소</button>
+        </div>
+    </div>`;
     html += `<div style="display:flex;gap:8px">
         <button class="btn btn-primary btn-small" onclick="approvePlan()">승인 및 실행</button>
         <button class="btn btn-small" onclick="regeneratePlan()" style="background:var(--orange);color:white">재생성</button>
+        <button class="btn btn-small" onclick="togglePlanRejectPanel()" style="background:var(--red);color:white">수정 요청</button>
         <button class="btn btn-small" onclick="closePlanPhase()">취소</button>
     </div>`;
 
     el.innerHTML = html;
+}
+
+function togglePlanRejectPanel() {
+    const panel = document.getElementById('planRejectPanel');
+    if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+async function submitPlanReject() {
+    if (!activePlanId) return;
+    const feedback = (document.getElementById('planRejectFeedback')?.value || '').trim();
+    if (!feedback) { alert('수정 피드백을 입력해주세요'); return; }
+
+    try {
+        const res = await api('POST', `/plan-phases/${activePlanId}/reject`, { feedback });
+        if (res.error) { alert(res.error); return; }
+        document.getElementById('planPhaseContent').innerHTML =
+            '<div style="text-align:center;padding:24px;color:var(--text-dim)"><div class="spinner" style="margin:0 auto 12px"></div>피드백 반영 후 재질의 생성 중...</div>';
+        startPlanPolling();
+    } catch (e) {
+        alert('수정 요청 실패: ' + e.message);
+    }
 }
 
 function togglePlanEdit() {

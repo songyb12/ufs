@@ -571,6 +571,13 @@ class PlanPhase:
         self.created_at = datetime.now().isoformat()
         self._task: Optional[asyncio.Task] = None
         self._supervisor_session: Optional[ClaudeSession] = None
+        self.qa_round: int = 0
+        self.max_rounds: int = 3
+        self.qa_history: list[dict] = []
+        self.plan_draft: str | None = None
+        self.user_requested_more: bool = False
+        self.rejection_rounds: int = 0
+        self.max_rejection_rounds: int = 1
 
     def start(self):
         """질문 생성 시작"""
@@ -578,10 +585,37 @@ class PlanPhase:
         self._task = asyncio.create_task(self._generate_questions())
 
     async def submit_answers(self, answers: dict[str, str]):
-        """답변 제출 → 실행계획 생성 시작"""
+        """답변 제출 → 다회차 판단 후 추가 질의 또는 플랜 생성"""
         self.answers = answers
+        self.status = "processing_answers"
+        self._task = asyncio.create_task(self._process_answers())
+
+    async def _process_answers(self):
+        """답변 처리 — 라운드 카운트, 요약, 추가 질의 여부 결정 후 라우팅"""
+        self.qa_round += 1
+
+        # 현재 라운드 Q&A 요약 (실패해도 빈 문자열로 폴백)
+        summary = await self._summarize_qa_round()
+        self.qa_history.append({"round": self.qa_round, "summary": summary})
+
+        # 사용자 명시 요청 확인 및 플랜 컨텍스트에서 제거
+        user_more = bool(self.answers.pop("_request_more", None))
+        if user_more:
+            self.user_requested_more = True
+
+        # 추가 질의 필요 여부 판단
+        need_more = self.user_requested_more
+        if not need_more:
+            self.status = "checking_need_more"
+            need_more = await self._check_need_more_questions()
+
+        if need_more and self.qa_round < self.max_rounds:
+            self.status = "questions_generating"
+            await self._generate_questions()
+            return
+
         self.status = "plan_generating"
-        self._task = asyncio.create_task(self._generate_plan())
+        await self._generate_plan()
 
     async def approve(self, plan_text: str | None,
                       max_iterations: int, max_cycles: int) -> str:
@@ -594,11 +628,23 @@ class PlanPhase:
             f"Q: {self._find_question_text(qid)}\nA: {ans}"
             for qid, ans in self.answers.items()
         )
-        enriched_goal = (
-            f"## 원래 목표\n{self.goal}\n\n"
-            f"## 명확화 Q&A\n{qa_text}\n\n"
-            f"## 실행 계획\n{self.plan_text}"
-        )
+        if self.qa_history:
+            history_text = "\n".join(
+                f"[라운드 {h['round']}] {h['summary']}"
+                for h in self.qa_history
+            )
+            enriched_goal = (
+                f"## 원래 목표\n{self.goal}\n\n"
+                f"## 명확화 Q&A (전체 라운드 요약)\n{history_text}\n\n"
+                f"## 최종 라운드 상세 Q&A\n{qa_text}\n\n"
+                f"## 실행 계획\n{self.plan_text}"
+            )
+        else:
+            enriched_goal = (
+                f"## 원래 목표\n{self.goal}\n\n"
+                f"## 명확화 Q&A\n{qa_text}\n\n"
+                f"## 실행 계획\n{self.plan_text}"
+            )
 
         session = self._source_session
         runner = PipelineRunner(session, enriched_goal, self.supervisor_model,
@@ -618,10 +664,28 @@ class PlanPhase:
         self.status = "plan_generating"
         self._task = asyncio.create_task(self._generate_plan())
 
+    async def reject_and_refine(self, feedback: str):
+        """플랜 거부 + 피드백 기반 추가 질의 (최대 1회)
+
+        rejection_rounds >= max_rejection_rounds이면 거부 불가.
+        피드백을 qa_history에 추가 후 _generate_questions() 재호출.
+        """
+        if self.rejection_rounds >= self.max_rejection_rounds:
+            raise RuntimeError(
+                f"최대 거부 횟수({self.max_rejection_rounds})를 초과했습니다."
+            )
+        self.rejection_rounds += 1
+        self.qa_history.append({
+            "round": f"reject-{self.rejection_rounds}",
+            "summary": f"[플랜 거부 피드백] {feedback}",
+        })
+        self.status = "questions_generating"
+        self._task = asyncio.create_task(self._generate_questions())
+
     # ─── LLM 호출 ──────────────────────────────────────
 
     async def _generate_questions(self):
-        """LLM으로 질의 생성"""
+        """LLM으로 질의 생성 — qa_round > 0이면 이전 라운드 요약 포함"""
         try:
             project_context = self._get_project_context()
             system_prompt = _PLAN_QUESTIONS_SYSTEM.format(
@@ -629,7 +693,18 @@ class PlanPhase:
                 work_dir=self._source_session.work_dir,
                 project_context=project_context,
             )
-            messages = [{"role": "user", "content": f"다음 목표에 대해 명확화 질문을 생성해주세요:\n{self.goal}"}]
+            if self.qa_round > 0 and self.qa_history:
+                history_text = "\n".join(
+                    f"[라운드 {h['round']}] {h['summary']}" for h in self.qa_history
+                )
+                user_content = (
+                    f"다음 목표에 대해 명확화 질문을 생성해주세요:\n{self.goal}\n\n"
+                    f"이전 질의 라운드 요약:\n{history_text}\n\n"
+                    f"이미 답변된 내용은 다시 묻지 말고, 아직 불명확한 부분에 대해서만 추가 질문을 생성하세요."
+                )
+            else:
+                user_content = f"다음 목표에 대해 명확화 질문을 생성해주세요:\n{self.goal}"
+            messages = [{"role": "user", "content": user_content}]
             raw = await self._call_llm(system_prompt, messages)
             self.questions = self._parse_questions_json(raw)
             self.status = "questions_ready"
@@ -640,26 +715,79 @@ class PlanPhase:
             await self._cleanup_supervisor()
 
     async def _generate_plan(self):
-        """LLM으로 실행계획 생성"""
+        """LLM으로 실행계획 생성 — 전체 qa_history + 최종 라운드 answers 포함"""
         try:
             project_context = self._get_project_context()
-            qa_summary = "\n".join(
-                f"Q: {self._find_question_text(qid)}\nA: {ans}"
-                for qid, ans in self.answers.items()
-            )
+            # qa_history 전체 요약 + 마지막 라운드 상세 answers
+            qa_parts = []
+            for h in self.qa_history:
+                qa_parts.append(f"[라운드 {h['round']} 요약] {h['summary']}")
+            if self.answers:
+                current_qa = "\n".join(
+                    f"Q: {self._find_question_text(qid)}\nA: {ans}"
+                    for qid, ans in self.answers.items()
+                )
+                qa_parts.append(f"[최종 라운드 상세]\n{current_qa}")
+            qa_summary = "\n\n".join(qa_parts) if qa_parts else "(Q&A 없음)"
             system_prompt = _PLAN_GENERATION_SYSTEM.format(
                 goal=self.goal,
                 work_dir=self._source_session.work_dir,
                 project_context=project_context,
                 qa_summary=qa_summary,
             )
-            messages = [{"role": "user", "content": f"목표와 Q&A를 바탕으로 실행 계획을 생성해주세요."}]
+            messages = [{"role": "user", "content": "목표와 Q&A를 바탕으로 실행 계획을 생성해주세요."}]
             raw = await self._call_llm(system_prompt, messages)
             self.plan_text = raw.strip()
+            self.plan_draft = self.plan_text
             self.status = "plan_ready"
         except Exception as e:
             self.error = str(e)
             self.status = "error"
+        finally:
+            await self._cleanup_supervisor()
+
+    async def _summarize_qa_round(self) -> str:
+        """현재 라운드 Q&A를 1-2문장으로 요약. 실패 시 빈 문자열 반환."""
+        try:
+            qa_text = "\n".join(
+                f"Q: {self._find_question_text(qid)}\nA: {ans}"
+                for qid, ans in self.answers.items()
+            )
+            if not qa_text.strip():
+                return ""
+            system_prompt = "당신은 요약 전문가입니다. 오직 요약 텍스트만 출력하세요. 마크다운, 머리말, 꼬리말 없이 순수 텍스트만 출력하세요."
+            messages = [{"role": "user", "content": f"다음 Q&A를 1-2문장으로 요약하세요:\n{qa_text}"}]
+            return await self._call_llm(system_prompt, messages)
+        except Exception:
+            return ""
+        finally:
+            await self._cleanup_supervisor()
+
+    async def _check_need_more_questions(self) -> bool:
+        """AI 판단: 추가 질의 라운드 필요 여부. 실패 시 False 반환 (플랜 생성으로 진행)."""
+        try:
+            history_text = "\n".join(
+                f"[라운드 {h['round']}] {h['summary']}" for h in self.qa_history
+            ) or "(요약 없음)"
+            system_prompt = "당신은 소프트웨어 프로젝트 분석가입니다. 오직 JSON만 출력하세요. 다른 텍스트는 절대 출력하지 마세요."
+            messages = [{
+                "role": "user",
+                "content": (
+                    f"원래 목표: {self.goal}\n\n"
+                    f"지금까지의 Q&A 요약:\n{history_text}\n\n"
+                    f"이 정보로 구체적인 실행 계획을 세우기에 충분한가? "
+                    f"정보가 부족하면 추가 질문이 필요하다. "
+                    f'JSON으로만 응답하라: {{"need_more": bool, "reason": "str"}}'
+                ),
+            }]
+            raw = await self._call_llm(system_prompt, messages)
+            match = re.search(r'\{[\s\S]*\}', raw)
+            if match:
+                data = json.loads(match.group())
+                return bool(data.get("need_more", False))
+            return False
+        except Exception:
+            return False
         finally:
             await self._cleanup_supervisor()
 
@@ -809,4 +937,9 @@ class PlanPhase:
             "error": self.error,
             "pipeline_id": self.pipeline_id,
             "created_at": self.created_at,
+            "qa_round": self.qa_round,
+            "max_rounds": self.max_rounds,
+            "qa_history": self.qa_history,
+            "rejection_rounds": self.rejection_rounds,
+            "max_rejection_rounds": self.max_rejection_rounds,
         }
