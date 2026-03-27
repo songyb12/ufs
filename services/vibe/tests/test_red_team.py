@@ -235,3 +235,140 @@ class TestRedTeamRuleBased:
     def test_stage_name(self):
         stage = LLMRedTeamStage(_make_config())
         assert stage.name == "s7_red_team"
+
+
+class TestLLMRedTeamOpenAINoneContent:
+    """Regression tests for Session 2-3 P1/P2 bug: OpenAI None content crash.
+
+    Bug: json.loads(None) → TypeError crash when OpenAI returns content=None.
+    Fix: explicit None check → return fallback dict with all required keys.
+    """
+
+    def _make_openai_mock(self, content):
+        """Build a sys.modules-compatible openai mock returning given content."""
+        import sys
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock()]
+        mock_resp.choices[0].message.content = content
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+        mock_openai = MagicMock()
+        mock_openai.AsyncOpenAI.return_value = mock_client
+        return mock_openai
+
+    @pytest.mark.asyncio
+    async def test_none_content_returns_fallback_dict(self):
+        """content=None must not crash; returns fallback with required keys."""
+        import sys
+        stage = LLMRedTeamStage(_make_config(LLM_API_KEY="test-key"))
+        mock_openai = self._make_openai_mock(content=None)
+
+        with patch.dict(sys.modules, {"openai": mock_openai}):
+            result = await stage._call_openai("test prompt")
+
+        assert result is not None
+        assert result["concern_level"] == "LOW"
+        assert result["risk_flags"] == []
+        assert "recommended_action" in result
+        assert result["recommended_action"] == "MAINTAIN"
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_returns_fallback_with_recommended_action(self):
+        """JSONDecodeError fallback must include 'recommended_action' (Session 3 P2 fix).
+
+        Bug: fallback dict was missing 'recommended_action' → NULL stored in DB.
+        """
+        import sys
+        stage = LLMRedTeamStage(_make_config(LLM_API_KEY="test-key"))
+        mock_openai = self._make_openai_mock(content="not valid json {{{")
+
+        with patch.dict(sys.modules, {"openai": mock_openai}):
+            result = await stage._call_openai("test prompt")
+
+        assert result is not None
+        assert "recommended_action" in result
+        assert result["recommended_action"] == "MAINTAIN"
+
+
+# ════════════════════════════════════════════════════════════════
+# SOXL-specific Red-Team risks
+# ════════════════════════════════════════════════════════════════
+
+class TestSoxlRedTeamRisks:
+    """SOXL symbols should get additional leveraged ETF risk flags."""
+
+    @pytest.mark.asyncio
+    async def test_soxl_gets_leverage_decay_warning(self):
+        """SOXL BUY signal should include leverage decay warning."""
+        config = _make_config()
+        stage = LLMRedTeamStage(config)
+
+        signal = _make_signal(final_signal="BUY", rsi=40)
+        context = _make_context({"SOXL": signal})
+        result = await stage.execute(context, "US")
+
+        soxl = result.data["per_symbol"]["SOXL"]
+        warnings = soxl.get("red_team_warning", "")
+        assert "3x 레버리지 ETF" in warnings
+        assert "decay" in warnings
+
+    @pytest.mark.asyncio
+    async def test_soxl_gets_mean_reversion_warning(self):
+        """SOXL should always get mean reversion risk."""
+        config = _make_config()
+        stage = LLMRedTeamStage(config)
+
+        signal = _make_signal(final_signal="BUY", rsi=35)
+        context = _make_context({"SOXL": signal})
+        result = await stage.execute(context, "US")
+
+        soxl = result.data["per_symbol"]["SOXL"]
+        warnings = soxl.get("red_team_warning", "")
+        assert "평균 회귀" in warnings
+
+    @pytest.mark.asyncio
+    async def test_soxl_volatility_drag_with_high_atr(self):
+        """High ATR ratio should trigger volatility drag warning."""
+        config = _make_config()
+        stage = LLMRedTeamStage(config)
+
+        signal = _make_signal(final_signal="BUY", rsi=35)
+        signal["atr_ratio"] = 0.08  # 8% > 5% threshold
+        context = _make_context({"SOXL": signal})
+        result = await stage.execute(context, "US")
+
+        soxl = result.data["per_symbol"]["SOXL"]
+        warnings = soxl.get("red_team_warning", "")
+        assert "변동성 드래그" in warnings
+
+    @pytest.mark.asyncio
+    async def test_non_soxl_no_leverage_warnings(self):
+        """Non-SOXL symbol should NOT get leverage-specific warnings."""
+        config = _make_config()
+        stage = LLMRedTeamStage(config)
+
+        signal = _make_signal(final_signal="BUY", rsi=35)
+        context = _make_context({"AAPL": signal})
+        result = await stage.execute(context, "US")
+
+        aapl = result.data["per_symbol"]["AAPL"]
+        warnings = aapl.get("red_team_warning") or ""
+        assert "3x 레버리지" not in warnings
+        assert "평균 회귀" not in warnings
+
+    @pytest.mark.asyncio
+    async def test_soxl_confidence_reduced(self):
+        """SOXL risk flags should reduce confidence compared to non-SOXL."""
+        config = _make_config()
+        stage = LLMRedTeamStage(config)
+
+        signal_soxl = _make_signal(final_signal="BUY", rsi=35)
+        signal_aapl = _make_signal(final_signal="BUY", rsi=35)
+        context = _make_context({"SOXL": signal_soxl, "AAPL": signal_aapl})
+        result = await stage.execute(context, "US")
+
+        soxl_conf = result.data["per_symbol"]["SOXL"]["confidence"]
+        aapl_conf = result.data["per_symbol"]["AAPL"]["confidence"]
+        assert soxl_conf < aapl_conf

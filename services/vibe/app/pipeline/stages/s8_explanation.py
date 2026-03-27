@@ -217,6 +217,9 @@ class SignalExplanationStage(BaseStage):
                 response_format={"type": "json_object"},
             )
             text = response.choices[0].message.content
+            if text is None:
+                logger.warning("[S8] OpenAI returned None content")
+                return None
             return json.loads(text)
         except json.JSONDecodeError:
             logger.warning("[S8] LLM response not valid JSON, skipping")
@@ -332,5 +335,30 @@ def _generate_rule_based_explanation(
     # Add confidence note for BUY signals
     if final_signal in (SignalType.BUY, "BUY") and confidence < 0.7:
         explanation += f" (확신도 {confidence:.0%}로 주의 필요)"
+
+    # SOXL / 3x leveraged ETF specific warning section
+    symbol = signal.get("symbol", name)
+    if "SOXL" in symbol.upper():
+        lev_parts = []
+        lev_parts.append(
+            "⚠️ 3x 레버리지 ETF 주의: "
+            "일일 리밸런싱으로 인해 보유 기간이 길어질수록 decay(복리 손실)가 누적됩니다. "
+            "예: 기초자산 횡보 시에도 5일 보유 시 약 0.5~1.5% 추가 손실 가능"
+        )
+        lev_parts.append(
+            "일일 변동폭이 기초자산(ICE Semiconductor Index)의 약 3배이며, "
+            "단기(1~5일) 보유는 방향성 베팅에 유효하나 중기(5일+) 보유 시 decay 리스크 급증"
+        )
+
+        # Reflect S7 red-team flags if present
+        red_team_warning = signal.get("red_team_warning", "")
+        if "decay" in red_team_warning.lower():
+            lev_parts.append("S7 Red-Team: 레버리지 decay 위험 플래그 발동")
+        if "변동성 드래그" in red_team_warning:
+            lev_parts.append("S7 Red-Team: 높은 변동성 드래그 경고")
+        if "평균 회귀" in red_team_warning:
+            lev_parts.append("S7 Red-Team: 장기 보유 평균 회귀 리스크")
+
+        explanation += " | " + ". ".join(lev_parts) + "."
 
     return explanation

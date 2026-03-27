@@ -4,6 +4,9 @@ import asyncio
 import logging
 from typing import Any
 
+import pandas as pd
+
+from app.collectors.base import BaseCollector
 from app.collectors.kr_market import KRMarketCollector
 from app.collectors.registry import CollectorRegistry
 from app.config import Settings
@@ -12,6 +15,13 @@ from app.indicators.scoring import compute_fund_flow_score
 from app.pipeline.base import BaseStage, StageResult
 
 logger = logging.getLogger("vibe.pipeline.s4")
+
+
+def _safe_flow(val) -> float:
+    """Return 0.0 if value is None or NaN."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return 0.0
+    return float(val)
 
 
 class FundFlowStage(BaseStage):
@@ -45,7 +55,6 @@ class FundFlowStage(BaseStage):
                 errors=["KR collector not available"],
             )
 
-        from app.collectors.base import BaseCollector
         start_date = BaseCollector._default_start_date(20)  # Last 20 days
         end_date = BaseCollector._today()
 
@@ -60,13 +69,6 @@ class FundFlowStage(BaseStage):
 
                 # Get latest row
                 latest = df.iloc[-1]
-                import pandas as pd
-                def _safe_flow(val):
-                    """Return 0.0 if value is None or NaN."""
-                    if val is None or (isinstance(val, float) and pd.isna(val)):
-                        return 0.0
-                    return float(val)
-
                 flow_data = {
                     "foreign_net_buy": _safe_flow(latest.get("foreign_net_buy")),
                     "institution_net_buy": _safe_flow(latest.get("institution_net_buy")),

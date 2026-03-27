@@ -21,12 +21,14 @@ async def fetch_fear_greed_index() -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get("https://api.alternative.me/fng/?limit=1")
             data = resp.json()
-            if data.get("data"):
-                entry = data["data"][0]
+            items = data.get("data")
+            if items and len(items) > 0:
+                entry = items[0]
+                value = entry.get("value")
                 return {
-                    "fear_greed_index": int(entry["value"]),
-                    "fear_greed_label": entry["value_classification"],
-                    "timestamp": entry["timestamp"],
+                    "fear_greed_index": int(value) if value is not None else None,
+                    "fear_greed_label": entry.get("value_classification"),
+                    "timestamp": entry.get("timestamp"),
                 }
     except Exception as e:
         logger.warning("Fear & Greed fetch failed: %s", e)
@@ -80,7 +82,6 @@ async def fetch_put_call_ratio() -> dict[str, Any]:
             # Use CBOE Total Put/Call Ratio index if available
             # Fallback: estimate from SPY options
             spy = yf.Ticker("SPY")
-            info = spy.info
 
             # Approximate put/call ratio from options chain if available
             try:

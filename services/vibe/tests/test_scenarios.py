@@ -1,7 +1,7 @@
 """Tests for Stage 9 portfolio scenario generation (rule-based helpers)."""
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.pipeline.stages.s9_portfolio_scenarios import (
     _build_hold_scenario,
@@ -254,3 +254,126 @@ class TestGetCurrentPrice:
             data={"ohlcv_data": {"005930": df}},
         )
         assert _get_current_price(s1, "005930") == 52000.0
+
+
+class TestS9OpenAINoneContent:
+    """Regression tests for Session 2-3 P1 bug: s9 OpenAI None content crash.
+
+    Bug: json.loads(None) → TypeError crash.
+    Fix: explicit `if text is None: return None` check added.
+    """
+
+    def _make_openai_mock(self, content):
+        import sys
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock()]
+        mock_resp.choices[0].message.content = content
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+        mock_openai = MagicMock()
+        mock_openai.AsyncOpenAI.return_value = mock_client
+        return mock_openai
+
+    @pytest.mark.asyncio
+    async def test_none_content_returns_none_not_crash(self):
+        """content=None must not raise TypeError; must return None gracefully."""
+        import sys
+        from app.pipeline.stages.s9_portfolio_scenarios import PortfolioScenarioStage
+
+        config = MagicMock()
+        config.LLM_API_KEY = "test-key"
+        config.LLM_MODEL = "gpt-4o"
+        stage = PortfolioScenarioStage(config)
+
+        with patch.dict(sys.modules, {"openai": self._make_openai_mock(content=None)}):
+            result = await stage._call_openai("test prompt")
+
+        assert result is None  # Graceful, not TypeError
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_returns_none_not_crash(self):
+        """JSONDecodeError must return None, not propagate."""
+        import sys
+        from app.pipeline.stages.s9_portfolio_scenarios import PortfolioScenarioStage
+
+        config = MagicMock()
+        config.LLM_API_KEY = "test-key"
+        config.LLM_MODEL = "gpt-4o"
+        stage = PortfolioScenarioStage(config)
+
+        with patch.dict(sys.modules, {"openai": self._make_openai_mock(content="{{invalid json")}):
+            result = await stage._call_openai("test prompt")
+
+        assert result is None
+
+
+# ════════════════════════════════════════════════════════════════
+# SOXL-specific scenario tests
+# ════════════════════════════════════════════════════════════════
+
+class TestSoxlHoldScenarios:
+    """SOXL held positions should include sector shock and VIX spike scenarios."""
+
+    def test_soxl_hold_has_sector_shock(self):
+        scenario = _build_hold_scenario(
+            symbol="SOXL", name="SOXL 3x Semi",
+            holding={"entry_price": 25.0},
+            signal={"rsi_value": 50, "final_signal": "HOLD", "confidence": 0.8},
+            current_price=27.0,
+            config=_make_config(),
+        )
+        types = [s["type"] for s in scenario["scenarios"]]
+        assert "semi_sector_shock" in types
+        shock = [s for s in scenario["scenarios"] if s["type"] == "semi_sector_shock"][0]
+        assert "-60%" in shock["action"]
+
+    def test_soxl_hold_has_vix_spike(self):
+        scenario = _build_hold_scenario(
+            symbol="SOXL", name="SOXL 3x Semi",
+            holding={"entry_price": 25.0},
+            signal={"rsi_value": 50, "final_signal": "HOLD", "confidence": 0.8},
+            current_price=27.0,
+            config=_make_config(),
+        )
+        types = [s["type"] for s in scenario["scenarios"]]
+        assert "vix_spike" in types
+
+    def test_non_soxl_no_leveraged_scenarios(self):
+        scenario = _build_hold_scenario(
+            symbol="AAPL", name="Apple",
+            holding={"entry_price": 200.0},
+            signal={"rsi_value": 50, "final_signal": "HOLD", "confidence": 0.8},
+            current_price=220.0,
+            config=_make_config(),
+        )
+        types = [s["type"] for s in scenario["scenarios"]]
+        assert "semi_sector_shock" not in types
+        assert "vix_spike" not in types
+
+
+class TestSoxlEntryScenarios:
+    """SOXL entry scenarios should include leveraged ETF warnings."""
+
+    def test_soxl_entry_has_sector_shock(self):
+        scenario = _build_entry_scenario(
+            symbol="SOXL", name="SOXL 3x Semi",
+            signal={"raw_score": 2.0, "confidence": 0.8, "position_recommendation": {}},
+            current_price=25.0,
+            config=_make_config(),
+        )
+        types = [s["type"] for s in scenario["scenarios"]]
+        assert "semi_sector_shock" in types
+        assert "vix_spike" in types
+
+    def test_soxl_entry_vix_mentions_threshold(self):
+        scenario = _build_entry_scenario(
+            symbol="SOXL", name="SOXL 3x Semi",
+            signal={"raw_score": 2.0, "confidence": 0.8, "position_recommendation": {}},
+            current_price=25.0,
+            config=_make_config(),
+        )
+        vix = [s for s in scenario["scenarios"] if s["type"] == "vix_spike"][0]
+        assert "VIX" in vix["action"]
+        assert "40" in vix["action"]

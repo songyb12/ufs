@@ -180,19 +180,38 @@ SQL 쿼리 결과를 바탕으로 사용자의 질문에 한국어로 답변하�
 # ---------------------------------------------------------------------------
 
 def validate_sql(sql: str) -> tuple[bool, str]:
-    """Validate that SQL is safe to execute."""
+    """Validate that SQL is safe to execute.
+
+    Defense layers:
+      1. SELECT-only prefix check
+      2. Semicolon rejection (multi-statement prevention)
+      3. Forbidden keyword blocklist (DML, DDL, PRAGMA, extensions)
+      4. Table allowlist (FROM/JOIN extraction)
+      5. LIMIT enforcement and cap
+    """
     sql_stripped = sql.strip().rstrip(";")
+
+    # Reject multi-statement SQL (defense-in-depth against "; DROP TABLE" etc.)
+    if ";" in sql_stripped:
+        return False, "다중 SQL 문은 허용되지 않습니다."
 
     # Must be SELECT
     if not sql_stripped.upper().startswith("SELECT"):
         return False, "SELECT 문만 허용됩니다."
 
-    # Forbidden keywords
-    forbidden = {"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE", "REPLACE", "ATTACH", "DETACH"}
+    # Forbidden keywords (DML, DDL, SQLite-specific risks)
+    forbidden = {
+        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE",
+        "TRUNCATE", "REPLACE", "ATTACH", "DETACH", "PRAGMA",
+    }
     sql_upper = sql_stripped.upper()
     for kw in forbidden:
         if re.search(rf'\b{kw}\b', sql_upper):
             return False, f"'{kw}' 문은 허용되지 않습니다."
+
+    # Block dangerous SQLite functions
+    if re.search(r'\bLOAD_EXTENSION\s*\(', sql_upper):
+        return False, "load_extension 호출은 허용되지 않습니다."
 
     # Check table names against allowlist
     # Extract table names from FROM and JOIN clauses
@@ -201,8 +220,15 @@ def validate_sql(sql: str) -> tuple[bool, str]:
         if table.lower() not in ALLOWED_TABLES:
             return False, f"테이블 '{table}'에 대한 접근이 허용되지 않습니다."
 
-    # Enforce LIMIT
-    if "LIMIT" not in sql_upper:
+    # Enforce LIMIT — cap at MAX_ROWS even if LLM provided a larger value
+    limit_match = re.search(r'\bLIMIT\s+(\d+)', sql_upper)
+    if limit_match:
+        limit_val = int(limit_match.group(1))
+        if limit_val > MAX_ROWS:
+            sql_stripped = re.sub(
+                r'\bLIMIT\s+\d+', f'LIMIT {MAX_ROWS}', sql_stripped, flags=re.IGNORECASE
+            )
+    else:
         sql_stripped += f" LIMIT {MAX_ROWS}"
 
     return True, sql_stripped
@@ -250,8 +276,11 @@ async def generate_sql(question: str) -> dict[str, Any]:
 
         for block in response.content:
             if block.type == "tool_use":
+                sql = block.input.get("sql") if isinstance(block.input, dict) else None
+                if not sql:
+                    return {"error": "LLM tool_use 응답에 sql 필드가 없습니다."}
                 return {
-                    "sql": block.input["sql"],
+                    "sql": sql,
                     "explanation": block.input.get("explanation", ""),
                 }
 
@@ -326,7 +355,9 @@ async def synthesize_answer(question: str, sql_result: dict) -> str:
             system=SYNTHESIS_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text.strip()
+        if response.content and hasattr(response.content[0], "text"):
+            return response.content[0].text.strip()
+        return f"데이터 {sql_result.get('row_count', 0)}건 조회됨 (LLM 응답 없음)."
     except Exception as e:
         logger.error("Answer synthesis failed: %s", e, exc_info=True)
         # Fallback: return raw data summary

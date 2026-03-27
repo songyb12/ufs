@@ -65,18 +65,26 @@ async def fetch_etf_flow_proxy() -> dict[str, Any]:
                     if hist.empty or len(hist) < 2:
                         continue
 
+                    if "Close" not in hist.columns:
+                        continue
                     latest = hist.iloc[-1]
                     prev = hist.iloc[-2]
 
-                    price_change = (latest["Close"] - prev["Close"]) / prev["Close"] * 100
-                    vol_avg = hist["Volume"].mean()
-                    vol_ratio = latest["Volume"] / vol_avg if vol_avg > 0 else 1
+                    latest_close = latest.get("Close")
+                    prev_close = prev.get("Close")
+                    if latest_close is None or prev_close is None or prev_close == 0:
+                        continue
+
+                    price_change = (latest_close - prev_close) / prev_close * 100
+                    vol_avg = hist["Volume"].mean() if "Volume" in hist.columns else 0
+                    latest_vol = latest.get("Volume", 0) or 0
+                    vol_ratio = latest_vol / vol_avg if vol_avg > 0 else 1
 
                     result[ticker_sym] = {
                         "name": name,
                         "price_change_pct": round(price_change, 2),
                         "volume_ratio": round(vol_ratio, 2),
-                        "latest_close": round(float(latest["Close"]), 2),
+                        "latest_close": round(float(latest_close), 2),
                     }
                 except Exception as e:
                     logger.debug("ETF %s data fetch failed: %s", ticker_sym, e)

@@ -10,7 +10,7 @@ from uuid import uuid4
 from app.collectors.registry import CollectorRegistry
 from app.config import Settings
 from app.database import repositories as repo
-from app.pipeline.base import BaseStage, StageResult
+from app.pipeline.base import BaseStage
 
 # Per-market locks prevent concurrent pipeline runs (manual + scheduled overlap)
 _pipeline_locks: dict[str, asyncio.Lock] = {}
@@ -151,8 +151,14 @@ class PipelineOrchestrator:
 
             await repo.update_pipeline_run(run_id, "completed", completed_stages)
 
-            # Store signals to DB
-            await self._store_signals(context)
+            # Store signals to DB — failure here must NOT override "completed" status
+            try:
+                await self._store_signals(context)
+            except Exception as store_err:
+                logger.error(
+                    "Signal storage failed (pipeline still completed): %s",
+                    store_err, exc_info=True,
+                )
 
             logger.info(
                 "Pipeline completed: run_id=%s elapsed=%.1fs stages=%d",
@@ -232,7 +238,10 @@ class PipelineOrchestrator:
                         if s1 and s1.data.get("ohlcv_data"):
                             ohlcv_df = s1.data["ohlcv_data"].get(row["symbol"])
                             if ohlcv_df is not None and not ohlcv_df.empty:
-                                entry_price = float(ohlcv_df.iloc[-1]["close"])
+                                try:
+                                    entry_price = float(ohlcv_df.iloc[-1]["close"])
+                                except (KeyError, ValueError, TypeError):
+                                    pass
                         if entry_price is not None and entry_price > 0:
                             await tracker.create_performance_record(
                                 run_id=row["run_id"],

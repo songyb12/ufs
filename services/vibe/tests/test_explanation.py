@@ -203,3 +203,54 @@ class TestFmt:
 
     def test_zero_value(self):
         assert _fmt(0.0) == "0.0"
+
+
+# ════════════════════════════════════════════════════════════════
+# SOXL / leveraged ETF explanation tests
+# ════════════════════════════════════════════════════════════════
+
+class TestSoxlExplanation:
+    """SOXL should get leveraged ETF warning section in explanation."""
+
+    def test_soxl_includes_leverage_warning(self):
+        explanation = _generate_rule_based_explanation(
+            name="SOXL",
+            signal={
+                "symbol": "SOXL",
+                "final_signal": "BUY",
+                "rsi_value": 35,
+                "disparity_value": 98,
+                "fundamental_score": 0,
+                "weekly_trend": "neutral",
+                "confidence": 0.8,
+                "raw_score": 2.0,
+                "red_team_warning": "3x 레버리지 ETF: decay | 평균 회귀 리스크",
+            },
+            macro_score=10,
+            sentiment_score=0,
+            market="US",
+        )
+        assert "레버리지" in explanation
+        assert "decay" in explanation
+        assert "단기" in explanation or "1~5일" in explanation
+        assert "S7 Red-Team" in explanation
+
+    def test_non_soxl_no_leverage_warning(self):
+        explanation = _generate_rule_based_explanation(
+            name="AAPL",
+            signal={
+                "symbol": "AAPL",
+                "final_signal": "BUY",
+                "rsi_value": 35,
+                "disparity_value": 98,
+                "fundamental_score": 10,
+                "weekly_trend": "bullish",
+                "confidence": 0.9,
+                "raw_score": 2.5,
+            },
+            macro_score=10,
+            sentiment_score=0,
+            market="US",
+        )
+        assert "레버리지" not in explanation
+        assert "decay" not in explanation

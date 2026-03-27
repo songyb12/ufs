@@ -138,3 +138,62 @@ class TestSignalHistory:
         data = resp.json()
         assert data["count"] == 2
         assert all(s["market"] == "KR" for s in data["signals"])
+
+
+class TestReportValidation:
+    """Regression tests for Session 5 bug fixes: invalid report_month/week_start → 400."""
+
+    @pytest.mark.asyncio
+    async def test_monthly_generate_invalid_format_returns_400(self, client):
+        resp = await client.post(
+            "/dashboard/reports/monthly/generate",
+            params={"report_month": "abc"},
+        )
+        assert resp.status_code == 400
+        assert "YYYY-MM" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_monthly_generate_partial_format_returns_400(self, client):
+        resp = await client.post(
+            "/dashboard/reports/monthly/generate",
+            params={"report_month": "2025"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_monthly_generate_no_param_accepted(self, client):
+        """report_month=None is valid — generates for current month."""
+        resp = await client.post("/dashboard/reports/monthly/generate")
+        # May return 200 or 500 depending on DB state; must NOT be 400/422
+        assert resp.status_code != 400
+        assert resp.status_code != 422
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_month", ["2025-13", "2025-0", "2025-99"])
+    async def test_monthly_generate_invalid_month_range_returns_400(self, client, bad_month):
+        """Month outside 1-12 → 400."""
+        resp = await client.post(
+            "/dashboard/reports/monthly/generate",
+            params={"report_month": bad_month},
+        )
+        assert resp.status_code == 400
+        assert "YYYY-MM" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_weekly_generate_invalid_date_returns_400(self, client):
+        resp = await client.post(
+            "/dashboard/reports/weekly/generate",
+            params={"week_start": "not-a-date"},
+        )
+        assert resp.status_code == 400
+        assert "YYYY-MM-DD" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_weekly_generate_valid_date_accepted(self, client):
+        """A valid ISO date must pass validation (not return 400)."""
+        resp = await client.post(
+            "/dashboard/reports/weekly/generate",
+            params={"week_start": "2025-01-06"},
+        )
+        assert resp.status_code != 400
+        assert resp.status_code != 422

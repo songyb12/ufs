@@ -10,7 +10,6 @@ import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional
 
 router = APIRouter(prefix="/geopolitical", tags=["geopolitical"])
 logger = logging.getLogger("vibe.geopolitical")

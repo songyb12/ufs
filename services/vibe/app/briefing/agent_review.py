@@ -239,16 +239,27 @@ async def run_portfolio_review(
 
     tool_calls_log: list[dict] = []
 
+    response = None
     for iteration in range(MAX_ITERATIONS):
         logger.info("[Agent] Iteration %d/%d", iteration + 1, MAX_ITERATIONS)
 
-        response = await client.messages.create(
-            model=model,
-            max_tokens=3000,
-            system=AGENT_SYSTEM_PROMPT,
-            messages=messages,
-            tools=AGENT_TOOLS,
-        )
+        try:
+            response = await client.messages.create(
+                model=model,
+                max_tokens=3000,
+                system=AGENT_SYSTEM_PROMPT,
+                messages=messages,
+                tools=AGENT_TOOLS,
+                timeout=120.0,
+            )
+        except Exception as e:
+            logger.error("[Agent] LLM API call failed at iteration %d: %s", iteration + 1, e, exc_info=True)
+            return {
+                "status": "error",
+                "message": f"LLM API 호출 실패 (iteration {iteration + 1}): {e}",
+                "iterations": iteration + 1,
+                "tool_calls": tool_calls_log,
+            }
 
         # Check if the model wants to use tools
         if response.stop_reason == "tool_use":
@@ -257,7 +268,7 @@ async def run_portfolio_review(
             for block in response.content:
                 if block.type == "tool_use":
                     tool_name = block.name
-                    tool_args = block.input
+                    tool_args = block.input if isinstance(block.input, dict) else {}
                     logger.info("[Agent] Calling tool: %s(%s)", tool_name, json.dumps(tool_args, ensure_ascii=False))
 
                     result = await _execute_tool(tool_name, tool_args)
@@ -300,9 +311,10 @@ async def run_portfolio_review(
 
     # Max iterations reached — extract whatever text we have
     final_text = ""
-    for block in response.content:
-        if hasattr(block, "text"):
-            final_text += block.text
+    if response is not None:
+        for block in response.content:
+            if hasattr(block, "text"):
+                final_text += block.text
 
     return {
         "status": "incomplete",

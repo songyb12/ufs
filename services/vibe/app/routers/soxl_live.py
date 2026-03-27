@@ -11,13 +11,19 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sse_starlette.sse import EventSourceResponse
+
+from app.utils.soxl_indicators import (
+    compute_bollinger as _compute_bollinger,
+    compute_macd as _compute_macd,
+    compute_rsi as _compute_rsi,
+)
 
 router = APIRouter(prefix="/soxl/live", tags=["soxl-live"])
 logger = logging.getLogger("vibe.soxl_live")
@@ -49,13 +55,25 @@ class SoxlAlertCreate(BaseModel):
     alert_type: str  # 'price_above', 'price_below', 'change_pct'
     threshold: float
     label: str = ""
+    webhook_url: str | None = None
+
+    @field_validator("threshold")
+    @classmethod
+    def validate_threshold(cls, v):
+        if v <= 0:
+            raise ValueError(f"threshold must be > 0, got {v}")
+        return v
 
 
 # ── Endpoint 1: GET /soxl/live/quote ──
 
 @router.get("/quote")
 async def soxl_live_quote(request: Request):
-    """Current SOXL price + market status."""
+    """Current SOXL price + market status.
+
+    Response: {price, change, change_pct, high, low, open, prev_close,
+        volume, market_open, session, market_session, timestamp}
+    """
     fh = _get_finnhub(request)
     quote = await fh.get_quote("SOXL")
 
@@ -286,7 +304,6 @@ async def _compute_daily_correlations(days: int = 60) -> dict[str, float]:
 
     soxl_dates = [r[0] for r in reversed(soxl_rows)]
     soxl_closes = np.array([r[1] for r in reversed(soxl_rows)], dtype=float)
-    soxl_returns = np.diff(soxl_closes) / soxl_closes[:-1]
 
     correlations = {}
     for sym in SECTOR_ETFS:
@@ -454,19 +471,23 @@ async def soxl_live_stream(request: Request):
 
 @router.get("/alerts")
 async def get_soxl_alerts():
-    """List all SOXL price alerts."""
+    """List all SOXL price alerts.
+
+    Response: {alerts: [{id, alert_type, threshold, label, webhook_url,
+        triggered_at, active, created_at}]}
+    """
     from app.database.connection import get_db
     db = await get_db()
     cursor = await db.execute(
-        "SELECT id, alert_type, threshold, label, triggered_at, active, created_at FROM soxl_alerts ORDER BY created_at DESC"
+        "SELECT id, alert_type, threshold, label, webhook_url, triggered_at, active, created_at FROM soxl_alerts ORDER BY created_at DESC"
     )
     rows = await cursor.fetchall()
     return {
         "alerts": [
             {
                 "id": r[0], "alert_type": r[1], "threshold": r[2],
-                "label": r[3], "triggered_at": r[4], "active": bool(r[5]),
-                "created_at": r[6],
+                "label": r[3], "webhook_url": r[4], "triggered_at": r[5],
+                "active": bool(r[6]), "created_at": r[7],
             }
             for r in rows
         ]
@@ -475,7 +496,10 @@ async def get_soxl_alerts():
 
 @router.post("/alerts")
 async def create_soxl_alert(alert: SoxlAlertCreate):
-    """Create a new SOXL price alert."""
+    """Create a new SOXL price alert.
+
+    Response: {id, status: "created"}
+    """
     valid_types = ("price_above", "price_below", "change_pct")
     if alert.alert_type not in valid_types:
         raise HTTPException(400, detail=f"Invalid alert_type. Must be one of: {valid_types}")
@@ -483,8 +507,8 @@ async def create_soxl_alert(alert: SoxlAlertCreate):
     from app.database.connection import get_db
     db = await get_db()
     cursor = await db.execute(
-        "INSERT INTO soxl_alerts (alert_type, threshold, label) VALUES (?, ?, ?)",
-        (alert.alert_type, alert.threshold, alert.label),
+        "INSERT INTO soxl_alerts (alert_type, threshold, label, webhook_url) VALUES (?, ?, ?, ?)",
+        (alert.alert_type, alert.threshold, alert.label, alert.webhook_url),
     )
     await db.commit()
     return {"id": cursor.lastrowid, "status": "created"}
@@ -492,7 +516,10 @@ async def create_soxl_alert(alert: SoxlAlertCreate):
 
 @router.delete("/alerts/{alert_id}")
 async def delete_soxl_alert(alert_id: int):
-    """Delete an alert by ID."""
+    """Delete an alert by ID.
+
+    Response: {status: "deleted", id}
+    """
     from app.database.connection import get_db
     db = await get_db()
     await db.execute("DELETE FROM soxl_alerts WHERE id = ?", (alert_id,))
@@ -503,7 +530,11 @@ async def delete_soxl_alert(alert_id: int):
 # ── Helper: Check alerts ──
 
 async def _check_alerts(current_price: float, change_pct: float) -> list[dict]:
-    """Check all active alerts against current quote. Returns triggered ones."""
+    """Check all active alerts against current quote. Returns triggered ones.
+
+    If an alert has a webhook_url, sends an async HTTP POST with trigger details.
+    Webhook failures are logged but do not prevent the alert from triggering.
+    """
     if current_price <= 0:
         return []
 
@@ -511,13 +542,13 @@ async def _check_alerts(current_price: float, change_pct: float) -> list[dict]:
     db = await get_db()
 
     cursor = await db.execute(
-        "SELECT id, alert_type, threshold, label FROM soxl_alerts WHERE active = 1"
+        "SELECT id, alert_type, threshold, label, webhook_url FROM soxl_alerts WHERE active = 1"
     )
     rows = await cursor.fetchall()
 
     triggered = []
     for r in rows:
-        aid, atype, threshold, label = r
+        aid, atype, threshold, label, webhook_url = r
         fire = False
 
         if atype == "price_above" and current_price >= threshold:
@@ -532,10 +563,15 @@ async def _check_alerts(current_price: float, change_pct: float) -> list[dict]:
                 "UPDATE soxl_alerts SET triggered_at = datetime('now'), active = 0 WHERE id = ?",
                 (aid,),
             )
-            triggered.append({
+            trigger_info = {
                 "id": aid, "alert_type": atype, "threshold": threshold,
                 "label": label, "current_price": current_price,
-            })
+            }
+            triggered.append(trigger_info)
+
+            # Dispatch webhook if configured
+            if webhook_url:
+                await _dispatch_webhook(webhook_url, atype, threshold, current_price)
 
     if triggered:
         await db.commit()
@@ -544,63 +580,28 @@ async def _check_alerts(current_price: float, change_pct: float) -> list[dict]:
     return triggered
 
 
-# ── Technical indicator computations (numpy) ──
+async def _dispatch_webhook(
+    webhook_url: str, alert_type: str, threshold: float, triggered_price: float,
+) -> None:
+    """Send alert trigger payload to an external webhook URL.
 
-def _compute_rsi(closes: np.ndarray, period: int = 14) -> float | None:
-    if len(closes) < period + 1:
-        return None
-    deltas = np.diff(closes)
-    gains = np.where(deltas > 0, deltas, 0.0)
-    losses = np.where(deltas < 0, -deltas, 0.0)
+    Failures are logged but never raised — alert processing must not be blocked.
+    """
+    import httpx
+    from app.notifier.formatter import format_soxl_alert
 
-    avg_gain = np.mean(gains[:period])
-    avg_loss = np.mean(losses[:period])
-
-    for i in range(period, len(gains)):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-
-    if avg_loss == 0:
-        return 100.0
-    rs = avg_gain / avg_loss
-    return 100.0 - (100.0 / (1.0 + rs))
-
-
-def _compute_macd(
-    closes: np.ndarray, fast: int = 12, slow: int = 26, signal: int = 9
-) -> tuple[float | None, float | None, float | None]:
-    if len(closes) < slow + signal:
-        return None, None, None
-
-    def ema(data: np.ndarray, period: int) -> np.ndarray:
-        alpha = 2.0 / (period + 1)
-        result = np.zeros_like(data)
-        result[0] = data[0]
-        for i in range(1, len(data)):
-            result[i] = alpha * data[i] + (1 - alpha) * result[i - 1]
-        return result
-
-    ema_fast = ema(closes, fast)
-    ema_slow = ema(closes, slow)
-    macd_line = ema_fast - ema_slow
-    signal_line = ema(macd_line, signal)
-    histogram = macd_line - signal_line
-
-    return float(macd_line[-1]), float(signal_line[-1]), float(histogram[-1])
-
-
-def _compute_bollinger(
-    closes: np.ndarray, period: int = 20, std_dev: float = 2.0
-) -> tuple[float | None, float | None, float | None]:
-    if len(closes) < period:
-        return None, None, None
-
-    window = closes[-period:]
-    middle = float(np.mean(window))
-    std = float(np.std(window))
-    upper = middle + std_dev * std
-    lower = middle - std_dev * std
-    return round(upper, 2), round(middle, 2), round(lower, 2)
+    payload = format_soxl_alert(
+        alert_type=alert_type,
+        threshold=threshold,
+        triggered_price=triggered_price,
+        triggered_at=datetime.now(UTC).isoformat(),
+    )
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as wh_client:
+            resp = await wh_client.post(webhook_url, json=payload)
+            logger.info("Webhook dispatched to %s → %d", webhook_url, resp.status_code)
+    except Exception as e:
+        logger.warning("Webhook dispatch failed for %s: %s", webhook_url, e)
 
 
 # ── Endpoint 7: POST /soxl/live/ai-analysis ──
@@ -722,12 +723,68 @@ async def _gather_soxl_context(request: Request) -> dict:
     except Exception:
         ctx["semi_risks"] = []
         ctx["key_variables"] = []
+        ctx["semi_sector_impact"] = []
 
     # 7. Sector correlations
     try:
         ctx["correlations"] = await _compute_daily_correlations(60)
     except Exception:
         ctx["correlations"] = {}
+
+    # 8. Best backtest result (Sharpe #1)
+    try:
+        cursor = await db.execute(
+            """SELECT mode, sharpe_ratio, max_drawdown, total_return,
+                      hit_rate, total_trades, start_date, end_date
+               FROM soxl_backtest_runs
+               WHERE status='completed' AND sharpe_ratio IS NOT NULL
+               ORDER BY sharpe_ratio DESC LIMIT 1"""
+        )
+        row = await cursor.fetchone()
+        if row:
+            ctx["best_backtest"] = {
+                "mode": row[0], "sharpe": row[1],
+                "max_drawdown": row[2], "total_return": row[3],
+                "hit_rate": row[4], "total_trades": row[5],
+                "period": f"{row[6]}~{row[7]}",
+            }
+    except Exception as e:
+        logger.debug("AI analysis: best backtest query failed: %s", e)
+
+    # 9. Latest auto-optimization result
+    try:
+        cursor = await db.execute(
+            """SELECT mode, params_json, sharpe, sortino, max_drawdown, total_return, run_at
+               FROM soxl_optimize_results
+               WHERE sharpe IS NOT NULL
+               ORDER BY created_at DESC LIMIT 1"""
+        )
+        row = await cursor.fetchone()
+        if row:
+            import json as _json
+            ctx["latest_optimize"] = {
+                "mode": row[0],
+                "params": _json.loads(row[1]) if row[1] else {},
+                "sharpe": row[2], "sortino": row[3],
+                "max_drawdown": row[4], "total_return": row[5],
+                "run_at": row[6],
+            }
+    except Exception as e:
+        logger.debug("AI analysis: optimize result query failed: %s", e)
+
+    # 10. Active alerts summary
+    try:
+        cursor = await db.execute(
+            """SELECT alert_type, COUNT(*) as cnt
+               FROM soxl_alerts WHERE active = 1
+               GROUP BY alert_type"""
+        )
+        rows = await cursor.fetchall()
+        total_active = sum(r[1] for r in rows)
+        by_type = {r[0]: r[1] for r in rows}
+        ctx["active_alerts"] = {"total": total_active, "by_type": by_type}
+    except Exception as e:
+        logger.debug("AI analysis: active alerts query failed: %s", e)
 
     return ctx
 
@@ -783,25 +840,25 @@ def _build_soxl_ai_prompt(ctx: dict) -> str:
     geo = ctx.get("geo_events", [])
     if geo:
         geo_lines = [f"- [{e['date']}] ({e['impact']}) {e['event']}: {e.get('detail', '')}" for e in geo]
-        sections.append(f"[지정학적 이벤트 (최근 5건)]\n" + "\n".join(geo_lines))
+        sections.append("[지정학적 이벤트 (최근 5건)]\n" + "\n".join(geo_lines))
 
     # Semiconductor risks
     risks = ctx.get("semi_risks", [])
     if risks:
         risk_lines = [f"- [{r['severity']}] {r['risk']}: {r['detail']}" for r in risks]
-        sections.append(f"[반도체 섹터 리스크]\n" + "\n".join(risk_lines))
+        sections.append("[반도체 섹터 리스크]\n" + "\n".join(risk_lines))
 
     # Key variables
     kvars = ctx.get("key_variables", [])
     if kvars:
         kvar_lines = [f"- {k['variable']}: 현재={k['current']}, 긍정={k['bullish']}, 부정={k['bearish']}" for k in kvars]
-        sections.append(f"[핵심 모니터링 변수]\n" + "\n".join(kvar_lines))
+        sections.append("[핵심 모니터링 변수]\n" + "\n".join(kvar_lines))
 
     # Sector correlations
     corr = ctx.get("correlations", {})
     if corr:
         corr_lines = [f"- SOXL vs {sym}: {val}" for sym, val in corr.items()]
-        sections.append(f"[섹터 상관계수 (60일)]\n" + "\n".join(corr_lines))
+        sections.append("[섹터 상관계수 (60일)]\n" + "\n".join(corr_lines))
 
     # Semi sector impact
     semi_impact = ctx.get("semi_sector_impact", [])
@@ -814,14 +871,50 @@ def _build_soxl_ai_prompt(ctx: dict) -> str:
                 f"사유: {s['reason']}"
             )
 
+    # Strategy context: backtest, optimization, active alerts
+    strategy_parts = []
+
+    bt = ctx.get("best_backtest")
+    if bt:
+        strategy_parts.append(
+            f"최고 백테스트: 모드 {bt['mode']}, Sharpe={bt['sharpe']:.2f}, "
+            f"MDD={bt.get('max_drawdown', '?')}, "
+            f"총수익={bt.get('total_return', '?')}, 적중률={bt.get('hit_rate', '?')}, "
+            f"거래수={bt.get('total_trades', '?')}, 기간={bt['period']}"
+        )
+
+    opt = ctx.get("latest_optimize")
+    if opt:
+        opt_params = opt.get("params", {})
+        param_str = ", ".join(f"{k}={v}" for k, v in opt_params.items()) if opt_params else "없음"
+        strategy_parts.append(
+            f"최신 자동 최적화: 모드 {opt['mode']}, Sharpe={opt['sharpe']}, "
+            f"Sortino={opt.get('sortino', '?')}, MDD={opt.get('max_drawdown', '?')}, "
+            f"총수익={opt.get('total_return', '?')}, 실행시점={opt.get('run_at', '?')}\n"
+            f"  최적 파라미터: {param_str}"
+        )
+
+    alerts = ctx.get("active_alerts")
+    if alerts:
+        by_type_str = ", ".join(f"{k}={v}건" for k, v in alerts.get("by_type", {}).items()) or "없음"
+        strategy_parts.append(
+            f"활성 알림: 총 {alerts['total']}건 (유형별: {by_type_str})"
+        )
+
+    if strategy_parts:
+        sections.append("[전략 컨텍스트]\n" + "\n".join(strategy_parts))
+    else:
+        sections.append("[전략 컨텍스트]\n데이터 없음 (백테스트/최적화/알림 기록 없음)")
+
     # Analysis request
     sections.append(
         "[분석 요청]\n"
-        "위 데이터를 종합하여 다음 4가지 항목으로 분석해주세요:\n\n"
+        "위 데이터를 종합하여 다음 5가지 항목으로 분석해주세요:\n\n"
         "1. **기술적 분석 요약**: 현재 추세, 과매수/과매도 상태, 주요 지지/저항선\n"
         "2. **매크로/지정학 영향**: VIX·유가·금리·지정학 리스크가 반도체/SOXL에 미치는 구체적 영향\n"
-        "3. **종합 판단**: 단기(1-2주)/중기(1-3개월) 방향성, 핵심 모니터링 변수\n"
-        "4. **리스크 관리**: 현 상황에서의 헤지 전략 제안 (SOXS, 현금비중 등)\n\n"
+        "3. **전략 평가**: 백테스트/최적화 결과 기반 현재 최적 전략 모드와 파라미터 평가\n"
+        "4. **종합 판단**: 단기(1-2주)/중기(1-3개월) 방향성, 핵심 모니터링 변수\n"
+        "5. **리스크 관리**: 현 상황에서의 헤지 전략 제안 (SOXS, 현금비중 등), 활성 알림 현황 참조\n\n"
         "- 각 항목은 소제목과 함께 작성\n"
         "- 구체적 수치와 근거를 포함\n"
         "- 3x 레버리지 ETF의 특성(일일 리밸런싱 decay)을 고려\n"
@@ -872,6 +965,9 @@ async def soxl_ai_analysis(request: Request):
             "fear_greed": macro.get("fear_greed"),
             "geo_events_count": len(ctx.get("geo_events", [])),
             "correlations": ctx.get("correlations", {}),
+            "best_backtest": ctx.get("best_backtest"),
+            "latest_optimize": ctx.get("latest_optimize"),
+            "active_alerts": ctx.get("active_alerts"),
         }
 
         return {

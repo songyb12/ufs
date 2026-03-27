@@ -815,6 +815,23 @@ export async function exportSoxlBacktestCSV(backtestId) {
   setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
+export async function getSoxlOptimizeHistory({ mode, limit = 20 } = {}) {
+  const params = new URLSearchParams({ limit })
+  if (mode) params.set('mode', mode)
+  return fetchJSON(`/soxl/backtest/optimize-history?${params}`)
+}
+
+export async function optimizeSoxlParams({ mode = 'A', top_n = 5, max_iter = 50, start_date, end_date } = {}, opts = {}) {
+  const params = new URLSearchParams({ mode, top_n, max_iter })
+  if (start_date) params.set('start_date', start_date)
+  if (end_date) params.set('end_date', end_date)
+  const res = await fetch(`${BASE}/soxl/backtest/optimize?${params}`, {
+    headers: authHeaders(), signal: opts.signal,
+  })
+  if (!res.ok) throw new Error(friendlyError(res.status, null))
+  return res.json()
+}
+
 export async function cleanupSoxlBacktests(keep = 20) {
   const res = await fetch(`${BASE}/soxl/backtest/results?keep=${keep}`, {
     method: 'DELETE', headers: authHeaders(),

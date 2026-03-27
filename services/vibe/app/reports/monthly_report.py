@@ -42,7 +42,6 @@ async def generate_monthly_report(
     db = await get_db()
 
     # Build market filter clause (ALL = no filter)
-    market_filter = ""
     market_params_signals: tuple = ()
     market_params_perf: tuple = ()
     market_params_pipe: tuple = ()

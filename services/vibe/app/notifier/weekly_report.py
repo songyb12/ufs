@@ -7,7 +7,6 @@ Aggregates the past 7 days of pipeline data into a summary:
 - Market summary
 """
 
-import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any

@@ -10,7 +10,7 @@ Supports 4 strategy modes with 3x leverage ETF characteristics:
 import json
 import logging
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from uuid import uuid4
@@ -22,6 +22,19 @@ from app.backtesting.metrics import (
     compute_drawdown_periods,
     compute_exit_reason_stats,
     compute_monthly_returns,
+)
+from app.utils.soxl_indicators import (
+    compute_adx as _compute_adx,
+    compute_atr as _compute_atr,
+    compute_bollinger as _compute_bollinger,
+    compute_disparity as _compute_disparity,
+    compute_macd as _compute_macd,
+    compute_obv_trend as _compute_obv_trend,
+    compute_rsi as _compute_rsi,
+    compute_stoch_rsi as _compute_stoch_rsi,
+    compute_volatility_ann as _compute_volatility_ann,
+    detect_gap as _detect_gap,
+    detect_rsi_divergence as _detect_rsi_divergence,
 )
 
 logger = logging.getLogger("vibe.soxl_backtest")
@@ -86,6 +99,9 @@ class SoxlBacktestParams:
     # Transaction costs
     slippage_bps: float = 5.0            # [NEW] Slippage in basis points (0.05%)
     commission_bps: float = 0.0          # [NEW] Commission in basis points
+    # SOXS hedge
+    hedge_mode: bool = False             # Enable SOXS hedge simulation
+    hedge_ratio: float = 0.2            # Fraction of portfolio allocated to SOXS hedge (0.0~0.5)
 
 
 # ── Default parameter presets ──
@@ -109,241 +125,6 @@ PARAM_PRESETS: dict[str, dict] = {
         "max_hold_days": 40, "trailing_stop_pct": 6.0, "cooldown_days": 2,
     },
 }
-
-
-# ── Indicator computations (numpy-based, matching soxl_live.py) ──
-
-def _compute_rsi(closes: np.ndarray, period: int = 14) -> float | None:
-    """Wilder's smoothing RSI."""
-    if len(closes) < period + 1:
-        return None
-    deltas = np.diff(closes)
-    gains = np.where(deltas > 0, deltas, 0.0)
-    losses = np.where(deltas < 0, -deltas, 0.0)
-    avg_gain = np.mean(gains[:period])
-    avg_loss = np.mean(losses[:period])
-    for i in range(period, len(gains)):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-    if avg_loss == 0:
-        return 100.0
-    rs = avg_gain / avg_loss
-    return 100.0 - (100.0 / (1.0 + rs))
-
-
-def _compute_multi_tf_rsi(closes: np.ndarray) -> dict:
-    """Compute RSI across multiple timeframes (7, 14, 21)."""
-    return {
-        "rsi_7": _compute_rsi(closes, 7),
-        "rsi_14": _compute_rsi(closes, 14),
-        "rsi_21": _compute_rsi(closes, 21),
-    }
-
-
-def _compute_stoch_rsi(closes: np.ndarray, rsi_period: int = 14, stoch_period: int = 14) -> float | None:
-    """Stochastic RSI: (RSI - min_RSI) / (max_RSI - min_RSI) × 100."""
-    if len(closes) < rsi_period + stoch_period + 1:
-        return None
-    # Compute RSI series
-    rsi_values = []
-    for i in range(stoch_period + 1):
-        end_idx = len(closes) - stoch_period + i
-        if end_idx < rsi_period + 1:
-            return None
-        rsi_val = _compute_rsi(closes[:end_idx], rsi_period)
-        if rsi_val is None:
-            return None
-        rsi_values.append(rsi_val)
-    if not rsi_values:
-        return None
-    min_rsi = min(rsi_values)
-    max_rsi = max(rsi_values)
-    if max_rsi == min_rsi:
-        return 50.0
-    return (rsi_values[-1] - min_rsi) / (max_rsi - min_rsi) * 100
-
-
-def _compute_adx(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14) -> float | None:
-    """Average Directional Index (ADX) for trend strength."""
-    if len(closes) < period * 2 + 1:
-        return None
-    n = len(closes)
-    tr_list = []
-    plus_dm_list = []
-    minus_dm_list = []
-    for i in range(1, n):
-        high_diff = highs[i] - highs[i - 1]
-        low_diff = lows[i - 1] - lows[i]
-        plus_dm = max(high_diff, 0) if high_diff > low_diff else 0
-        minus_dm = max(low_diff, 0) if low_diff > high_diff else 0
-        tr = max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1]))
-        tr_list.append(tr)
-        plus_dm_list.append(plus_dm)
-        minus_dm_list.append(minus_dm)
-
-    if len(tr_list) < period:
-        return None
-
-    # Smoothed averages
-    atr = sum(tr_list[:period])
-    plus_di_smooth = sum(plus_dm_list[:period])
-    minus_di_smooth = sum(minus_dm_list[:period])
-    dx_values = []
-
-    for i in range(period, len(tr_list)):
-        atr = atr - (atr / period) + tr_list[i]
-        plus_di_smooth = plus_di_smooth - (plus_di_smooth / period) + plus_dm_list[i]
-        minus_di_smooth = minus_di_smooth - (minus_di_smooth / period) + minus_dm_list[i]
-
-        if atr == 0:
-            continue
-        plus_di = (plus_di_smooth / atr) * 100
-        minus_di = (minus_di_smooth / atr) * 100
-        di_sum = plus_di + minus_di
-        if di_sum == 0:
-            continue
-        dx = abs(plus_di - minus_di) / di_sum * 100
-        dx_values.append(dx)
-
-    if len(dx_values) < period:
-        return None
-    # ADX = smoothed average of DX
-    adx = sum(dx_values[:period]) / period
-    for i in range(period, len(dx_values)):
-        adx = (adx * (period - 1) + dx_values[i]) / period
-    return float(adx)
-
-
-def _compute_obv_trend(closes: np.ndarray, volumes: np.ndarray, period: int = 20) -> float | None:
-    """On-Balance Volume trend slope (normalized)."""
-    if len(closes) < period + 1 or len(volumes) < period + 1:
-        return None
-    obv = [0.0]
-    for i in range(1, len(closes)):
-        if closes[i] > closes[i - 1]:
-            obv.append(obv[-1] + volumes[i])
-        elif closes[i] < closes[i - 1]:
-            obv.append(obv[-1] - volumes[i])
-        else:
-            obv.append(obv[-1])
-    # Linear regression slope of last N OBV values
-    obv_window = np.array(obv[-period:], dtype=float)
-    x = np.arange(period, dtype=float)
-    x_mean = np.mean(x)
-    obv_mean = np.mean(obv_window)
-    num = np.sum((x - x_mean) * (obv_window - obv_mean))
-    den = np.sum((x - x_mean) ** 2)
-    if den == 0:
-        return 0.0
-    slope = num / den
-    # Normalize by average volume
-    avg_vol = np.mean(volumes[-period:])
-    return float(slope / avg_vol) if avg_vol > 0 else 0.0
-
-
-def _compute_atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14) -> float | None:
-    """Average True Range."""
-    if len(closes) < period + 1:
-        return None
-    trs = []
-    for i in range(1, len(closes)):
-        tr = max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1]))
-        trs.append(tr)
-    if len(trs) < period:
-        return None
-    atr = sum(trs[:period]) / period
-    for i in range(period, len(trs)):
-        atr = (atr * (period - 1) + trs[i]) / period
-    return float(atr)
-
-
-def _compute_macd(closes: np.ndarray, fast=12, slow=26, signal=9):
-    """MACD line, signal line, histogram."""
-    if len(closes) < slow + signal:
-        return None, None, None
-
-    def ema(data, period):
-        alpha = 2.0 / (period + 1)
-        result = np.zeros_like(data)
-        result[0] = data[0]
-        for i in range(1, len(data)):
-            result[i] = alpha * data[i] + (1 - alpha) * result[i - 1]
-        return result
-
-    ema_fast = ema(closes, fast)
-    ema_slow = ema(closes, slow)
-    macd_line = ema_fast - ema_slow
-    signal_line = ema(macd_line, signal)
-    histogram = macd_line - signal_line
-    return float(macd_line[-1]), float(signal_line[-1]), float(histogram[-1])
-
-
-def _compute_bollinger(closes: np.ndarray, period=20, std_dev=2.0):
-    """Bollinger Bands (upper, middle, lower)."""
-    if len(closes) < period:
-        return None, None, None
-    window = closes[-period:]
-    middle = float(np.mean(window))
-    std = float(np.std(window))
-    return middle + std_dev * std, middle, middle - std_dev * std
-
-
-def _compute_volatility_ann(closes: np.ndarray, period=20) -> float | None:
-    """Annualized volatility (%)."""
-    if len(closes) < period + 1:
-        return None
-    returns = np.diff(closes[-period - 1:]) / closes[-period - 1:-1]
-    return float(np.std(returns) * math.sqrt(252) * 100)
-
-
-def _compute_disparity(closes: np.ndarray, period=20) -> float | None:
-    """Price disparity from MA (%)."""
-    if len(closes) < period:
-        return None
-    ma = float(np.mean(closes[-period:]))
-    if ma == 0:
-        return None
-    return float(closes[-1] / ma * 100)
-
-
-def _detect_rsi_divergence(closes: np.ndarray, period: int = 14, lookback: int = 5) -> str | None:
-    """Detect RSI divergence (bullish/bearish).
-
-    Bullish: price lower low, RSI higher low
-    Bearish: price higher high, RSI lower high
-    """
-    if len(closes) < period + lookback + 1:
-        return None
-    rsi_vals = []
-    for i in range(lookback + 1):
-        end_idx = len(closes) - lookback + i
-        rsi = _compute_rsi(closes[:end_idx], period)
-        if rsi is None:
-            return None
-        rsi_vals.append(rsi)
-
-    price_window = closes[-lookback - 1:]
-    # Bullish divergence: price makes new low but RSI doesn't
-    if price_window[-1] < price_window[0] and rsi_vals[-1] > rsi_vals[0]:
-        return "bullish"
-    # Bearish divergence: price makes new high but RSI doesn't
-    if price_window[-1] > price_window[0] and rsi_vals[-1] < rsi_vals[0]:
-        return "bearish"
-    return None
-
-
-def _detect_gap(prices: list[dict], idx: int) -> dict | None:
-    """Detect overnight gap at given index."""
-    if idx < 1:
-        return None
-    prev_close = prices[idx - 1]["close"]
-    cur_open = prices[idx].get("open", prev_close)
-    if prev_close == 0:
-        return None
-    gap_pct = (cur_open - prev_close) / prev_close * 100
-    if abs(gap_pct) >= 1.0:  # 1% minimum gap
-        return {"gap_pct": round(gap_pct, 2), "direction": "up" if gap_pct > 0 else "down"}
-    return None
 
 
 def _map_macro_keys(macro: dict) -> dict:
@@ -449,6 +230,13 @@ class SoxlBacktestEngine:
                 prices, macro_by_date, geo_scores, trading_days, mode, params,
             )
 
+            # SOXS hedge simulation overlay
+            hedge_stats = None
+            if params.hedge_mode:
+                hedge_stats = self._simulate_hedge(
+                    prices, trades, trading_days, equity_curve, params,
+                )
+
             # [NEW] Compute benchmark (buy-and-hold) return
             benchmark_return = self._compute_benchmark(prices, start_date, end_date)
 
@@ -521,7 +309,7 @@ class SoxlBacktestEngine:
                 (metrics["total_return"] or 0) * 100, benchmark_return or 0,
             )
 
-            return {
+            result = {
                 "backtest_id": backtest_id,
                 "status": "completed",
                 "mode": mode.value,
@@ -540,6 +328,9 @@ class SoxlBacktestEngine:
                 "trades": closed,
                 "equity_curve": equity_curve,
             }
+            if hedge_stats is not None:
+                result["hedge_stats"] = hedge_stats
+            return result
 
         except Exception as e:
             logger.error("SOXL backtest failed: %s", e, exc_info=True)
@@ -565,8 +356,6 @@ class SoxlBacktestEngine:
                 continue
 
             close = prices[idx]["close"]
-            high = prices[idx]["high"]
-            low = prices[idx]["low"]
 
             # Pre-slice windows (200 days max for MACD warmup)
             start_idx = max(0, idx - 199)
@@ -882,6 +671,101 @@ class SoxlBacktestEngine:
                 t.pop(k, None)
 
         return trades, equity_curve
+
+    def _simulate_hedge(self, prices, trades, trading_days, equity_curve, params):
+        """Simulate SOXS hedge overlay.
+
+        When no SOXL position is held, allocate hedge_ratio of portfolio to SOXS.
+        SOXS daily return ≈ -3× SOXL daily return (inverse 3x approximation).
+
+        Returns hedge_stats dict with P&L, hedged equity curve, and max drawdown comparison.
+        """
+        date_idx = {p["date"]: i for i, p in enumerate(prices)}
+
+        # Build set of dates when SOXL position is held
+        held_dates = set()
+        for t in trades:
+            entry = t.get("entry_date")
+            exit_ = t.get("exit_date")
+            if entry and exit_:
+                d = datetime.strptime(entry, "%Y-%m-%d")
+                end = datetime.strptime(exit_, "%Y-%m-%d")
+                while d <= end:
+                    held_dates.add(d.strftime("%Y-%m-%d"))
+                    d += timedelta(days=1)
+
+        hedge_ratio = params.hedge_ratio
+        hedge_equity = 100.0  # Mirror the starting equity
+        hedge_pnl = 0.0
+        hedge_trades_count = 0
+        hedge_days = 0
+        hedged_curve = []
+        peak_hedged = 100.0
+
+        # Rebuild base equity day-by-day from equity_curve
+        eq_map = {e["date"]: e["equity"] for e in equity_curve}
+
+        prev_soxl_close = None
+        for day in trading_days:
+            idx = date_idx.get(day)
+            if idx is None:
+                continue
+
+            soxl_close = prices[idx]["close"]
+            base_eq = eq_map.get(day, hedge_equity)
+
+            if prev_soxl_close and prev_soxl_close > 0 and day not in held_dates:
+                # SOXL daily return
+                soxl_daily_ret = (soxl_close - prev_soxl_close) / prev_soxl_close
+                # SOXS approximation: -3x SOXL daily return
+                soxs_daily_ret = -3.0 * soxl_daily_ret
+                # Hedge P&L: hedge_ratio of current equity × SOXS return
+                day_pnl = hedge_equity * hedge_ratio * soxs_daily_ret
+                hedge_pnl += day_pnl
+                hedge_equity += day_pnl
+                hedge_days += 1
+                if soxs_daily_ret != 0:
+                    hedge_trades_count += 1
+
+            prev_soxl_close = soxl_close
+
+            # Hedged portfolio = base equity + hedge overlay delta
+            hedged_eq = base_eq + (hedge_equity - 100.0)
+            hedged_curve.append({"date": day, "equity": round(hedged_eq, 2)})
+
+            if hedged_eq > peak_hedged:
+                peak_hedged = hedged_eq
+
+        # Compute max drawdowns for comparison
+        def _max_dd(curve):
+            peak = 0.0
+            max_dd = 0.0
+            for pt in curve:
+                eq = pt["equity"]
+                if eq > peak:
+                    peak = eq
+                if peak > 0:
+                    dd = (peak - eq) / peak
+                    if dd > max_dd:
+                        max_dd = dd
+            return round(max_dd, 4)
+
+        base_max_dd = _max_dd(equity_curve)
+        hedged_max_dd = _max_dd(hedged_curve)
+
+        return {
+            "hedge_mode": True,
+            "hedge_ratio": hedge_ratio,
+            "hedge_pnl": round(hedge_pnl, 2),
+            "hedge_pnl_pct": round(hedge_pnl / 100 * 100, 2) if hedge_equity else 0,
+            "hedge_days": hedge_days,
+            "hedge_trades": hedge_trades_count,
+            "hedged_final_equity": round(hedge_equity + (eq_map.get(trading_days[-1], 100) - 100), 2) if trading_days else 100.0,
+            "base_max_drawdown": base_max_dd,
+            "hedged_max_drawdown": hedged_max_dd,
+            "drawdown_reduction": round(base_max_dd - hedged_max_dd, 4),
+            "hedged_equity_curve": hedged_curve[-100:],  # Last 100 for charting
+        }
 
     @staticmethod
     def _compute_leverage_decay(holding_days: int, vol_ann: float, leverage: float) -> float:

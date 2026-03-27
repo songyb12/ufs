@@ -4,7 +4,6 @@ Gathers macro, sentiment, signals, portfolio, and performance data,
 then sends to LLM for comprehensive Korean market commentary.
 """
 
-import json
 import logging
 from datetime import datetime, timezone
 
@@ -240,7 +239,7 @@ def _build_analysis_prompt(question: str, context: dict) -> str:
         sections.append("")
 
     # Question
-    sections.append(f"[사용자 질문]")
+    sections.append("[사용자 질문]")
     sections.append(question)
     sections.append("")
     sections.append("요구사항:")
@@ -293,7 +292,10 @@ async def run_ai_analysis(
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}],
             )
-            analysis_text = response.content[0].text.strip()
+            if response.content and hasattr(response.content[0], "text"):
+                analysis_text = response.content[0].text.strip()
+            else:
+                return {"status": "error", "message": "LLM 응답에 텍스트가 없습니다."}
         elif provider == "openai":
             import openai
             client = openai.AsyncOpenAI(api_key=settings.LLM_API_KEY)
@@ -302,7 +304,11 @@ async def run_ai_analysis(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1500,
             )
-            analysis_text = response.choices[0].message.content.strip()
+            content = response.choices[0].message.content if response.choices else None
+            if content:
+                analysis_text = content.strip()
+            else:
+                return {"status": "error", "message": "LLM 응답에 텍스트가 없습니다."}
         else:
             return {"status": "error", "message": f"Unknown LLM provider: {provider}"}
     except Exception as e:

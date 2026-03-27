@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useToast } from '../components/Toast'
-import { getSoxlDashboard, getSoxlLevels } from '../api'
+import { getSoxlDashboard, getSoxlLevels, getSoxlOptimizeHistory, getSoxlAlerts } from '../api'
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
   ComposedChart, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -31,12 +31,24 @@ export default function Soxl({ onNavigate, refreshKey }) {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
   const [days, setDays] = useState(90)
+  const [latestOpt, setLatestOpt] = useState(null)
+  const [activeAlertCount, setActiveAlertCount] = useState(0)
   const toast = useToast()
 
   const fetchData = useCallback((d) => {
     setLoading(true)
-    Promise.all([getSoxlDashboard(d), getSoxlLevels()])
-      .then(([dd, l]) => { setData(dd); setLevels(l) })
+    Promise.all([
+      getSoxlDashboard(d),
+      getSoxlLevels(),
+      getSoxlOptimizeHistory({ limit: 1 }).catch(() => ({ results: [] })),
+      getSoxlAlerts().catch(() => ({ alerts: [] })),
+    ])
+      .then(([dd, l, opt, alt]) => {
+        setData(dd)
+        setLevels(l)
+        setLatestOpt(opt?.results?.[0] || null)
+        setActiveAlertCount((alt?.alerts || []).filter(a => a.active).length)
+      })
       .catch(err => toast.error('SOXL 데이터 로드 실패: ' + err.message))
       .finally(() => setLoading(false))
   }, [toast])
@@ -124,6 +136,55 @@ export default function Soxl({ onNavigate, refreshKey }) {
       {/* Quick KPI Strip */}
       <QuickKpiStrip performance={performance} technicals={technicals} />
 
+      {/* Latest Optimization + Active Alerts Strip */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+        {/* Latest Optimize Params Card */}
+        <div className="card" style={{
+          flex: '1 1 300px', padding: '0.6rem 0.85rem',
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+          background: 'var(--bg-secondary)', borderRadius: '0.5rem',
+        }}>
+          <span style={{ fontSize: '1.1rem' }}>🎯</span>
+          {latestOpt ? (
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>
+                최근 최적화 — 모드 {latestOpt.mode}
+                <span style={{ marginLeft: 6, opacity: 0.6 }}>
+                  {latestOpt.run_at ? new Date(latestOpt.run_at).toLocaleDateString('ko-KR') : ''}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.75rem', flexWrap: 'wrap' }}>
+                <span>Sharpe <b style={{ color: (latestOpt.sharpe || 0) > 0 ? '#22c55e' : '#ef4444' }}>{latestOpt.sharpe?.toFixed(2) ?? '—'}</b></span>
+                {latestOpt.params?.rsi_entry != null && <span>RSI진입 <b>{latestOpt.params.rsi_entry}</b></span>}
+                {latestOpt.params?.stop_loss_pct != null && <span>손절 <b>{latestOpt.params.stop_loss_pct}%</b></span>}
+                {latestOpt.params?.take_profit_pct != null && <span>익절 <b>{latestOpt.params.take_profit_pct}%</b></span>}
+              </div>
+            </div>
+          ) : (
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              최적화 실행 필요 — 실시간 페이지에서 실행
+            </span>
+          )}
+        </div>
+
+        {/* Active Alerts Badge */}
+        <div className="card" style={{
+          flex: '0 0 auto', padding: '0.6rem 0.85rem',
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          background: 'var(--bg-secondary)', borderRadius: '0.5rem',
+          cursor: 'pointer',
+        }}
+          onClick={() => onNavigate('soxl-live')}>
+          <span style={{ fontSize: '1.1rem' }}>⚡</span>
+          <div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>활성 알림</div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: activeAlertCount > 0 ? '#f59e0b' : 'var(--text-muted)' }}>
+              {activeAlertCount > 0 ? `${activeAlertCount}건` : '없음'}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Tabs */}
       <div style={{
         display: 'flex', gap: '0.25rem', marginBottom: '1rem',
@@ -146,7 +207,7 @@ export default function Soxl({ onNavigate, refreshKey }) {
 
       {activeTab === 'overview' && <OverviewTab data={data} levels={levels} onNavigate={onNavigate} signals={signals} />}
       {activeTab === 'charts' && <ChartsTab technicals={technicals} prices={prices} levels={levels} signals={signals} />}
-      {activeTab === 'strategy' && <StrategyTab strategy={strategy} performance={performance} />}
+      {activeTab === 'strategy' && <StrategyTab strategy={strategy} performance={performance} activeAlertCount={activeAlertCount} onNavigate={onNavigate} />}
       {activeTab === 'signals' && <SignalsTab signals={signals} />}
     </div>
   )
@@ -390,7 +451,7 @@ function ChartsTab({ technicals, prices, levels, signals }) {
 }
 
 /* ── Strategy Tab ── */
-function StrategyTab({ strategy, performance }) {
+function StrategyTab({ strategy, performance, activeAlertCount = 0, onNavigate }) {
   if (!strategy) return <div className="loading">전략 데이터 없음</div>
 
   const rules = strategy.trading_rules || {}
@@ -398,7 +459,19 @@ function StrategyTab({ strategy, performance }) {
     <>
       {/* Score Gauge */}
       <div className="card" style={{ marginBottom: '1rem', textAlign: 'center' }}>
-        <h3 style={{ marginBottom: '0.75rem' }}>🎯 종합 판단</h3>
+        <h3 style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+          🎯 종합 판단
+          {activeAlertCount > 0 && (
+            <span onClick={() => onNavigate?.('soxl-live')}
+              style={{
+                fontSize: '0.65rem', padding: '0.15rem 0.5rem', borderRadius: '1rem',
+                background: '#f59e0b20', color: '#f59e0b', fontWeight: 600,
+                cursor: 'pointer', border: '1px solid #f59e0b44',
+              }}>
+              ⚡ 활성 알림 {activeAlertCount}건
+            </span>
+          )}
+        </h3>
         <ScoreGauge
           buySignals={strategy.buy_signals}
           sellSignals={strategy.sell_signals}

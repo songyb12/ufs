@@ -56,6 +56,8 @@ class SoxlBacktestRequest(BaseModel):
     mode: str = "D"
     params: Optional[dict] = None
     preset: Optional[str] = None  # [NEW] Named preset
+    hedge_mode: bool = False
+    hedge_ratio: float = 0.2
 
     @field_validator("mode")
     @classmethod
@@ -73,6 +75,13 @@ class SoxlBacktestRequest(BaseModel):
                 datetime.strptime(v, "%Y-%m-%d")
             except ValueError:
                 raise ValueError(f"Invalid date format '{v}'. Use YYYY-MM-DD.")
+        return v
+
+    @field_validator("hedge_ratio")
+    @classmethod
+    def validate_hedge_ratio(cls, v):
+        if v < 0.0 or v > 0.5:
+            raise ValueError(f"hedge_ratio must be 0.0~0.5, got {v}")
         return v
 
 
@@ -115,7 +124,14 @@ def _build_params(req_params: dict | None, preset: str | None = None) -> SoxlBac
 
 @router.post("/run")
 async def run_soxl_backtest(req: SoxlBacktestRequest):
-    """Run SOXL-specific backtest (synchronous — single symbol is fast)."""
+    """Run SOXL-specific backtest (synchronous — single symbol is fast).
+
+    Response: {backtest_id, status, mode, period, trading_days, metrics: {
+        total_trades, hit_rate, avg_return, sharpe_ratio, sortino_ratio,
+        max_drawdown, profit_factor, total_return}, leverage_decay_total,
+        transaction_costs, benchmark_return, trades[], equity_curve[],
+        hedge_stats? (if hedge_mode=true)}
+    """
     start_date, end_date = _resolve_dates(req)
 
     try:
@@ -124,6 +140,8 @@ async def run_soxl_backtest(req: SoxlBacktestRequest):
         raise HTTPException(400, f"Invalid mode '{req.mode}'. Use A/B/C/D.")
 
     params = _build_params(req.params, req.preset)
+    params.hedge_mode = req.hedge_mode
+    params.hedge_ratio = req.hedge_ratio
     engine = SoxlBacktestEngine()
     return await engine.run(start_date, end_date, mode, params)
 
@@ -132,16 +150,22 @@ async def run_soxl_backtest(req: SoxlBacktestRequest):
 
 @router.post("/compare")
 async def compare_soxl_modes(req: SoxlBacktestRequest):
-    """Run all 4 strategy modes and compare metrics."""
+    """Run all 4 strategy modes and compare metrics.
+
+    When hedge_mode=true, each mode is run twice (hedge OFF / hedge ON)
+    and both results are included for comparison.
+    """
     start_date, end_date = _resolve_dates(req)
     params = _build_params(req.params, req.preset)
     engine = SoxlBacktestEngine()
 
     results = []
     for mode in StrategyMode:
+        # Always run without hedge first
+        params.hedge_mode = False
         result = await engine.run(start_date, end_date, mode, params)
         metrics = result.get("metrics", {})
-        results.append({
+        entry = {
             "mode": mode.value,
             "mode_label": _MODE_LABELS.get(mode.value, mode.value),
             "mode_description": _MODE_DESCRIPTIONS.get(mode.value, ""),
@@ -155,7 +179,21 @@ async def compare_soxl_modes(req: SoxlBacktestRequest):
             # [NEW] Extended stats
             "monthly_returns": result.get("monthly_returns"),
             "exit_reason_stats": result.get("exit_reason_stats"),
-        })
+        }
+
+        # If hedge requested, also run with hedge ON
+        if req.hedge_mode:
+            params.hedge_mode = True
+            params.hedge_ratio = req.hedge_ratio
+            hedged_result = await engine.run(start_date, end_date, mode, params)
+            hedged_metrics = hedged_result.get("metrics", {})
+            entry["hedge_on"] = {
+                "metrics": hedged_metrics,
+                "hedge_stats": hedged_result.get("hedge_stats"),
+                "backtest_id": hedged_result.get("backtest_id"),
+            }
+
+        results.append(entry)
 
     # Find best mode by total_return
     valid = [
@@ -257,7 +295,6 @@ async def generate_soxl_strategy(req: SoxlBacktestRequest = None):
                 })
 
             # [NEW] Win/loss streak analysis
-            all_returns = [t[4] for t in trades if t[4] is not None]
             cur_w, cur_l, max_w, max_l = 0, 0, 0, 0
             for r in sorted(trades, key=lambda x: x[6] or 0):  # by holding days as proxy for date
                 if (r[4] or 0) > 0:
@@ -534,11 +571,16 @@ def _safe_fmt(value, fmt=".1f"):
 
 @router.get("/results")
 async def get_soxl_backtest_results(
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(10, ge=1, le=50, description="Max results"),
     mode: str | None = Query(None, description="Filter by mode (A/B/C/D)"),
     status: str | None = Query(None, description="Filter by status (completed/failed)"),
 ):
-    """List recent SOXL backtest runs with optional mode and status filter."""
+    """List recent SOXL backtest runs with optional mode and status filter.
+
+    Response: {results: [{backtest_id, start_date, end_date, mode, mode_label,
+        status, total_trades, hit_rate, sharpe_ratio, max_drawdown,
+        total_return, leverage_decay_total, created_at}]}
+    """
     from app.database.connection import get_db
     db = await get_db()
 
@@ -689,7 +731,94 @@ async def get_parameter_presets():
     return {"presets": presets}
 
 
-# ── Endpoint 8: GET /stats/{backtest_id} ──
+# ── Endpoint 8: GET /optimize ──
+
+@router.get("/optimize")
+async def optimize_soxl_params(
+    mode: str = Query("A", description="Strategy mode (A/B/C/D)"),
+    top_n: int = Query(5, ge=1, le=20, description="Number of top results"),
+    max_iter: int = Query(50, ge=10, le=200, description="Random search iterations"),
+    start_date: str | None = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: str | None = Query(None, description="End date YYYY-MM-DD"),
+):
+    """Run random search optimization over SOXL backtest parameters.
+
+    Samples `max_iter` random parameter combinations and returns the top N
+    ranked by Sharpe ratio.
+    """
+    mode = mode.upper()
+    if mode not in ("A", "B", "C", "D"):
+        raise HTTPException(400, f"Invalid mode '{mode}'. Use A/B/C/D.")
+
+    from app.backtesting.optimizer import SoxlParameterOptimizer
+    optimizer = SoxlParameterOptimizer()
+    return await optimizer.optimize(
+        mode=mode,
+        start_date=start_date,
+        end_date=end_date,
+        max_iter=max_iter,
+        top_n=top_n,
+    )
+
+
+# ── Endpoint 9: GET /optimize-history ──
+
+@router.get("/optimize-history")
+async def get_optimize_history(
+    mode: str | None = Query(None, description="Filter by mode (A/B/C/D)"),
+    limit: int = Query(20, ge=1, le=100, description="Max results"),
+):
+    """List saved parameter optimization results from soxl_optimize_results."""
+    from app.database.connection import get_db
+    db = await get_db()
+
+    conditions = []
+    params_list = []
+    if mode:
+        m = mode.upper()
+        if m not in ("A", "B", "C", "D"):
+            raise HTTPException(400, f"Invalid mode '{mode}'. Use A/B/C/D.")
+        conditions.append("mode = ?")
+        params_list.append(m)
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params_list.append(limit)
+
+    cursor = await db.execute(
+        f"""SELECT id, run_at, mode, params_json, sharpe, sortino, max_drawdown,
+                   total_return, created_at
+            FROM soxl_optimize_results
+            {where}
+            ORDER BY created_at DESC LIMIT ?""",
+        params_list,
+    )
+    rows = await cursor.fetchall()
+
+    results = []
+    for r in rows:
+        params = {}
+        if r[3]:
+            try:
+                params = json.loads(r[3])
+            except (json.JSONDecodeError, TypeError):
+                params = {}
+        results.append({
+            "id": r[0], "run_at": r[1], "mode": r[2], "params": params,
+            "sharpe": r[4], "sortino": r[5], "max_drawdown": r[6],
+            "total_return": r[7], "created_at": r[8],
+        })
+
+    # Count total (without limit)
+    count_cursor = await db.execute(
+        f"SELECT COUNT(*) FROM soxl_optimize_results {where}",
+        params_list[:-1],  # exclude the limit param
+    )
+    total = (await count_cursor.fetchone())[0]
+
+    return {"total": total, "results": results}
+
+
+# ── Endpoint 10: GET /stats/{backtest_id} ──
 
 @router.get("/stats/{backtest_id}")
 async def get_soxl_backtest_stats(backtest_id: str):

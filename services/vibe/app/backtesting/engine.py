@@ -1,7 +1,7 @@
 """Backtesting Engine - Replays scoring logic on historical price data."""
 
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 

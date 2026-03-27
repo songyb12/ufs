@@ -4,7 +4,6 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.database import repositories as repo
 from app.database.connection import get_db
-from app.models.schemas import DashboardResponse
 
 logger = logging.getLogger("vibe.routers.dashboard")
 
@@ -338,6 +337,16 @@ async def generate_monthly_report_endpoint(
     """Generate a monthly report for the given month."""
     from app.reports.monthly_report import generate_monthly_report
 
+    if report_month is not None:
+        try:
+            parts = report_month.split("-")
+            if len(parts) != 2:
+                raise ValueError
+            _, month = int(parts[0]), int(parts[1])
+            if not (1 <= month <= 12):
+                raise ValueError
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="report_month must be YYYY-MM format")
     content = await generate_monthly_report(report_month, market)
     return {"status": "ok", "report": content}
 
@@ -370,7 +379,13 @@ async def generate_weekly_report_endpoint(
     market: str = Query("ALL"),
 ):
     """Generate a weekly report for the given week (Monday date)."""
+    from datetime import date
     from app.reports.weekly_report import generate_weekly_report
 
+    if week_start is not None:
+        try:
+            date.fromisoformat(week_start)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="week_start must be YYYY-MM-DD format")
     content = await generate_weekly_report(week_start, market)
     return {"status": "ok", "report": content}

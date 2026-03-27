@@ -1,11 +1,9 @@
 import logging
 
-import aiosqlite
-
 from app.database.connection import get_db
 
 # Schema version — increment when adding new migrations
-SCHEMA_VERSION = 7  # v1: initial, v2: portfolio_groups, v3: is_hidden, v4: copper_price, v5: signal_dedup, v6: users, v7: soxl_backtest
+SCHEMA_VERSION = 9  # v1: initial, v2: portfolio_groups, v3: is_hidden, v4: copper_price, v5: signal_dedup, v6: users, v7: soxl_backtest, v8: soxl_alerts_webhook, v9: soxl_optimize_results
 
 TABLES = [
     # ── Watchlist ──
@@ -483,6 +481,7 @@ TABLES = [
         alert_type TEXT NOT NULL,
         threshold REAL NOT NULL,
         label TEXT,
+        webhook_url TEXT,
         triggered_at TEXT,
         active INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now'))
@@ -607,6 +606,20 @@ TABLES = [
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    # ── SOXL Optimize Results ──
+    """
+    CREATE TABLE IF NOT EXISTS soxl_optimize_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_at TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        params_json TEXT NOT NULL,
+        sharpe REAL,
+        sortino REAL,
+        max_drawdown REAL,
+        total_return REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES = [
@@ -626,6 +639,7 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_portfolio_scenarios_lookup ON portfolio_scenarios(run_id, market, scenario_type)",
     "CREATE INDEX IF NOT EXISTS idx_news_data_lookup ON news_data(symbol, market, trade_date)",
     "CREATE INDEX IF NOT EXISTS idx_signals_run_id ON signals(run_id)",
+    "CREATE INDEX IF NOT EXISTS idx_signals_symbol_market ON signals(symbol, market)",
     "CREATE INDEX IF NOT EXISTS idx_watchlist_active_market ON watchlist(market, is_active)",
     "CREATE INDEX IF NOT EXISTS idx_portfolio_state_active ON portfolio_state(portfolio_id, market, position_size)",
     "CREATE INDEX IF NOT EXISTS idx_alert_history_fired ON alert_history(fired_at)",
@@ -645,6 +659,15 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_forex_history_lookup ON forex_history(pair, trade_date)",
     "CREATE INDEX IF NOT EXISTS idx_soxl_bt_runs ON soxl_backtest_runs(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_soxl_bt_trades ON soxl_backtest_trades(backtest_id)",
+    "CREATE INDEX IF NOT EXISTS idx_soxl_opt_results ON soxl_optimize_results(mode, created_at)",
+    # ── Retention & query coverage (Phase 8 audit) ──
+    "CREATE INDEX IF NOT EXISTS idx_geopolitical_events_date ON geopolitical_events(event_date)",
+    "CREATE INDEX IF NOT EXISTS idx_geopolitical_events_category ON geopolitical_events(category, event_date)",
+    "CREATE INDEX IF NOT EXISTS idx_llm_reviews_date ON llm_reviews(review_date)",
+    "CREATE INDEX IF NOT EXISTS idx_portfolio_scenarios_date ON portfolio_scenarios(scenario_date)",
+    "CREATE INDEX IF NOT EXISTS idx_backtest_trades_entry_date ON backtest_trades(entry_date)",
+    "CREATE INDEX IF NOT EXISTS idx_screening_candidates_date ON screening_candidates(detected_date)",
+    "CREATE INDEX IF NOT EXISTS idx_position_exits_date ON position_exits(exit_date)",
 ]
 
 
@@ -673,6 +696,7 @@ async def init_db() -> None:
     await _migrate_is_hidden(db)          # v3
     await _migrate_copper_price(db)       # v4
     await _migrate_signal_dedup(db)       # v5
+    await _migrate_soxl_alerts_webhook(db)  # v8
 
     # Record current schema version
     await db.execute(
@@ -859,3 +883,19 @@ async def _migrate_signal_dedup(db) -> None:
 
     await db.commit()
     logger.info("Signal dedup migration complete: %d rows kept, %d duplicates removed", new_count, removed)
+
+
+async def _migrate_soxl_alerts_webhook(db) -> None:
+    """v8: Add webhook_url column to soxl_alerts if missing."""
+    logger = logging.getLogger("vibe.schema.migrate")
+
+    cursor = await db.execute("PRAGMA table_info(soxl_alerts)")
+    columns = {row[1] for row in await cursor.fetchall()}
+
+    if "webhook_url" not in columns:
+        logger.info("Migrating soxl_alerts: adding webhook_url column")
+        await db.execute(
+            "ALTER TABLE soxl_alerts ADD COLUMN webhook_url TEXT"
+        )
+        await db.commit()
+        logger.info("webhook_url column added to soxl_alerts")

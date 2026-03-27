@@ -23,8 +23,6 @@ from app.indicators.carry_trade import (
     compute_carry_trade_risk,
     compute_forex_map_data,
     compute_global_risk_factors,
-    CARRY_PAIRS,
-    CURRENCY_INFO,
 )
 from app.indicators.regime import (
     aggregate_sector_fund_flow,
@@ -1052,8 +1050,6 @@ async def backfill_forex_data(days: int = Query(90, ge=30, le=365)):
     Uses FinanceDataReader to fetch multi-day FX time-series.
     """
     try:
-        from app.collectors.macro import MacroCollector
-        from app.config import settings
         import asyncio
         from datetime import date, timedelta
 

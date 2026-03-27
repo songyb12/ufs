@@ -66,7 +66,7 @@ async def delete_group(group_id: int):
 @router.get("")
 async def get_portfolio(
     market: str | None = None,
-    portfolio_id: int = Query(1, alias="portfolio_id"),
+    portfolio_id: int = Query(1, ge=1, alias="portfolio_id"),
     include_hidden: bool = Query(False),
 ):
     """Get current portfolio positions."""
@@ -85,7 +85,7 @@ async def get_portfolio(
 @router.patch("/position/{market}/{symbol}/hide")
 async def toggle_hide_position(
     market: str, symbol: str,
-    portfolio_id: int = Query(1),
+    portfolio_id: int = Query(1, ge=1),
 ):
     """Toggle hidden state for a portfolio position."""
     result = await repo.toggle_position_hidden(
@@ -130,7 +130,7 @@ async def add_position(position: PortfolioPositionCreate):
 @router.post("/quick")
 async def quick_add(
     items: list[PortfolioQuickAdd],
-    portfolio_id: int = Query(1, alias="portfolio_id"),
+    portfolio_id: int = Query(1, ge=1, alias="portfolio_id"),
 ):
     """Quickly register positions with minimal info.
 
@@ -224,7 +224,7 @@ async def bulk_add(payload: PortfolioBulkCreate):
 
 
 @router.post("/seed")
-async def seed_portfolio(portfolio_id: int = Query(1)):
+async def seed_portfolio(portfolio_id: int = Query(1, ge=1)):
     """Register all positions from the PORTFOLIO_SEED list."""
     if not PORTFOLIO_SEED:
         return {
@@ -262,7 +262,7 @@ async def seed_portfolio(portfolio_id: int = Query(1)):
 @router.delete("/position/{market}/{symbol}")
 async def remove_position(
     market: str, symbol: str,
-    portfolio_id: int = Query(1),
+    portfolio_id: int = Query(1, ge=1),
 ):
     """Remove a position (set size to 0)."""
     await repo.upsert_portfolio_position(
@@ -284,7 +284,7 @@ async def remove_position(
 @router.delete("/all")
 async def clear_all_positions(
     market: str | None = None,
-    portfolio_id: int = Query(1),
+    portfolio_id: int = Query(1, ge=1),
 ):
     """Remove all positions in a group (optionally filtered by market)."""
     market_upper = market.upper() if market else None
@@ -316,7 +316,7 @@ async def get_latest_scenarios(market: str | None = None):
 async def exit_position_endpoint(
     market: str, symbol: str,
     exit_reason: str = Query("manual"),
-    portfolio_id: int = Query(1),
+    portfolio_id: int = Query(1, ge=1),
 ):
     """Exit a position and record exit history."""
     result = await repo.exit_position(
@@ -329,7 +329,7 @@ async def exit_position_endpoint(
 
 
 @router.post("/batch-exit")
-async def batch_exit(portfolio_id: int = Query(1)):
+async def batch_exit(portfolio_id: int = Query(1, ge=1)):
     """Exit all positions that have breached stop-loss."""
     from app.config import settings
     count = await repo.batch_exit_stop_loss(
@@ -341,7 +341,7 @@ async def batch_exit(portfolio_id: int = Query(1)):
 
 @router.get("/exits")
 async def get_exits(
-    portfolio_id: int = Query(1),
+    portfolio_id: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
 ):
     """Get position exit history."""

@@ -1,5 +1,6 @@
 """Scheduled job definitions for VIBE pipeline."""
 
+import asyncio
 import functools
 import logging
 
@@ -131,8 +132,6 @@ def register_jobs(
                 logger.info("Weekly report skipped: notification schedule disabled")
                 return
 
-            import asyncio as _asyncio
-
             from app.notifier.discord import _get_discord_client
             from app.notifier.weekly_report import build_weekly_report_payloads
 
@@ -148,7 +147,7 @@ def register_jobs(
                         logger.info("Weekly report sent to Discord")
                     else:
                         logger.error("Weekly report Discord failed: %d", resp.status_code)
-                    await _asyncio.sleep(1.0)
+                    await asyncio.sleep(1.0)
             else:
                 logger.info("Weekly report generated but no webhook configured")
         except Exception as e:
@@ -252,8 +251,81 @@ def register_jobs(
         replace_existing=True,
     )
 
+    # ── SOXL Daily Optimize (17:00 EST = 22:00 UTC) ──
+    async def soxl_daily_optimize():
+        try:
+            import json as _json
+            from datetime import datetime as _dt, timezone as _tz
+            from app.backtesting.optimizer import SoxlParameterOptimizer
+            from app.database.connection import get_db
+
+            optimizer = SoxlParameterOptimizer()
+            result = await optimizer.optimize(mode="D", max_iter=100, top_n=5)
+
+            if result.get("status") == "ok" and result.get("results"):
+                db = await get_db()
+                run_at = _dt.now(_tz.utc).isoformat()
+                for r in result["results"]:
+                    m = r["metrics"]
+                    await db.execute(
+                        """INSERT INTO soxl_optimize_results
+                           (run_at, mode, params_json, sharpe, sortino, max_drawdown, total_return)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (run_at, "D", _json.dumps(r["params"]),
+                         m.get("sharpe_ratio"), m.get("sortino_ratio"),
+                         m.get("max_drawdown"), m.get("total_return")),
+                    )
+                await db.commit()
+                logger.info("SOXL daily optimize: saved %d results", len(result["results"]))
+            else:
+                logger.warning("SOXL daily optimize: no valid results")
+        except Exception as e:
+            logger.exception("SOXL daily optimize failed: %s", e)
+
+    scheduler.add_job(
+        soxl_daily_optimize,
+        trigger="cron",
+        hour=22,  # 17:00 EST = 22:00 UTC
+        minute=0,
+        id="soxl_daily_optimize",
+        name="SOXL Daily Parameter Optimize",
+        replace_existing=True,
+    )
+
+    # ── SOXL Alert Check (every 1 min during US market hours: 14:30~21:00 UTC = 09:30~16:00 EST) ──
+    async def soxl_alert_check():
+        try:
+            from datetime import datetime as _dt
+            from zoneinfo import ZoneInfo
+            now_et = _dt.now(ZoneInfo("America/New_York"))
+            # Only run during market hours (Mon-Fri 09:30-16:00 ET)
+            if now_et.weekday() >= 5:
+                return
+            t = now_et.hour * 60 + now_et.minute
+            if t < 9 * 60 + 30 or t > 16 * 60:
+                return
+
+            from app.routers.soxl_live import _check_alerts
+            finnhub = getattr(collector_registry, "_finnhub", None)
+            if finnhub:
+                quote = await finnhub.get_quote("SOXL")
+                await _check_alerts(quote.get("c", 0), quote.get("dp", 0))
+            else:
+                logger.debug("SOXL alert check: Finnhub client not available")
+        except Exception as e:
+            logger.debug("SOXL alert check failed: %s", e)
+
+    scheduler.add_job(
+        soxl_alert_check,
+        trigger="interval",
+        minutes=1,
+        id="soxl_alert_check",
+        name="SOXL Alert Check (1min)",
+        replace_existing=True,
+    )
+
     logger.info(
-        "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC, Backup=04:00, Weekly=Sun 06:00, Monthly=1st 07:00",
+        "Scheduler jobs registered: KR=%02d:%02d UTC, US=%02d:%02d UTC, Backup=04:00, Weekly=Sun 06:00, Monthly=1st 07:00, SOXL=22:00+1min",
         config.KR_PIPELINE_HOUR_UTC, config.KR_PIPELINE_MINUTE,
         config.US_PIPELINE_HOUR_UTC, config.US_PIPELINE_MINUTE,
     )

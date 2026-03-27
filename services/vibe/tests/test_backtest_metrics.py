@@ -601,6 +601,10 @@ class TestOutputKeyCompleteness:
     EXPECTED_KEYS = {
         "total_trades", "hit_rate", "avg_return", "sharpe_ratio",
         "max_drawdown", "profit_factor", "win_loss_ratio", "total_return",
+        "avg_win", "avg_loss", "best_trade", "worst_trade", "median_return",
+        "sortino_ratio", "calmar_ratio", "cagr", "recovery_factor",
+        "ulcer_index", "max_consecutive_wins", "max_consecutive_losses",
+        "expectancy", "payoff_ratio", "avg_holding_days", "exposure_pct",
     }
 
     def test_empty_trades_has_all_keys(self):
@@ -623,3 +627,254 @@ class TestOutputKeyCompleteness:
         trades = [{"holding_days": 5}]
         result = compute_backtest_metrics(trades)
         assert set(result.keys()) == self.EXPECTED_KEYS
+
+
+class TestExtendedMetrics:
+    """Verify sortino_ratio, expectancy, consecutive streaks, calmar, payoff, best/worst."""
+
+    def test_best_and_worst_trade(self):
+        trades = [
+            {"return_pct": 15.0, "holding_days": 5},
+            {"return_pct": -8.0, "holding_days": 5},
+            {"return_pct": 3.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["best_trade"] == 15.0
+        assert result["worst_trade"] == -8.0
+
+    def test_median_return_odd_count(self):
+        trades = [
+            {"return_pct": 1.0, "holding_days": 5},
+            {"return_pct": 5.0, "holding_days": 5},
+            {"return_pct": 3.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        # Sorted: [1, 3, 5] → median = 3
+        assert result["median_return"] == 3.0
+
+    def test_median_return_even_count(self):
+        trades = [
+            {"return_pct": 2.0, "holding_days": 5},
+            {"return_pct": 4.0, "holding_days": 5},
+            {"return_pct": 6.0, "holding_days": 5},
+            {"return_pct": 8.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        # Sorted: [2, 4, 6, 8] → median = (4+6)/2 = 5
+        assert result["median_return"] == 5.0
+
+    def test_max_consecutive_wins(self):
+        trades = [
+            {"return_pct": 5.0, "holding_days": 5},
+            {"return_pct": 3.0, "holding_days": 5},
+            {"return_pct": 2.0, "holding_days": 5},
+            {"return_pct": -1.0, "holding_days": 5},
+            {"return_pct": 4.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["max_consecutive_wins"] == 3
+        assert result["max_consecutive_losses"] == 1
+
+    def test_max_consecutive_losses(self):
+        trades = [
+            {"return_pct": 2.0, "holding_days": 5},
+            {"return_pct": -5.0, "holding_days": 5},
+            {"return_pct": -3.0, "holding_days": 5},
+            {"return_pct": -1.0, "holding_days": 5},
+            {"return_pct": 4.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["max_consecutive_losses"] == 3
+        assert result["max_consecutive_wins"] == 1
+
+    def test_expectancy_positive(self):
+        # hit_rate=0.5, avg_win=10, avg_loss=5 → expectancy = 0.5*10 - 0.5*5 = 2.5
+        trades = [
+            {"return_pct": 10.0, "holding_days": 5},
+            {"return_pct": -5.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["expectancy"] == pytest.approx(2.5, abs=0.01)
+
+    def test_expectancy_negative(self):
+        # hit_rate=0.5, avg_win=2, avg_loss=10 → expectancy = 0.5*2 - 0.5*10 = -4.0
+        trades = [
+            {"return_pct": 2.0, "holding_days": 5},
+            {"return_pct": -10.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["expectancy"] == pytest.approx(-4.0, abs=0.01)
+
+    def test_sortino_zero_for_all_positive_returns(self):
+        # No downside deviation → sortino stays 0 (downside_dev=0)
+        trades = [
+            {"return_pct": 5.0, "holding_days": 5},
+            {"return_pct": 3.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["sortino_ratio"] == 0
+
+    def test_sortino_positive_for_positive_mean(self):
+        # Mixed returns but positive mean → sortino > 0
+        trades = [
+            {"return_pct": 10.0, "holding_days": 5},
+            {"return_pct": -2.0, "holding_days": 5},
+            {"return_pct": 8.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["sortino_ratio"] > 0
+
+    def test_calmar_ratio_none_when_no_drawdown(self):
+        # All winners → max_dd = 0 → calmar = None
+        trades = [
+            {"return_pct": 5.0, "holding_days": 10},
+            {"return_pct": 3.0, "holding_days": 10},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["calmar_ratio"] is None
+
+    def test_calmar_ratio_positive_when_profitable(self):
+        # Profitable trades with drawdown → positive calmar
+        trades = [
+            {"return_pct": 20.0, "holding_days": 30},
+            {"return_pct": -5.0, "holding_days": 30},
+            {"return_pct": 15.0, "holding_days": 30},
+        ]
+        result = compute_backtest_metrics(trades)
+        # CAGR > 0, max_dd > 0 → calmar should be positive
+        if result["calmar_ratio"] is not None:
+            assert result["calmar_ratio"] > 0
+
+    def test_payoff_ratio_with_median_wins_and_losses(self):
+        # median_win = 10, median_loss = 5 → payoff = 2.0
+        trades = [
+            {"return_pct": 10.0, "holding_days": 5},
+            {"return_pct": -5.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["payoff_ratio"] == pytest.approx(2.0, abs=0.01)
+
+    def test_payoff_ratio_no_losses_capped(self):
+        trades = [
+            {"return_pct": 5.0, "holding_days": 5},
+            {"return_pct": 8.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["payoff_ratio"] == 999  # inf capped
+
+    def test_avg_holding_days(self):
+        trades = [
+            {"return_pct": 5.0, "holding_days": 10},
+            {"return_pct": -3.0, "holding_days": 20},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["avg_holding_days"] == pytest.approx(15.0, abs=0.1)
+
+    def test_ulcer_index_zero_for_all_wins(self):
+        trades = [
+            {"return_pct": 5.0, "holding_days": 5},
+            {"return_pct": 3.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["ulcer_index"] == 0.0
+
+    def test_ulcer_index_positive_with_drawdown(self):
+        trades = [
+            {"return_pct": 10.0, "holding_days": 5},
+            {"return_pct": -20.0, "holding_days": 5},
+            {"return_pct": 5.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        assert result["ulcer_index"] > 0
+
+    def test_exposure_pct_with_date_params(self):
+        trades = [
+            {"return_pct": 5.0, "holding_days": 20},
+            {"return_pct": -3.0, "holding_days": 10},
+        ]
+        # 30 total holding days over 100 calendar days = 30%
+        result = compute_backtest_metrics(trades, start_date="2024-01-01", end_date="2024-04-10")
+        assert result["exposure_pct"] is not None
+        assert result["exposure_pct"] > 0
+
+    def test_exposure_pct_none_without_dates(self):
+        trades = [{"return_pct": 5.0, "holding_days": 10}]
+        result = compute_backtest_metrics(trades)
+        assert result["exposure_pct"] is None
+
+    def test_recovery_factor_none_when_no_drawdown(self):
+        trades = [
+            {"return_pct": 5.0, "holding_days": 5},
+            {"return_pct": 3.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        # max_dd = 0 → recovery_factor = None
+        assert result["recovery_factor"] is None
+
+    def test_recovery_factor_positive_when_profitable_with_dd(self):
+        trades = [
+            {"return_pct": 10.0, "holding_days": 5},
+            {"return_pct": -5.0, "holding_days": 5},
+            {"return_pct": 10.0, "holding_days": 5},
+        ]
+        result = compute_backtest_metrics(trades)
+        # total_return > 0, max_dd > 0 → recovery_factor > 0
+        if result["recovery_factor"] is not None:
+            assert result["recovery_factor"] > 0
+
+
+class TestMonthlyReturns:
+    """Tests for compute_monthly_returns helper."""
+
+    def test_groups_by_month(self):
+        from app.backtesting.metrics import compute_monthly_returns
+        trades = [
+            {"exit_date": "2024-01-05", "return_pct": 5.0},
+            {"exit_date": "2024-01-20", "return_pct": -3.0},
+            {"exit_date": "2024-02-10", "return_pct": 8.0},
+        ]
+        result = compute_monthly_returns(trades)
+        months = [r["month"] for r in result]
+        assert "2024-01" in months
+        assert "2024-02" in months
+
+    def test_empty_trades(self):
+        from app.backtesting.metrics import compute_monthly_returns
+        result = compute_monthly_returns([])
+        assert result == []
+
+    def test_win_rate_per_month(self):
+        from app.backtesting.metrics import compute_monthly_returns
+        trades = [
+            {"exit_date": "2024-01-05", "return_pct": 5.0},
+            {"exit_date": "2024-01-10", "return_pct": 3.0},
+            {"exit_date": "2024-01-20", "return_pct": -2.0},
+        ]
+        result = compute_monthly_returns(trades)
+        assert len(result) == 1
+        jan = result[0]
+        assert jan["trade_count"] == 3
+        assert jan["win_rate"] == pytest.approx(2/3, abs=0.01)
+
+
+class TestExitReasonStats:
+    """Tests for compute_exit_reason_stats helper."""
+
+    def test_groups_by_reason(self):
+        from app.backtesting.metrics import compute_exit_reason_stats
+        trades = [
+            {"exit_reason": "stop_loss", "return_pct": -5.0, "holding_days": 3},
+            {"exit_reason": "stop_loss", "return_pct": -8.0, "holding_days": 5},
+            {"exit_reason": "time_exit", "return_pct": 10.0, "holding_days": 20},
+        ]
+        result = compute_exit_reason_stats(trades)
+        reasons = {r["reason"]: r for r in result}
+        assert "stop_loss" in reasons
+        assert "time_exit" in reasons
+        assert reasons["stop_loss"]["count"] == 2
+        assert reasons["time_exit"]["win_rate"] == 1.0
+
+    def test_empty_trades(self):
+        from app.backtesting.metrics import compute_exit_reason_stats
+        result = compute_exit_reason_stats([])
+        assert result == []

@@ -100,7 +100,7 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
         entry = (name, sig.get("raw_score", 0), hl)
         if sig.get("final_signal") == "BUY":
             buy_symbols.append(entry)
-        elif sig["final_signal"] == "SELL":
+        elif sig.get("final_signal") == "SELL":
             sell_symbols.append(entry)
         else:
             hold_symbols.append(entry)
@@ -127,7 +127,7 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
     sizing_lines = []
     for symbol, sig in per_symbol.items():
         rec = sig.get("position_recommendation")
-        if rec and sig["final_signal"] == "BUY":
+        if rec and sig.get("final_signal") == "BUY":
             name = symbol_names.get(symbol, symbol)
             amt = rec.get("recommended_amount", 0)
             sizing_lines.append(f"{name}: \u20a9{amt:,.0f}")
@@ -251,7 +251,7 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
         news_lines = []
         # Show news for BUY/SELL signals only (most relevant)
         for symbol, sig in per_symbol.items():
-            if sig["final_signal"] in ("BUY", "SELL") and symbol in s3c_per_symbol:
+            if sig.get("final_signal") in ("BUY", "SELL") and symbol in s3c_per_symbol:
                 ns = s3c_per_symbol[symbol]
                 if ns.get("article_count", 0) > 0:
                     name = symbol_names.get(symbol, symbol)
@@ -270,9 +270,9 @@ def build_dashboard_payloads(context: dict[str, Any]) -> list[dict]:
             })
 
     # ── Footer embed ──
-    buy_count = sum(1 for s in per_symbol.values() if s["final_signal"] == "BUY")
-    sell_count = sum(1 for s in per_symbol.values() if s["final_signal"] == "SELL")
-    hold_count = sum(1 for s in per_symbol.values() if s["final_signal"] == "HOLD")
+    buy_count = sum(1 for s in per_symbol.values() if s.get("final_signal") == "BUY")
+    sell_count = sum(1 for s in per_symbol.values() if s.get("final_signal") == "SELL")
+    hold_count = sum(1 for s in per_symbol.values() if s.get("final_signal") == "HOLD")
 
     all_embeds.append({
         "description": (
@@ -353,6 +353,58 @@ def build_dashboard_payload(context: dict[str, Any]) -> dict:
     for p in payloads:
         all_embeds.extend(p.get("embeds", []))
     return {"username": "VIBE", "embeds": all_embeds[:10]}
+
+
+def format_soxl_alert(
+    alert_type: str,
+    threshold: float,
+    triggered_price: float,
+    triggered_at: str | None = None,
+) -> dict:
+    """Format an SOXL price alert payload for webhook dispatch.
+
+    Returns a dict suitable for JSON serialization with:
+    - symbol, alert_type, threshold, triggered_price
+    - deviation_pct: price vs threshold divergence (%)
+    - message: human-readable Korean summary
+    - leverage_warning: 3x ETF risk note
+
+    Handles threshold=0 edge case to avoid ZeroDivisionError.
+    """
+    type_labels = {
+        "price_above": "가격 상향 돌파",
+        "price_below": "가격 하향 이탈",
+        "change_pct": "등락률 초과",
+    }
+    label = type_labels.get(alert_type, alert_type)
+
+    if threshold != 0:
+        deviation_pct = round((triggered_price - threshold) / abs(threshold) * 100, 2)
+    else:
+        deviation_pct = None
+
+    dev_str = f" (임계값 대비 {deviation_pct:+.2f}%)" if deviation_pct is not None else ""
+
+    message = (
+        f"SOXL 알림: {label}\n"
+        f"트리거 가격: ${triggered_price:.2f}, 임계값: ${threshold:.2f}{dev_str}"
+    )
+
+    leverage_warning = (
+        "SOXL 3x 레버리지: 급격한 가격 변동 주의. "
+        "기초자산 대비 3배 변동폭으로 손익이 확대됩니다."
+    )
+
+    return {
+        "symbol": "SOXL",
+        "alert_type": alert_type,
+        "threshold": threshold,
+        "triggered_price": triggered_price,
+        "triggered_at": triggered_at,
+        "deviation_pct": deviation_pct,
+        "message": message,
+        "leverage_warning": leverage_warning,
+    }
 
 
 def _signal_emoji(signal: str) -> str:

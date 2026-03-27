@@ -23,7 +23,7 @@ class TestValidateSql:
         assert ok is True
         assert "LIMIT 100" in result
 
-    def test_respects_existing_limit(self):
+    def test_respects_existing_small_limit(self):
         ok, result = validate_sql("SELECT * FROM signals LIMIT 5")
         assert ok is True
         assert "LIMIT 5" in result
@@ -95,10 +95,45 @@ class TestValidateSql:
         ok, _ = validate_sql("ATTACH DATABASE 'other.db' AS other")
         assert ok is False
 
-    def test_strips_semicolon(self):
+    def test_strips_trailing_semicolon(self):
         ok, result = validate_sql("SELECT * FROM signals;")
         assert ok is True
         assert not result.endswith(";")
+
+    def test_rejects_embedded_semicolon(self):
+        """Multi-statement injection: SELECT ...; DROP TABLE ..."""
+        ok, msg = validate_sql("SELECT * FROM signals; DROP TABLE signals")
+        assert ok is False
+        assert "다중" in msg
+
+    def test_rejects_pragma(self):
+        """PRAGMA should be blocked."""
+        ok, _ = validate_sql("PRAGMA table_info(signals)")
+        assert ok is False
+
+    def test_rejects_pragma_in_select(self):
+        """PRAGMA embedded in subquery context."""
+        ok, msg = validate_sql("SELECT * FROM signals WHERE PRAGMA = 1")
+        assert ok is False
+
+    def test_rejects_load_extension(self):
+        """load_extension() is a SQLite risk."""
+        ok, msg = validate_sql("SELECT load_extension('evil.so') FROM signals")
+        assert ok is False
+        assert "load_extension" in msg
+
+    def test_caps_excessive_limit(self):
+        """LLM-generated LIMIT > MAX_ROWS should be capped."""
+        ok, result = validate_sql("SELECT * FROM signals LIMIT 999999")
+        assert ok is True
+        assert "LIMIT 100" in result
+        assert "999999" not in result
+
+    def test_preserves_small_limit(self):
+        """LIMIT within bounds should be preserved."""
+        ok, result = validate_sql("SELECT * FROM signals LIMIT 5")
+        assert ok is True
+        assert "LIMIT 5" in result
 
     def test_case_insensitive_rejection(self):
         ok, _ = validate_sql("select * from USERS")

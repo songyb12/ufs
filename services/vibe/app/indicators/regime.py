@@ -874,8 +874,6 @@ def _scenario_range(bm: dict, scenario: str) -> list[float]:
 def _fx_scenario_range(fx: dict, scenario: str) -> list[float]:
     """Compute USD/KRW range for a scenario."""
     current = fx.get("usd_krw_current")
-    ma60 = fx.get("ma60")
-    ma120 = fx.get("ma120")
 
     if current is None:
         return [0, 0]

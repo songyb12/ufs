@@ -5,8 +5,6 @@ Combines signals, macro regime, portfolio state, guru consensus, and risk manage
 into a prioritized daily action plan.
 """
 
-import math
-from datetime import date
 
 
 # ── Position Sizing ──────────────────────────────────────────────────────
@@ -134,7 +132,6 @@ def generate_portfolio_actions(positions: list[dict], signals: list[dict]) -> li
     for pos in positions:
         symbol = pos.get("symbol", "")
         pnl_pct = pos.get("pnl_pct")
-        entry_price = pos.get("entry_price", 0)
         current_price = pos.get("current_price")
         position_size = pos.get("position_size", 0)
         signal = signal_map.get(symbol, {})

@@ -1,12 +1,11 @@
-import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from app.collectors.registry import CollectorRegistry
 from app.config import settings
 from app.database import repositories as repo
-from app.models.schemas import PipelineRunDetail, PipelineRunRequest, PipelineRunResponse
+from app.models.schemas import PipelineRunDetail, PipelineRunRequest
 from app.notifier.discord import DiscordNotifier
 from app.pipeline.orchestrator import PipelineOrchestrator
 

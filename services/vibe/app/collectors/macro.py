@@ -3,7 +3,6 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from app.collectors.base import BaseCollector
 from app.config import Settings
 from app.utils.retry import async_retry
 

@@ -140,15 +140,24 @@ class FinnhubLiveClient:
             self._cache[key] = _CacheEntry([], ttl=30.0)
             return []
 
+        # Validate all required OHLCV arrays exist
+        t = raw.get("t", [])
+        o = raw.get("o", [])
+        h = raw.get("h", [])
+        lo = raw.get("l", [])
+        c = raw.get("c", [])
+        v = raw.get("v", [])
+        n = len(t)
+
         candles = []
-        for i in range(len(raw["t"])):
+        for i in range(n):
             candles.append({
-                "time": raw["t"][i],
-                "open": raw["o"][i],
-                "high": raw["h"][i],
-                "low": raw["l"][i],
-                "close": raw["c"][i],
-                "volume": raw["v"][i],
+                "time": t[i],
+                "open": o[i] if i < len(o) else None,
+                "high": h[i] if i < len(h) else None,
+                "low": lo[i] if i < len(lo) else None,
+                "close": c[i] if i < len(c) else None,
+                "volume": v[i] if i < len(v) else None,
             })
 
         ttl = 30.0 if resolution in ("1", "5", "15") else 300.0

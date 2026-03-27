@@ -91,6 +91,52 @@ async def soxl_dashboard(days: int = Query(90, ge=7, le=365)):
     # 5. Trading strategy (static + dynamic)
     strategy = _build_strategy(technicals, perf)
 
+    # 6. Latest backtest result (best Sharpe)
+    latest_backtest = None
+    try:
+        cursor = await db.execute(
+            """SELECT mode, sharpe_ratio, total_return, max_drawdown, created_at
+               FROM soxl_backtest_runs
+               WHERE status='completed' AND sharpe_ratio IS NOT NULL
+               ORDER BY sharpe_ratio DESC LIMIT 1"""
+        )
+        row = await cursor.fetchone()
+        if row:
+            latest_backtest = {
+                "mode": row[0], "sharpe": row[1], "total_return": row[2],
+                "max_drawdown": row[3], "created_at": row[4],
+            }
+    except Exception:
+        pass  # Table may not exist in older schemas
+
+    # 7. Latest optimization result
+    latest_optimize = None
+    try:
+        cursor = await db.execute(
+            """SELECT mode, sharpe, params_json, run_at
+               FROM soxl_optimize_results
+               WHERE sharpe IS NOT NULL
+               ORDER BY created_at DESC LIMIT 1"""
+        )
+        row = await cursor.fetchone()
+        if row:
+            import json as _json
+            params = {}
+            if row[2]:
+                try:
+                    full = _json.loads(row[2])
+                    # Extract top 3 params
+                    for k in ("rsi_entry", "stop_loss_pct", "take_profit_pct"):
+                        if k in full:
+                            params[k] = full[k]
+                except (ValueError, TypeError):
+                    pass
+            latest_optimize = {
+                "mode": row[0], "sharpe": row[1], "params": params, "run_at": row[3],
+            }
+    except Exception:
+        pass  # Table may not exist in older schemas
+
     return {
         "symbol": "SOXL",
         "name": "Direxion Daily Semiconductor Bull 3X Shares",
@@ -101,6 +147,8 @@ async def soxl_dashboard(days: int = Query(90, ge=7, le=365)):
         "signals": signals,
         "performance": perf,
         "strategy": strategy,
+        "latest_backtest": latest_backtest,
+        "latest_optimize": latest_optimize,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -125,7 +173,6 @@ async def soxl_levels():
     closes = [r[3] for r in rows if r[3] is not None]
     highs = [r[1] for r in rows if r[1] is not None]
     lows = [r[2] for r in rows if r[2] is not None]
-    volumes = [r[4] for r in rows if r[4] is not None]
 
     if not closes:
         return {"levels": [], "zones": []}

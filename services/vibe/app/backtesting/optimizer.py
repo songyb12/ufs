@@ -1,6 +1,8 @@
-"""Parameter Optimizer - Grid search over weight/threshold combinations."""
+"""Parameter Optimizer - Grid search and random search over backtest parameters."""
 
 import logging
+import math
+import random
 from itertools import product
 from typing import Any
 
@@ -65,7 +67,6 @@ class ParameterOptimizer:
                 })
 
         # Sort by sharpe_ratio descending (guard against NaN)
-        import math
         def _safe_sharpe(r):
             v = r["metrics"].get("sharpe_ratio")
             if v is None or (isinstance(v, float) and math.isnan(v)):
@@ -119,3 +120,143 @@ class ParameterOptimizer:
                 valid.append(dict(zip(non_weight_keys, combo)))
 
         return valid
+
+
+# ════════════════════════════════════════════════════════════════
+# SOXL-specific Random Search Optimizer
+# ════════════════════════════════════════════════════════════════
+
+# Continuous parameter ranges for random sampling
+SOXL_PARAM_RANGES: dict[str, tuple[float, float, float]] = {
+    # (min, max, step) — step used for rounding
+    "rsi_entry": (25.0, 45.0, 1.0),
+    "rsi_exit_partial": (55.0, 75.0, 1.0),
+    "stop_loss_pct": (-12.0, -3.0, 0.5),
+    "take_profit_pct": (8.0, 35.0, 1.0),
+    "trailing_stop_pct": (2.0, 10.0, 0.5),
+    "max_hold_days": (5, 40, 1),
+    "cooldown_days": (0, 3, 1),
+    "atr_stop_multiplier": (1.5, 4.0, 0.5),
+    "vix_max_entry": (25.0, 40.0, 1.0),
+}
+
+
+def _sample_soxl_params() -> dict:
+    """Sample a random SOXL parameter combination from defined ranges."""
+    sampled = {}
+    for param, (lo, hi, step) in SOXL_PARAM_RANGES.items():
+        raw = random.uniform(lo, hi)
+        # Snap to step grid
+        sampled[param] = round(round(raw / step) * step, 4)
+    # Integer params
+    for k in ("max_hold_days", "cooldown_days"):
+        sampled[k] = int(sampled[k])
+    return sampled
+
+
+class SoxlParameterOptimizer:
+    """Random search optimizer for SOXL backtest parameters.
+
+    Instead of exhaustive grid search, samples `max_iter` random parameter
+    combinations and returns the top N results ranked by Sharpe ratio.
+    """
+
+    async def optimize(
+        self,
+        mode: str = "A",
+        start_date: str | None = None,
+        end_date: str | None = None,
+        max_iter: int = 50,
+        top_n: int = 5,
+    ) -> dict:
+        """Run random search optimization.
+
+        Args:
+            mode: Strategy mode (A/B/C/D).
+            start_date: Backtest start (default: 1 year ago).
+            end_date: Backtest end (default: today).
+            max_iter: Number of random parameter samples to evaluate.
+            top_n: Number of top results to return.
+
+        Returns:
+            dict with 'results' (top N), 'total_evaluated', 'mode', 'period'.
+        """
+        from datetime import datetime, timedelta
+        from app.backtesting.soxl_engine import (
+            SoxlBacktestEngine,
+            SoxlBacktestParams,
+            StrategyMode,
+        )
+
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = (
+                datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=365)
+            ).strftime("%Y-%m-%d")
+
+        try:
+            strategy_mode = StrategyMode(mode.upper())
+        except ValueError:
+            return {"status": "failed", "error": f"Invalid mode '{mode}'"}
+
+        engine = SoxlBacktestEngine()
+        all_results = []
+        evaluated = 0
+
+        logger.info(
+            "SOXL optimizer: mode=%s, max_iter=%d, top_n=%d, period=%s~%s",
+            mode, max_iter, top_n, start_date, end_date,
+        )
+
+        for i in range(max_iter):
+            sampled = _sample_soxl_params()
+            params = SoxlBacktestParams()
+            for k, v in sampled.items():
+                if hasattr(params, k):
+                    setattr(params, k, type(getattr(params, k))(v))
+
+            result = await engine.run(start_date, end_date, strategy_mode, params)
+            evaluated += 1
+
+            if result.get("status") == "completed" and result.get("metrics"):
+                metrics = result["metrics"]
+                sharpe = metrics.get("sharpe_ratio")
+                if sharpe is not None and not (isinstance(sharpe, float) and math.isnan(sharpe)):
+                    all_results.append({
+                        "params": sampled,
+                        "metrics": {
+                            "sharpe_ratio": metrics.get("sharpe_ratio"),
+                            "sortino_ratio": metrics.get("sortino_ratio"),
+                            "max_drawdown": metrics.get("max_drawdown"),
+                            "total_return": metrics.get("total_return"),
+                            "hit_rate": metrics.get("hit_rate"),
+                            "total_trades": metrics.get("total_trades"),
+                            "profit_factor": metrics.get("profit_factor"),
+                            "avg_return": metrics.get("avg_return"),
+                        },
+                    })
+
+        # Sort by Sharpe descending
+        all_results.sort(
+            key=lambda r: r["metrics"].get("sharpe_ratio") or -999,
+            reverse=True,
+        )
+
+        top_results = all_results[:top_n]
+
+        logger.info(
+            "SOXL optimizer done: %d evaluated, %d valid, top sharpe=%.2f",
+            evaluated, len(all_results),
+            top_results[0]["metrics"]["sharpe_ratio"] if top_results else 0,
+        )
+
+        return {
+            "status": "ok",
+            "mode": mode.upper(),
+            "period": f"{start_date} ~ {end_date}",
+            "total_evaluated": evaluated,
+            "valid_results": len(all_results),
+            "top_n": len(top_results),
+            "results": top_results,
+        }

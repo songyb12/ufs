@@ -123,7 +123,11 @@ async def guru_llm_analysis(guru_id: str):
                 model=model, max_tokens=1200,
                 messages=[{"role": "user", "content": prompt}],
             )
-            analysis_text = response.choices[0].message.content.strip()
+            _content = response.choices[0].message.content
+            if _content is None:
+                logger.warning("[Guru] OpenAI returned None content for guru_id=%s model=%s", guru_id, model)
+                raise HTTPException(status_code=500, detail="LLM이 빈 응답을 반환했습니다. 다시 시도해 주세요.")
+            analysis_text = _content.strip()
         else:
             raise HTTPException(status_code=400, detail=f"지원하지 않는 LLM 프로바이더: {provider}")
     except HTTPException:

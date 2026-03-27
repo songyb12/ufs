@@ -10,6 +10,7 @@ if PROJECT_ROOT not in sys.path:
 from app.notifier.formatter import (
     build_dashboard_payloads,
     build_dashboard_payload,
+    format_soxl_alert,
     _calc_embed_chars,
     _split_into_payloads,
     _signal_emoji,
@@ -330,7 +331,205 @@ class TestBuildDashboardPayloadLegacy:
         assert result["username"] == "VIBE"
         assert isinstance(result["embeds"], list)
 
+    def test_no_payloads_returns_empty_embeds(self, monkeypatch):
+        """Line 350: defensive guard when build_dashboard_payloads returns []."""
+        import app.notifier.formatter as fmt_mod
+        monkeypatch.setattr(fmt_mod, "build_dashboard_payloads", lambda _ctx: [])
+        ctx = _base_context()
+        result = build_dashboard_payload(ctx)
+        assert result == {"username": "VIBE", "embeds": []}
+
     def test_max_10_embeds(self):
         ctx = _base_context()
         result = build_dashboard_payload(ctx)
         assert len(result["embeds"]) <= 10
+
+
+# ── Optional embeds: s9 portfolio scenarios, s3c news, event_warning ──
+
+
+class TestOptionalEmbeds:
+    def test_s9_held_scenarios_embed(self):
+        """Lines 206-225: portfolio holdings embed appears when s9 has held_scenarios."""
+        ctx = _base_context()
+        ctx["s9_portfolio_scenarios"] = MockResult(data={
+            "held_scenarios": {
+                "005930": {
+                    "name": "삼성전자", "pnl_pct": 5.2, "current_price": 75000,
+                    "target_prices": {"stop_loss": 68000, "target_10pct": 82500},
+                },
+            },
+            "entry_scenarios": {},
+        })
+        payloads = build_dashboard_payloads(ctx)
+        all_embeds = [e for p in payloads for e in p["embeds"]]
+        held_embeds = [e for e in all_embeds if "\ubcf4\uc720 \uc885\ubaa9" in e.get("title", "")]
+        assert len(held_embeds) == 1
+        assert "삼성전자" in held_embeds[0]["description"]
+        assert "+5.2%" in held_embeds[0]["description"]
+
+    def test_s9_entry_scenarios_embed(self):
+        """Lines 227-245: new entry opportunities embed."""
+        ctx = _base_context()
+        ctx["s9_portfolio_scenarios"] = MockResult(data={
+            "held_scenarios": {},
+            "entry_scenarios": {
+                "035420": {
+                    "name": "NAVER",
+                    "target_prices": {"entry": 200000, "stop_loss": 185000, "target_10pct": 220000},
+                },
+            },
+        })
+        payloads = build_dashboard_payloads(ctx)
+        all_embeds = [e for p in payloads for e in p["embeds"]]
+        entry_embeds = [e for e in all_embeds if "\uc2e0\uaddc \uc9c4\uc785" in e.get("title", "")]
+        assert len(entry_embeds) == 1
+        assert "NAVER" in entry_embeds[0]["description"]
+
+    def test_s3c_news_embed(self):
+        """Lines 250-266: news headlines embed for BUY/SELL symbols."""
+        ctx = _base_context()
+        ctx["s3c_news_analysis"] = MockResult(data={
+            "per_symbol": {
+                "005930": {
+                    "news_score": 15,
+                    "article_count": 2,
+                    "headlines": [{"title": "Samsung posts record Q4 profits"}],
+                },
+            },
+        })
+        payloads = build_dashboard_payloads(ctx)
+        all_embeds = [e for p in payloads for e in p["embeds"]]
+        news_embeds = [e for e in all_embeds if "\ub274\uc2a4" in e.get("title", "")]
+        assert len(news_embeds) == 1
+        assert "삼성전자" in news_embeds[0]["description"]
+        assert "Samsung" in news_embeds[0]["description"]
+
+    def test_event_warning_in_per_symbol(self):
+        """Line 151: event_warning on a symbol produces Event Warnings embed."""
+        ctx = _base_context()
+        ctx["s6_signal_generation"] = MockResult(data={
+            "per_symbol": {
+                "005930": {
+                    "final_signal": "BUY", "raw_score": 30,
+                    "hard_limit_triggered": False,
+                    "event_warning": "FOMC 회의 예정 (2025-01-29)",
+                },
+            },
+        })
+        payloads = build_dashboard_payloads(ctx)
+        all_embeds = [e for p in payloads for e in p["embeds"]]
+        event_embeds = [e for e in all_embeds if e.get("title") == "Event Warnings"]
+        assert len(event_embeds) == 1
+        assert "삼성전자" in event_embeds[0]["description"]
+        assert "FOMC" in event_embeds[0]["description"]
+
+    def test_s9_held_negative_pnl_shows_red(self):
+        """Held position with negative P&L shows red emoji."""
+        ctx = _base_context()
+        ctx["s9_portfolio_scenarios"] = MockResult(data={
+            "held_scenarios": {
+                "068270": {
+                    "name": "셀트리온", "pnl_pct": -3.5, "current_price": 150000,
+                    "target_prices": {"stop_loss": 140000, "target_10pct": 180000},
+                },
+            },
+            "entry_scenarios": {},
+        })
+        payloads = build_dashboard_payloads(ctx)
+        all_embeds = [e for p in payloads for e in p["embeds"]]
+        held_embeds = [e for e in all_embeds if "\ubcf4\uc720 \uc885\ubaa9" in e.get("title", "")]
+        assert len(held_embeds) == 1
+        assert "-3.5%" in held_embeds[0]["description"]
+
+
+# ── Regression: missing final_signal key must not raise KeyError ──
+
+
+class TestMissingFinalSignalRegression:
+    """Verify the sig.get('final_signal') fix: signals without the key don't crash."""
+
+    def test_no_final_signal_key_does_not_raise(self):
+        """Signal dict missing 'final_signal' routes to HOLD safely, no KeyError."""
+        ctx = _base_context()
+        ctx["s6_signal_generation"] = MockResult(data={
+            "per_symbol": {
+                "005930": {
+                    # Deliberately omit 'final_signal' — pre-fix this would KeyError
+                    "raw_score": 10,
+                    "hard_limit_triggered": False,
+                },
+            },
+        })
+        # Should not raise
+        payloads = build_dashboard_payloads(ctx)
+        assert len(payloads) >= 1
+
+        # Signal without final_signal falls into else-branch (hold_symbols for display)
+        # but footer HOLD count only matches explicit "HOLD" strings → 0/0/0
+        all_embeds = [e for p in payloads for e in p["embeds"]]
+        footer = all_embeds[-1]
+        assert "B/S/H: 0/0/0" in footer["description"]
+
+    def test_footer_counts_ignore_missing_final_signal(self):
+        """Footer BUY/SELL/HOLD counts treat missing final_signal as non-match."""
+        ctx = _base_context()
+        ctx["s6_signal_generation"] = MockResult(data={
+            "per_symbol": {
+                "AAA": {"raw_score": 40},          # no final_signal
+                "BBB": {"final_signal": "BUY", "raw_score": 30},
+                "CCC": {"final_signal": "SELL", "raw_score": -10},
+            },
+        })
+        payloads = build_dashboard_payloads(ctx)
+        all_embeds = [e for p in payloads for e in p["embeds"]]
+        footer_desc = all_embeds[-1]["description"]
+        # AAA has no final_signal → not counted as BUY or SELL
+        assert "B/S/H: 1/1/0" in footer_desc
+
+
+# ════════════════════════════════════════════════════════════════
+# format_soxl_alert
+# ════════════════════════════════════════════════════════════════
+
+
+class TestFormatSoxlAlert:
+    def test_price_above_includes_trigger_and_deviation(self):
+        result = format_soxl_alert(
+            alert_type="price_above",
+            threshold=25.0,
+            triggered_price=26.5,
+            triggered_at="2024-03-10T15:00:00",
+        )
+        assert result["symbol"] == "SOXL"
+        assert result["alert_type"] == "price_above"
+        assert result["triggered_price"] == 26.5
+        assert result["threshold"] == 25.0
+        assert result["deviation_pct"] == 6.0  # (26.5-25)/25*100
+        assert "26.50" in result["message"]
+        assert "25.00" in result["message"]
+        assert "+6.00%" in result["message"]
+        assert result["triggered_at"] == "2024-03-10T15:00:00"
+
+    def test_price_below_includes_leverage_warning(self):
+        result = format_soxl_alert(
+            alert_type="price_below",
+            threshold=20.0,
+            triggered_price=18.5,
+        )
+        assert "레버리지" in result["leverage_warning"]
+        assert "3x" in result["leverage_warning"] or "3배" in result["leverage_warning"]
+        assert "가격 하향 이탈" in result["message"]
+        assert result["deviation_pct"] == -7.5  # (18.5-20)/20*100
+
+    def test_threshold_zero_no_division_error(self):
+        result = format_soxl_alert(
+            alert_type="change_pct",
+            threshold=0,
+            triggered_price=5.0,
+        )
+        assert result["deviation_pct"] is None
+        assert result["triggered_price"] == 5.0
+        assert "등락률 초과" in result["message"]
+        # No crash, message still formed
+        assert "SOXL" in result["message"]

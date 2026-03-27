@@ -263,7 +263,6 @@ def _vix_level(m: dict) -> str:
 
 def _buffett_view(m: dict) -> dict:
     mood = _market_mood(m)
-    vix = _vix_level(m)
     fg = m.get("fear_greed_index") or m.get("fear_greed") or 50
 
     if mood in ("extreme_fear", "fear"):
@@ -320,13 +319,13 @@ def _dalio_view(m: dict) -> dict:
 
     # Simple economic machine classification
     if spread < 0:
-        phase, phase_kr = "late_cycle", "경기 후반 · 침체 전조"
+        _, phase_kr = "late_cycle", "경기 후반 · 침체 전조"
     elif us10y > 4.5:
-        phase, phase_kr = "tightening", "긴축 사이클"
+        _, phase_kr = "tightening", "긴축 사이클"
     elif us10y < 2.5:
-        phase, phase_kr = "easing", "완화 사이클"
+        _, phase_kr = "easing", "완화 사이클"
     else:
-        phase, phase_kr = "mid_cycle", "경기 중반"
+        _, phase_kr = "mid_cycle", "경기 중반"
 
     if vix > 28:
         stance, stance_kr, conviction = "risk_parity", "리스크 패리티 강화", 60
@@ -352,7 +351,7 @@ def _dalio_view(m: dict) -> dict:
 
     points = [
         f"금리 스프레드: {spread:.2f}% ({phase_kr})",
-        f"올웨더 핵심: 분산으로 리스크 최소화",
+        "올웨더 핵심: 분산으로 리스크 최소화",
         f"현재 환경에 맞는 자산: {'금·장기채' if vix > 25 else '주식·원자재 균형'}",
     ]
 
@@ -365,7 +364,6 @@ def _dalio_view(m: dict) -> dict:
 
 def _lynch_view(m: dict) -> dict:
     mood = _market_mood(m)
-    fg = m.get("fear_greed_index") or m.get("fear_greed") or 50
 
     if mood in ("extreme_fear", "fear"):
         stance, stance_kr, conviction = "bullish", "성장주 저가 매수", 75
@@ -501,7 +499,6 @@ def _marks_view(m: dict) -> dict:
 
 def _wood_view(m: dict) -> dict:
     mood = _market_mood(m)
-    vix = m.get("vix") or 15
 
     if mood in ("extreme_fear", "fear"):
         stance, stance_kr, conviction = "buy_innovation", "혁신주 적극 매수", 85

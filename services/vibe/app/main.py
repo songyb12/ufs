@@ -9,12 +9,13 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.collectors.registry import CollectorRegistry
 from app.config import settings
+from app.middleware.auth import require_auth
 from app.database.connection import close_db, set_db_path
 from app.database.schema import init_db
 from app.database.seed import seed_watchlist
@@ -68,9 +69,12 @@ async def lifespan(app: FastAPI):
     if seeded > 0:
         logger.info("Watchlist seeded with %d symbols", seeded)
 
-    # Load runtime config overrides (e.g. LLM toggles)
-    from app.routers.llm_settings import load_runtime_overrides
-    await load_runtime_overrides()
+    # Load runtime config overrides (e.g. LLM toggles) — non-critical, must not block startup
+    try:
+        from app.routers.llm_settings import load_runtime_overrides
+        await load_runtime_overrides()
+    except Exception as e:
+        logger.warning("Runtime config overrides failed to load (using defaults): %s", e)
 
     # Collector registry (shared across pipeline + scheduler)
     collector_registry = CollectorRegistry(settings)
@@ -87,15 +91,19 @@ async def lifespan(app: FastAPI):
         app.state.finnhub = None
         logger.info("Finnhub live client disabled (no API key)")
 
-    # Scheduler
+    # Scheduler — non-critical, app must start even if scheduler setup fails
     if settings.SCHEDULER_ENABLED:
-        scheduler = create_scheduler(settings)
-        register_jobs(scheduler, settings, collector_registry)
-        from app.polaris.scheduler import register_polaris_jobs
-        register_polaris_jobs(scheduler, settings)
-        scheduler.start()
-        app.state.scheduler = scheduler
-        logger.info("Scheduler started with %d jobs", len(scheduler.get_jobs()))
+        try:
+            scheduler = create_scheduler(settings)
+            register_jobs(scheduler, settings, collector_registry)
+            from app.polaris.scheduler import register_polaris_jobs
+            register_polaris_jobs(scheduler, settings)
+            scheduler.start()
+            app.state.scheduler = scheduler
+            logger.info("Scheduler started with %d jobs", len(scheduler.get_jobs()))
+        except Exception as e:
+            logger.error("Scheduler failed to start (app continues without scheduler): %s", e, exc_info=True)
+            app.state.scheduler = None
     else:
         app.state.scheduler = None
         logger.info("Scheduler disabled")
@@ -146,7 +154,7 @@ _cors_origins = [
     "http://127.0.0.1:8001",
 ]
 if settings.CORS_EXTRA_ORIGINS:
-    _cors_origins.extend(settings.CORS_EXTRA_ORIGINS.split(","))
+    _cors_origins.extend(o.strip() for o in settings.CORS_EXTRA_ORIGINS.split(",") if o.strip())
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -331,7 +339,7 @@ async def root():
 
 
 @app.post("/admin/backup")
-async def trigger_backup():
+async def trigger_backup(_user: str = Depends(require_auth)):
     """Manually trigger a database backup."""
     from app.utils.backup import backup_database
 
@@ -352,7 +360,7 @@ async def trigger_backup():
 
 
 @app.post("/admin/retention")
-async def trigger_retention():
+async def trigger_retention(_user: str = Depends(require_auth)):
     """Manually trigger data retention cleanup."""
     from app.utils.retention import run_retention
 

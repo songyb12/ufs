@@ -5,8 +5,6 @@ Scores each article title for bullish/bearish keywords,
 then aggregates into a per-symbol news score (-100 to +100).
 """
 
-import re
-
 # Bullish keywords (KR + EN)
 BULLISH_KR = [
     "상승", "급등", "최고", "호실적", "흑자", "매출증가", "영업이익",

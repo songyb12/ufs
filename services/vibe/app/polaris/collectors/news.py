@@ -138,12 +138,13 @@ async def fetch_multi_figure_news(
     results = {}
 
     async def _fetch_one(fig: dict) -> tuple[str, list[dict]]:
+        name = fig.get("name", "unknown")
         articles = await fetch_figure_news(
-            figure_name=fig["name"],
+            figure_name=name,
             country=fig.get("country", "US"),
             max_articles=max_per_figure,
         )
-        return fig.get("id", fig["name"]), articles
+        return fig.get("id", name), articles
 
     tasks = [_fetch_one(fig) for fig in figures]
     for coro in asyncio.as_completed(tasks):

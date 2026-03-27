@@ -286,6 +286,8 @@ class PortfolioScenarioStage(BaseStage):
                 response_format={"type": "json_object"},
             )
             text = response.choices[0].message.content
+            if text is None:
+                return None
             return json.loads(text)
         except json.JSONDecodeError:
             return None
@@ -301,7 +303,10 @@ def _get_current_price(s1, symbol: str) -> float | None:
     ohlcv_data = s1.data.get("ohlcv_data", {})
     df = ohlcv_data.get(symbol)
     if df is not None and not df.empty:
-        return float(df.iloc[-1]["close"])
+        try:
+            return float(df.iloc[-1]["close"])
+        except (KeyError, ValueError, TypeError):
+            return None
     return None
 
 
@@ -385,6 +390,19 @@ def _build_hold_scenario(
             "action": "손절보다 추가 매수 기회 검토",
         })
 
+    # SOXL / leveraged ETF specific scenarios
+    if "SOXL" in symbol.upper():
+        scenarios.append({
+            "type": "semi_sector_shock",
+            "condition": "반도체 섹터 -20% 충격 시나리오",
+            "action": f"SOXL 이론 손실 ≈ -60% (3x), 현재가 ${current_price:.2f} → ${current_price * 0.4:.2f}. 즉시 손절 또는 SOXS 헤지 필요",
+        })
+        scenarios.append({
+            "type": "vix_spike",
+            "condition": "VIX 40+ 급등 시나리오",
+            "action": "변동성 급등 시 레버리지 decay 가속. 일일 리밸런싱으로 추가 손실 발생. 포지션 축소 권고",
+        })
+
     # Build Korean summary
     scenario_rule = _format_hold_summary_kr(name, scenarios, pnl_pct, current_price, entry_price)
 
@@ -434,6 +452,19 @@ def _build_entry_scenario(
         "condition": f"BUY 시그널 (score: {raw_score:+.1f}, 확신도: {confidence:.0%})",
         "action": f"진입가 ₩{current_price:,.0f}, 손절 ₩{stop_loss_price:,.0f}",
     }]
+
+    # SOXL / leveraged ETF specific entry warnings
+    if "SOXL" in symbol.upper():
+        scenarios.append({
+            "type": "semi_sector_shock",
+            "condition": "반도체 섹터 -20% 충격 시나리오",
+            "action": "SOXL 이론 손실 ≈ -60% (3x). 최대 포트폴리오 15% 이내 비중 제한 권고",
+        })
+        scenarios.append({
+            "type": "vix_spike",
+            "condition": "VIX 40+ 급등 시나리오",
+            "action": "진입 전 VIX 확인 필수. VIX 30+ 시 비중 50% 축소, 40+ 시 진입 보류",
+        })
 
     scenario_rule = _format_entry_summary_kr(
         name, current_price, stop_loss_price, target_price,

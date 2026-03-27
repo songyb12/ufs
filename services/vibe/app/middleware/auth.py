@@ -2,14 +2,20 @@
 
 When API_AUTH_ENABLED=True, all endpoints (except public paths)
 require either a valid JWT Bearer token OR X-API-Key header.
+
+Also provides ``require_auth`` — a FastAPI Depends()-compatible
+dependency for defense-in-depth on sensitive endpoints.
 """
 
 import hmac
 import logging
 
-from fastapi import Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from app.config import settings
 
 logger = logging.getLogger("vibe.auth")
 
@@ -72,3 +78,36 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             status_code=401,
             content={"detail": "Invalid or missing authentication"},
         )
+
+
+# ── Endpoint-level auth dependency (defense-in-depth) ──
+
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def require_auth(
+    request: Request,
+    api_key: str | None = Depends(_api_key_header),
+) -> str:
+    """Verify JWT or API key. Returns authenticated identity.
+
+    Use as ``Depends(require_auth)`` on sensitive endpoints so they
+    are protected even when the middleware layer is disabled.
+    """
+    # 1) Bearer JWT
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            from app.routers.auth import decode_token
+
+            payload = decode_token(auth_header[7:])
+            if payload and payload.get("sub"):
+                return payload["sub"]
+        except Exception:
+            pass
+
+    # 2) X-API-Key
+    if api_key and settings.API_KEY and hmac.compare_digest(api_key, settings.API_KEY):
+        return "api-key"
+
+    raise HTTPException(status_code=401, detail="Authentication required")

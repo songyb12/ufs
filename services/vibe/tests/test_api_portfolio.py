@@ -184,6 +184,35 @@ class TestPositionExit:
         assert resp.status_code == 404
 
 
+class TestPortfolioIdValidation:
+    """Regression tests for Session 5 bug fix: portfolio_id ge=1 constraint."""
+
+    @pytest.mark.asyncio
+    async def test_portfolio_id_zero_returns_422(self, client):
+        resp = await client.get("/portfolio", params={"portfolio_id": 0})
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_portfolio_id_negative_returns_422(self, client):
+        resp = await client.get("/portfolio", params={"portfolio_id": -1})
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_portfolio_id_valid_returns_200(self, client):
+        resp = await client.get("/portfolio", params={"portfolio_id": 1})
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_exits_id_zero_returns_422(self, client):
+        resp = await client.get("/portfolio/exits", params={"portfolio_id": 0})
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_exits_id_negative_returns_422(self, client):
+        resp = await client.get("/portfolio/exits", params={"portfolio_id": -1})
+        assert resp.status_code == 422
+
+
 class TestBulkAdd:
     @pytest.mark.asyncio
     async def test_bulk_add_positions(self, client):

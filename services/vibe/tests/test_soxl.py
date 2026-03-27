@@ -769,6 +769,47 @@ class TestSoxlDashboardEndpoint:
         assert "updated_at" in data
         assert "T" in data["updated_at"]  # ISO format
 
+    @pytest.mark.asyncio
+    async def test_dashboard_has_latest_backtest_key(self, soxl_client):
+        """latest_backtest key must exist (value can be null)."""
+        data = (await soxl_client.get("/soxl/dashboard")).json()
+        assert "latest_backtest" in data
+        # No backtest data seeded → null
+        assert data["latest_backtest"] is None
+
+    @pytest.mark.asyncio
+    async def test_dashboard_has_latest_optimize_key(self, soxl_client):
+        """latest_optimize key must exist (value can be null)."""
+        data = (await soxl_client.get("/soxl/dashboard")).json()
+        assert "latest_optimize" in data
+        assert data["latest_optimize"] is None
+
+    @pytest.mark.asyncio
+    async def test_dashboard_latest_backtest_with_data(self, soxl_client):
+        """When backtest data exists, latest_backtest contains expected keys."""
+        from app.database.connection import get_db
+        db = await get_db()
+        await db.execute(
+            """INSERT INTO soxl_backtest_runs
+               (backtest_id, start_date, end_date, mode, params_json, status,
+                sharpe_ratio, total_return, max_drawdown, started_at)
+               VALUES ('dash-test', '2024-01-01', '2024-03-01', 'D', '{}', 'completed',
+                       1.8, 0.25, 0.06, '2024-03-01T00:00:00')"""
+        )
+        await db.commit()
+
+        data = (await soxl_client.get("/soxl/dashboard")).json()
+        bt = data["latest_backtest"]
+        assert bt is not None
+        assert bt["mode"] == "D"
+        assert bt["sharpe"] == 1.8
+        assert bt["total_return"] == 0.25
+        assert "max_drawdown" in bt
+        assert "created_at" in bt
+
+        await db.execute("DELETE FROM soxl_backtest_runs WHERE backtest_id='dash-test'")
+        await db.commit()
+
 
 class TestSoxlLevelsEndpoint:
     """GET /soxl/levels integration tests."""

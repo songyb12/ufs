@@ -3,7 +3,6 @@ import logging
 import pandas as pd
 
 from app.collectors.base import BaseCollector
-from app.config import Settings
 from app.utils.retry import async_retry
 
 logger = logging.getLogger("vibe.collectors.kr")

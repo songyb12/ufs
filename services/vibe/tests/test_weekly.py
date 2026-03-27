@@ -18,6 +18,48 @@ from app.indicators.weekly import (
 )
 
 
+# ── weekly_report.py hit_rate formatting ──
+
+
+class TestWeeklyReportHitRateFormatting:
+    """Regression tests for Session 5 P2 bug: hit_t5=0.0 treated as falsy.
+
+    Bug: `if perf.get("hit_t5")` evaluates 0.0 as False → returns None.
+    Fix: `if perf.get("hit_t5") is not None` → correctly returns 0.0.
+    """
+
+    def _fmt(self, perf: dict) -> tuple:
+        hit_rate_t5 = round(perf["hit_t5"] * 100, 1) if perf.get("hit_t5") is not None else None
+        avg_return_t5 = round(perf["avg_ret_t5"], 2) if perf.get("avg_ret_t5") is not None else None
+        return hit_rate_t5, avg_return_t5
+
+    def test_zero_hit_rate_returns_0_not_none(self):
+        """hit_t5=0.0 (0% hit rate) must not be coerced to None."""
+        hit, _ = self._fmt({"hit_t5": 0.0, "avg_ret_t5": -1.5})
+        assert hit == 0.0
+        assert hit is not None
+
+    def test_zero_avg_return_returns_0_not_none(self):
+        """avg_ret_t5=0.0 must not be coerced to None."""
+        _, avg = self._fmt({"hit_t5": 0.5, "avg_ret_t5": 0.0})
+        assert avg == 0.0
+        assert avg is not None
+
+    def test_missing_key_returns_none(self):
+        """Missing key → None (expected behaviour)."""
+        hit, avg = self._fmt({"hit_t5": None, "avg_ret_t5": None})
+        assert hit is None
+        assert avg is None
+
+    def test_positive_hit_rate_formatted_to_percentage(self):
+        hit, _ = self._fmt({"hit_t5": 0.6, "avg_ret_t5": 1.23456})
+        assert hit == 60.0
+
+    def test_avg_return_rounded_to_2dp(self):
+        _, avg = self._fmt({"hit_t5": 0.5, "avg_ret_t5": 1.23456})
+        assert avg == 1.23
+
+
 # ── _safe_float ──
 
 
@@ -210,3 +252,141 @@ class TestComputeWeeklyIndicators:
         # Should still work, macd_weekly might be None
         if result is not None:
             assert "macd_weekly" in result
+
+
+# ════════════════════════════════════════════════════════════════
+# Weekly report — SOXL section (_build_soxl_weekly)
+# ════════════════════════════════════════════════════════════════
+
+import pytest
+import pytest_asyncio
+
+from tests.conftest import cleanup_all
+
+
+async def _seed_soxl_weekly_data():
+    """Insert SOXL price + alert + backtest data for a test week."""
+    from app.database.connection import get_db
+    db = await get_db()
+
+    # Price data for the week 2024-03-04 ~ 2024-03-08 (Mon-Fri)
+    prices = [
+        ("2024-03-04", 22.0, 23.5, 21.0, 22.5, 4_000_000),
+        ("2024-03-05", 22.5, 24.0, 22.0, 23.0, 4_500_000),
+        ("2024-03-06", 23.0, 23.5, 21.5, 22.0, 3_800_000),
+        ("2024-03-07", 22.0, 24.5, 21.8, 24.0, 5_000_000),
+        ("2024-03-08", 24.0, 25.0, 23.5, 24.5, 4_200_000),
+    ]
+    for dt, o, h, l, c, v in prices:
+        await db.execute(
+            """INSERT OR IGNORE INTO price_history
+               (symbol, market, trade_date, open, high, low, close, volume)
+               VALUES ('SOXL', 'US', ?, ?, ?, ?, ?, ?)""",
+            (dt, o, h, l, c, v),
+        )
+
+    # A triggered alert in the week
+    await db.execute(
+        """INSERT INTO soxl_alerts (alert_type, threshold, label, triggered_at, active)
+           VALUES ('price_above', 24.0, 'Target hit', '2024-03-07 15:30:00', 0)"""
+    )
+
+    # A backtest result
+    await db.execute(
+        """INSERT INTO soxl_backtest_runs
+           (backtest_id, start_date, end_date, mode, params_json, status,
+            total_trades, hit_rate, sharpe_ratio, max_drawdown, total_return, started_at)
+           VALUES ('test-bt-001', '2024-01-01', '2024-03-01', 'D', '{}', 'completed',
+                   15, 0.6, 1.25, 0.08, 0.15, '2024-03-06T00:00:00')"""
+    )
+
+    await db.commit()
+
+
+async def _cleanup_soxl_weekly():
+    from app.database.connection import get_db
+    db = await get_db()
+    await db.execute("DELETE FROM price_history WHERE symbol='SOXL'")
+    await db.execute("DELETE FROM soxl_alerts")
+    await db.execute("DELETE FROM soxl_backtest_runs")
+    await db.execute("DELETE FROM soxl_optimize_results")
+    await db.commit()
+
+
+@pytest_asyncio.fixture
+async def soxl_weekly_data(setup_db):
+    await _seed_soxl_weekly_data()
+    yield
+    await _cleanup_soxl_weekly()
+
+
+class TestBuildSoxlWeekly:
+    """Tests for _build_soxl_weekly() in weekly_report.py."""
+
+    @pytest.mark.asyncio
+    async def test_soxl_key_in_report(self, setup_db, soxl_weekly_data):
+        from app.reports.weekly_report import generate_weekly_report
+        report = await generate_weekly_report(week_start="2024-03-04")
+        assert "soxl" in report
+        assert isinstance(report["soxl"], dict)
+
+    @pytest.mark.asyncio
+    async def test_soxl_performance_keys(self, setup_db, soxl_weekly_data):
+        from app.reports.weekly_report import _build_soxl_weekly
+        from app.database.connection import get_db
+        db = await get_db()
+        section = await _build_soxl_weekly(db, "2024-03-04", "2024-03-11")
+        assert "performance" in section
+        perf = section["performance"]
+        assert "weekly_return_pct" in perf
+        assert "week_high" in perf
+        assert "week_low" in perf
+        assert "avg_volume" in perf
+        # Verify actual calculations
+        assert perf["week_high"] == 25.0  # max high
+        assert perf["week_low"] == 21.0   # min low
+        # Return: (24.5 - 22.5) / 22.5 * 100 = 8.89%
+        assert perf["weekly_return_pct"] == pytest.approx(8.89, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_soxl_alerts_triggered(self, setup_db, soxl_weekly_data):
+        from app.reports.weekly_report import _build_soxl_weekly
+        from app.database.connection import get_db
+        db = await get_db()
+        section = await _build_soxl_weekly(db, "2024-03-04", "2024-03-11")
+        assert "alerts_triggered" in section
+        alerts = section["alerts_triggered"]
+        assert alerts["count"] == 1
+        assert isinstance(alerts["details"], list)
+        assert alerts["details"][0]["alert_type"] == "price_above"
+
+    @pytest.mark.asyncio
+    async def test_soxl_best_backtest(self, setup_db, soxl_weekly_data):
+        from app.reports.weekly_report import _build_soxl_weekly
+        from app.database.connection import get_db
+        db = await get_db()
+        section = await _build_soxl_weekly(db, "2024-03-04", "2024-03-11")
+        assert "best_backtest" in section
+        bt = section["best_backtest"]
+        assert "sharpe" in bt
+        assert "mode" in bt
+        assert bt["mode"] == "D"
+        assert bt["sharpe"] == 1.25
+
+    @pytest.mark.asyncio
+    async def test_soxl_empty_data_graceful(self, setup_db):
+        """No SOXL data → section is empty dict (not None, no crash)."""
+        from app.reports.weekly_report import _build_soxl_weekly
+        from app.database.connection import get_db
+        # Clean everything first
+        db = await get_db()
+        await db.execute("DELETE FROM price_history WHERE symbol='SOXL'")
+        await db.execute("DELETE FROM soxl_alerts")
+        await db.execute("DELETE FROM soxl_backtest_runs")
+        await db.execute("DELETE FROM soxl_optimize_results")
+        await db.commit()
+
+        section = await _build_soxl_weekly(db, "2024-03-04", "2024-03-11")
+        assert isinstance(section, dict)
+        # No crash, no performance key when no data
+        assert "performance" not in section or section.get("performance") is None

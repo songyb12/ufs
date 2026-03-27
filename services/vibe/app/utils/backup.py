@@ -5,8 +5,6 @@ Old backups are automatically cleaned up.
 """
 
 import logging
-import os
-import shutil
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

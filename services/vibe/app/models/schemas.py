@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from pydantic import BaseModel, Field
 
 from app.models.enums import AssetType, Market, PipelineStatus, SignalType
@@ -214,7 +212,7 @@ class PortfolioQuickAdd(BaseModel):
 class PortfolioBulkCreate(BaseModel):
     """Register multiple portfolio positions at once."""
     items: list[PortfolioPositionCreate] = Field(max_length=200)
-    portfolio_id: int = 1
+    portfolio_id: int = Field(1, ge=1)
 
 
 class PortfolioScenarioResponse(BaseModel):

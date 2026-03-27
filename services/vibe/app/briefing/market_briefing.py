@@ -259,7 +259,9 @@ async def _generate_llm_commentary(content: dict) -> str | None:
                 max_tokens=400,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return response.content[0].text.strip()
+            if response.content and hasattr(response.content[0], "text"):
+                return response.content[0].text.strip()
+            return None
         elif provider == "openai":
             import openai
             client = openai.AsyncOpenAI(api_key=settings.LLM_API_KEY)
@@ -268,7 +270,8 @@ async def _generate_llm_commentary(content: dict) -> str | None:
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=400,
             )
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content if response.choices else None
+            return content.strip() if content else None
         else:
             logger.warning("Unknown LLM provider: %s", provider)
             return None

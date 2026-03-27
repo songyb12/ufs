@@ -53,9 +53,10 @@ class LLMRedTeamStage(BaseStage):
                 data={"reason": "Red-Team validation disabled"},
             )
 
-        s6_data = context["s6_signal_generation"].data.get("per_symbol", {})
+        s6_result = context["s6_signal_generation"]
+        s6_data = (s6_result.data or {}).get("per_symbol", {})
         macro_result = context.get("s3_macro_analysis")
-        macro_data = macro_result.data if macro_result else {}
+        macro_data = macro_result.data if macro_result and macro_result.data else {}
 
         # Sentiment data (Phase D)
         sentiment_result = context.get("s3b_sentiment_analysis")
@@ -118,6 +119,28 @@ class LLMRedTeamStage(BaseStage):
                 if sentiment_score > 30:
                     warnings.append(f"Sentiment {sentiment_score:.0f} extreme fear - contrarian buy")
                     confidence -= 0.10
+
+            # ── Phase 1b: SOXL / leveraged ETF specific risks ──
+            if "SOXL" in symbol.upper():
+                # Leverage decay risk: holding > 5 days amplifies decay
+                warnings.append(
+                    "3x 레버리지 ETF: 5일+ 보유 시 일일 리밸런싱 decay 누적 위험 (HIGH)"
+                )
+                confidence -= 0.10
+
+                # Volatility drag: check if ATR/price is elevated
+                atr_ratio = signal.get("atr_ratio")
+                if atr_ratio is not None and atr_ratio >= 0.05:
+                    warnings.append(
+                        f"변동성 드래그 위험: ATR/가격 비율 {atr_ratio:.1%} ≥ 5% (HIGH)"
+                    )
+                    confidence -= 0.10
+
+                # Mean reversion risk: 3x leverage is structurally short-term
+                warnings.append(
+                    "평균 회귀 리스크: 3x 레버리지 ETF는 구조적으로 장기 보유 부적합"
+                )
+                confidence -= 0.05
 
             # ── Phase 2: LLM adversarial review (optional) ──
             llm_result = None
@@ -194,7 +217,6 @@ class LLMRedTeamStage(BaseStage):
         self, symbol: str, signal: dict, context: dict,
     ) -> dict | None:
         """Call LLM for adversarial review of a BUY signal."""
-        llm_context = self._build_llm_context(signal, context)
         prompt = f"""Analyze this BUY signal for {symbol}:
 
 Technical Score: {signal.get('technical_score', 0):+.1f}
@@ -284,9 +306,11 @@ Challenge this BUY recommendation. Find 3 reasons it could fail."""
                 response_format={"type": "json_object"},
             )
             text = response.choices[0].message.content
+            if text is None:
+                return {"concern_level": "LOW", "risk_flags": [], "reasoning": "empty response", "recommended_action": "MAINTAIN"}
             return json.loads(text)
         except json.JSONDecodeError:
-            return {"concern_level": "LOW", "risk_flags": [], "reasoning": text[:200]}
+            return {"concern_level": "LOW", "risk_flags": [], "reasoning": text[:200], "recommended_action": "MAINTAIN"}
         except Exception as e:
             logger.error("OpenAI API call failed: %s", e, exc_info=True)
             return None

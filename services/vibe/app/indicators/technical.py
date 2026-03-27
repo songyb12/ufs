@@ -20,8 +20,6 @@ def compute_all_indicators(df: pd.DataFrame) -> dict:
         return {}
 
     close = df["close"]
-    high = df["high"] if "high" in df.columns else close
-    low = df["low"] if "low" in df.columns else close
     volume = df["volume"] if "volume" in df.columns else pd.Series(0, index=df.index)
 
     # RSI (14-period)
@@ -79,8 +77,6 @@ def compute_indicators_series(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     close = df["close"]
-    high = df["high"] if "high" in df.columns else close
-    low = df["low"] if "low" in df.columns else close
     volume = df["volume"] if "volume" in df.columns else pd.Series(0, index=df.index)
 
     result = pd.DataFrame(index=df.index)
@@ -101,13 +97,11 @@ def compute_indicators_series(df: pd.DataFrame) -> pd.DataFrame:
     result["bollinger_middle"] = bb.bollinger_mavg()
     result["bollinger_lower"] = bb.bollinger_lband()
 
-    disparity = (close / result["ma_20"]) * 100
-    disparity = disparity.replace([float("inf"), float("-inf")], pd.NA)
+    disparity = (close / result["ma_20"].replace(0, float("nan"))) * 100
     result["disparity_20"] = disparity
 
     vol_avg_20 = volume.rolling(window=20).mean()
-    vol_ratio = volume / vol_avg_20
-    vol_ratio = vol_ratio.replace([float("inf"), float("-inf")], pd.NA)
+    vol_ratio = volume / vol_avg_20.replace(0, float("nan"))
     result["volume_ratio"] = vol_ratio
 
     return result

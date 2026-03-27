@@ -6,10 +6,8 @@ Checks:
 3. Significant intraday price moves (>3%)
 """
 
-import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
 import httpx
 

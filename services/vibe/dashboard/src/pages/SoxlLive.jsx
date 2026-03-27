@@ -7,7 +7,8 @@ import {
   getSoxlLiveQuote, getSoxlIntraday, getSoxlLiveIndicators,
   getSoxlSectorCorrelation, getSoxlAlerts, createSoxlAlert, deleteSoxlAlert,
   getSoxlAiAnalysis, runSoxlBacktest, compareSoxlModes, generateSoxlStrategy,
-  exportSoxlTradesCSV, getSoxlBacktestStats,
+  exportSoxlTradesCSV, getSoxlBacktestStats, optimizeSoxlParams,
+  getSoxlOptimizeHistory,
 } from '../api'
 import DataFreshness from '../components/DataFreshness'
 
@@ -43,6 +44,9 @@ const sessionColors = {
 }
 
 // ── SSE + Polling Hook ──
+// SSE base URL must match the API proxy prefix used by api.js
+const SSE_BASE = window.location.port === '8001' ? '' : '/api/vibe'
+
 function useSoxlLive(enabled) {
   const [quote, setQuote] = useState(null)
   const [connected, setConnected] = useState(false)
@@ -66,7 +70,7 @@ function useSoxlLive(enabled) {
     }
 
     // Try SSE first
-    const es = new EventSource('/soxl/live/stream')
+    const es = new EventSource(`${SSE_BASE}/soxl/live/stream`)
     esRef.current = es
 
     es.addEventListener('price', (e) => {
@@ -75,6 +79,12 @@ function useSoxlLive(enabled) {
         setQuote(data)
         setConnected(true)
         setLastReceivedAt(new Date())
+
+        // SSE recovered — stop fallback polling
+        if (pollRef.current) {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+        }
 
         // Browser notification for alerts
         if (data.alerts?.length) {
@@ -336,15 +346,19 @@ function AlertManager({ alerts, onRefresh }) {
   const [type, setType] = useState('price_above')
   const [threshold, setThreshold] = useState('')
   const [label, setLabel] = useState('')
+  const [webhookUrl, setWebhookUrl] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleCreate = async () => {
     if (!threshold) return
     setLoading(true)
     try {
-      await createSoxlAlert({ alert_type: type, threshold: parseFloat(threshold), label })
+      const body = { alert_type: type, threshold: parseFloat(threshold), label }
+      if (webhookUrl.trim()) body.webhook_url = webhookUrl.trim()
+      await createSoxlAlert(body)
       setThreshold('')
       setLabel('')
+      setWebhookUrl('')
       onRefresh()
     } catch (e) {
       alert('알림 생성 실패: ' + e.message)
@@ -388,6 +402,9 @@ function AlertManager({ alerts, onRefresh }) {
         <input type="text" placeholder="메모 (선택)" value={label}
           onChange={e => setLabel(e.target.value)}
           style={{ width: 120, padding: '6px 10px', borderRadius: 6, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--card-border)', fontSize: '0.75rem' }} />
+        <input type="url" placeholder="Webhook URL (선택)" value={webhookUrl}
+          onChange={e => setWebhookUrl(e.target.value)}
+          style={{ width: 200, padding: '6px 10px', borderRadius: 6, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--card-border)', fontSize: '0.75rem' }} />
         <button onClick={handleCreate} disabled={loading || !threshold}
           className="btn btn-primary" style={{ fontSize: '0.75rem', padding: '6px 14px' }}>
           {loading ? '...' : '알림 추가'}
@@ -413,6 +430,9 @@ function AlertManager({ alerts, onRefresh }) {
                   ${a.threshold}
                 </span>
                 {a.label && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: 8 }}>{a.label}</span>}
+                {a.webhook_url && (
+                  <span title={a.webhook_url} style={{ fontSize: '0.65rem', marginLeft: 6, cursor: 'help' }}>🔔</span>
+                )}
                 {a.triggered_at && (
                   <span style={{ fontSize: '0.6rem', color: '#22c55e', marginLeft: 8 }}>✓ 발동</span>
                 )}
@@ -609,6 +629,14 @@ function SoxlBacktestTab() {
   const [tradeFilter, setTradeFilter] = useState('all')
   const [sortCol, setSortCol] = useState(null)
   const [sortDir, setSortDir] = useState('asc')
+  const [hedgeMode, setHedgeMode] = useState(false)
+  const [hedgeRatio, setHedgeRatio] = useState(0.2)
+  const [optMaxIter, setOptMaxIter] = useState(50)
+  const [optTopN, setOptTopN] = useState(5)
+  const [optimizing, setOptimizing] = useState(false)
+  const [optResult, setOptResult] = useState(null)
+  const [optHistory, setOptHistory] = useState(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const abortRef = useRef(null)
 
   const applyPreset = (months) => {
@@ -628,6 +656,7 @@ function SoxlBacktestTab() {
       const body = { mode }
       if (startDate) body.start_date = startDate
       if (endDate) body.end_date = endDate
+      if (hedgeMode) { body.hedge_mode = true; body.hedge_ratio = hedgeRatio }
       const data = await runSoxlBacktest(body, { signal: ctrl.signal })
       if (data.status === 'failed') setError(data.error)
       else setResult(data)
@@ -646,6 +675,7 @@ function SoxlBacktestTab() {
       const body = {}
       if (startDate) body.start_date = startDate
       if (endDate) body.end_date = endDate
+      if (hedgeMode) { body.hedge_mode = true; body.hedge_ratio = hedgeRatio }
       const data = await compareSoxlModes(body, { signal: ctrl.signal })
       setCompareResult(data)
     } catch (e) {
@@ -658,6 +688,56 @@ function SoxlBacktestTab() {
     if (result?.trades?.length) {
       exportSoxlTradesCSV(result.trades, result.mode, result.period)
     }
+  }
+
+  const handleOptimize = async () => {
+    if (abortRef.current) abortRef.current.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+    setOptimizing(true); setError(null); setOptResult(null)
+    try {
+      const data = await optimizeSoxlParams({
+        mode, top_n: optTopN, max_iter: optMaxIter,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      }, { signal: ctrl.signal })
+      if (data.status === 'failed') setError(data.error)
+      else setOptResult(data)
+    } catch (e) {
+      if (e.name !== 'AbortError') setError(e.message)
+    }
+    setOptimizing(false)
+  }
+
+  const handleApplyOptParams = async (params) => {
+    // Apply optimized params and run backtest
+    if (abortRef.current) abortRef.current.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+    setLoading(true); setError(null)
+    try {
+      const body = { mode, params }
+      if (startDate) body.start_date = startDate
+      if (endDate) body.end_date = endDate
+      if (hedgeMode) { body.hedge_mode = true; body.hedge_ratio = hedgeRatio }
+      const data = await runSoxlBacktest(body, { signal: ctrl.signal })
+      if (data.status === 'failed') setError(data.error)
+      else setResult(data)
+    } catch (e) {
+      if (e.name !== 'AbortError') setError(e.message)
+    }
+    setLoading(false)
+  }
+
+  const handleLoadHistory = async () => {
+    setHistoryLoading(true)
+    try {
+      const data = await getSoxlOptimizeHistory({ mode, limit: 20 })
+      setOptHistory(data)
+    } catch (e) {
+      setError(e.message)
+    }
+    setHistoryLoading(false)
   }
 
   const fmtPctSafe = (v) => v == null ? '—' : `${(v * 100).toFixed(1)}%`
@@ -728,6 +808,25 @@ function SoxlBacktestTab() {
         </button>
       </div>
 
+      {/* Hedge mode controls */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.7rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={hedgeMode} onChange={e => setHedgeMode(e.target.checked)} />
+          SOXS 헤지
+        </label>
+        {hedgeMode && (
+          <>
+            <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>비율:</label>
+            <input type="range" min="0" max="0.5" step="0.05" value={hedgeRatio}
+              onChange={e => setHedgeRatio(parseFloat(e.target.value))}
+              style={{ width: 100 }} />
+            <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--accent)', minWidth: 36 }}>
+              {(hedgeRatio * 100).toFixed(0)}%
+            </span>
+          </>
+        )}
+      </div>
+
       {/* Action buttons */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <button onClick={handleRun} disabled={loading || comparing}
@@ -744,6 +843,152 @@ function SoxlBacktestTab() {
             취소
           </button>
         )}
+      </div>
+
+      {/* ── Parameter Optimizer ── */}
+      <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: 14, marginBottom: 16 }}>
+        <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 10, color: 'var(--text-primary)' }}>
+          🎯 파라미터 최적화 (Random Search)
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+          <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>반복:</label>
+          <input type="range" min="10" max="200" step="10" value={optMaxIter}
+            onChange={e => setOptMaxIter(parseInt(e.target.value))}
+            style={{ width: 120 }} />
+          <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--accent)', minWidth: 36 }}>
+            {optMaxIter}회
+          </span>
+
+          <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Top N:</label>
+          <select value={optTopN} onChange={e => setOptTopN(parseInt(e.target.value))}
+            style={{ padding: '4px 8px', borderRadius: 4, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--card-border)', fontSize: '0.7rem' }}>
+            <option value={3}>3</option>
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+          </select>
+
+          <button onClick={handleOptimize} disabled={loading || comparing || optimizing}
+            className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 14px' }}>
+            {optimizing ? '⏳ 최적화 중...' : `🎯 모드 ${mode} 최적화`}
+          </button>
+          {optimizing && (
+            <button onClick={() => abortRef.current?.abort()}
+              style={{ fontSize: '0.6rem', padding: '3px 8px', background: '#ef444420', color: '#ef4444', border: '1px solid #ef4444', borderRadius: 4, cursor: 'pointer' }}>
+              취소
+            </button>
+          )}
+        </div>
+
+        {/* Optimizer results table */}
+        {optResult && optResult.results?.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 6 }}>
+              {optResult.total_evaluated}회 평가 → {optResult.valid_results}건 유효 → 상위 {optResult.top_n}개 ({optResult.period})
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', fontSize: '0.65rem', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--card-border)' }}>
+                    {['#', 'Sharpe', 'Sortino', 'MDD', 'Total Ret', 'RSI Entry', 'Stop Loss', 'Take Profit', 'Trail Stop', ''].map(h => (
+                      <th key={h} style={{ padding: '6px 6px', textAlign: h === '#' || h === '' ? 'center' : 'right', color: 'var(--text-muted)', fontWeight: 600 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {optResult.results.map((r, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--card-border)22' }}>
+                      <td style={{ padding: '6px 6px', textAlign: 'center', fontWeight: 700, color: i === 0 ? '#f59e0b' : 'var(--text-muted)' }}>
+                        {i + 1}
+                      </td>
+                      <td style={{ padding: '6px 6px', textAlign: 'right', fontWeight: 700, color: (r.metrics.sharpe_ratio || 0) > 0 ? '#22c55e' : '#ef4444' }}>
+                        {r.metrics.sharpe_ratio?.toFixed(2) ?? '—'}
+                      </td>
+                      <td style={{ padding: '6px 6px', textAlign: 'right' }}>
+                        {r.metrics.sortino_ratio?.toFixed(2) ?? '—'}
+                      </td>
+                      <td style={{ padding: '6px 6px', textAlign: 'right', color: '#ef4444' }}>
+                        {r.metrics.max_drawdown != null ? `${(r.metrics.max_drawdown * 100).toFixed(1)}%` : '—'}
+                      </td>
+                      <td style={{ padding: '6px 6px', textAlign: 'right', color: (r.metrics.total_return || 0) >= 0 ? '#22c55e' : '#ef4444' }}>
+                        {r.metrics.total_return != null ? `${(r.metrics.total_return * 100).toFixed(1)}%` : '—'}
+                      </td>
+                      <td style={{ padding: '6px 6px', textAlign: 'right' }}>{r.params.rsi_entry}</td>
+                      <td style={{ padding: '6px 6px', textAlign: 'right' }}>{r.params.stop_loss_pct}%</td>
+                      <td style={{ padding: '6px 6px', textAlign: 'right' }}>{r.params.take_profit_pct}%</td>
+                      <td style={{ padding: '6px 6px', textAlign: 'right' }}>{r.params.trailing_stop_pct}%</td>
+                      <td style={{ padding: '6px 6px', textAlign: 'center' }}>
+                        <button onClick={() => handleApplyOptParams(r.params)}
+                          disabled={loading}
+                          style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: 4, background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          실행
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        {optResult && optResult.results?.length === 0 && (
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', padding: 12, textAlign: 'center' }}>
+            유효한 결과가 없습니다. 기간 또는 반복 횟수를 조정해보세요.
+          </div>
+        )}
+
+        {/* Optimize history */}
+        <div style={{ marginTop: 12, borderTop: '1px solid var(--card-border)', paddingTop: 10 }}>
+          <button onClick={handleLoadHistory} disabled={historyLoading}
+            className="btn btn-secondary" style={{ fontSize: '0.65rem', padding: '4px 12px' }}>
+            {historyLoading ? '⏳ 로딩...' : '📊 최적화 히스토리'}
+          </button>
+
+          {optHistory && optHistory.results?.length > 0 && (
+            <div style={{ marginTop: 8, overflowX: 'auto' }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                총 {optHistory.total}건 중 최근 {optHistory.results.length}건
+              </div>
+              <table style={{ width: '100%', fontSize: '0.6rem', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--card-border)' }}>
+                    {['실행시간', '모드', 'Sharpe', 'Sortino', 'MDD', ''].map(h => (
+                      <th key={h} style={{ padding: '5px 6px', textAlign: h === '' ? 'center' : 'right', color: 'var(--text-muted)', fontWeight: 600 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {optHistory.results.map(r => (
+                    <tr key={r.id} style={{ borderBottom: '1px solid var(--card-border)22' }}>
+                      <td style={{ padding: '4px 6px', textAlign: 'right', fontSize: '0.55rem', color: 'var(--text-muted)' }}>
+                        {r.run_at ? new Date(r.run_at).toLocaleDateString('ko-KR') : '—'}
+                      </td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>{r.mode}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right', color: (r.sharpe || 0) > 0 ? '#22c55e' : '#ef4444' }}>
+                        {r.sharpe?.toFixed(2) ?? '—'}
+                      </td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>{r.sortino?.toFixed(2) ?? '—'}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right', color: '#ef4444' }}>
+                        {r.max_drawdown != null ? `${(r.max_drawdown * 100).toFixed(1)}%` : '—'}
+                      </td>
+                      <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                        <button onClick={() => handleApplyOptParams(r.params)}
+                          disabled={loading}
+                          style={{ fontSize: '0.55rem', padding: '2px 6px', borderRadius: 4, background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                          적용
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {optHistory && optHistory.results?.length === 0 && (
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', padding: 8 }}>
+              저장된 최적화 히스토리가 없습니다.
+            </div>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -875,6 +1120,45 @@ function SoxlBacktestTab() {
               </div>
             ))}
           </div>
+
+          {/* Hedge effect */}
+          {result.hedge_stats && (
+            <div style={{ marginBottom: 12, padding: 10, borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--card-border)' }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                🛡️ SOXS 헤지 효과 (비율: {(result.hedge_stats.hedge_ratio * 100).toFixed(0)}%)
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '0.7rem' }}>
+                <div>
+                  <span style={{ color: 'var(--text-muted)' }}>기본 MDD: </span>
+                  <span style={{ fontWeight: 700, color: '#ef4444' }}>
+                    {(result.hedge_stats.base_max_drawdown * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)' }}>헤지 MDD: </span>
+                  <span style={{ fontWeight: 700, color: result.hedge_stats.hedged_max_drawdown < result.hedge_stats.base_max_drawdown ? '#22c55e' : '#f59e0b' }}>
+                    {(result.hedge_stats.hedged_max_drawdown * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)' }}>DD 감소: </span>
+                  <span style={{ fontWeight: 700, color: result.hedge_stats.drawdown_reduction > 0 ? '#22c55e' : '#ef4444' }}>
+                    {result.hedge_stats.drawdown_reduction > 0 ? '-' : '+'}{Math.abs(result.hedge_stats.drawdown_reduction * 100).toFixed(1)}%p
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)' }}>헤지 P&L: </span>
+                  <span style={{ fontWeight: 700, color: result.hedge_stats.hedge_pnl >= 0 ? '#22c55e' : '#ef4444' }}>
+                    {result.hedge_stats.hedge_pnl >= 0 ? '+' : ''}{result.hedge_stats.hedge_pnl.toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)' }}>헤지 일수: </span>
+                  <span style={{ fontWeight: 600 }}>{result.hedge_stats.hedge_days}일</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Exit reason stats */}
           {showExtended && result.exit_reason_stats?.length > 0 && (

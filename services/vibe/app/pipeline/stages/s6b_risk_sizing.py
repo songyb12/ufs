@@ -1,7 +1,6 @@
 """Stage 6b: Risk Sizing - Position sizing, sector exposure, event calendar."""
 
 import logging
-from typing import Any
 
 from app.config import Settings
 from app.pipeline.base import BaseStage, StageResult
