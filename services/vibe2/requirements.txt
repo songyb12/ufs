@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+aiosqlite
+pydantic-settings
+python-jose[cryptography]
+bcrypt
+passlib[bcrypt]
+yfinance
+pandas
+numpy
+apscheduler
+anthropic
+httpx

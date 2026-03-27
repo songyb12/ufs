@@ -153,7 +153,8 @@ services:
       start_period: 10s
 
   # session-manager: 호스트에서 직접 실행 (Claude CLI + 호스트 파일시스템 접근 필요)
-  # 시작: cd services/session-manager && python -m app.main
+  # 시작: cd services/session-manager && watchdog.bat (콘솔) 또는 start-headless.bat (백그라운드)
+  # watchdog이 크래시 시 자동 재시작 (5초 간격, rapid restart 방지 포함)
   # nginx는 host.docker.internal:8006으로 프록시
 
   # ============================================
@@ -187,6 +188,45 @@ services:
       lab-studio:
         condition: service_healthy
 
+  # ============================================
+  # VIBE 2.0 (SOXL Intelligence)
+  # ============================================
+  vibe2:
+    build:
+      context: ./services/vibe2
+    container_name: ufs-vibe2
+    ports:
+      - "8010:8010"
+    environment:
+      - SERVICE_NAME=vibe2
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - JWT_SECRET=${VIBE2_JWT_SECRET:-vibe2-dev-secret}
+    volumes:
+      - vibe2-data:/app
+    networks:
+      - ufs-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  vibe2-dashboard:
+    build:
+      context: ./services/vibe2/dashboard
+      dockerfile: Dockerfile.dashboard
+    container_name: ufs-vibe2-dashboard
+    ports:
+      - "3002:80"
+    networks:
+      - ufs-network
+    restart: unless-stopped
+    depends_on:
+      vibe2:
+        condition: service_healthy
+
 # ============================================
 # Shared Resources
 # ============================================
@@ -196,6 +236,7 @@ volumes:
   lab-studio-data:
   engineering-ops-data:
   life-master-data:
+  vibe2-data:
 
 networks:
   ufs-network:
