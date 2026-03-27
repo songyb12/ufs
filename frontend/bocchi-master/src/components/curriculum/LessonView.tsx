@@ -6,7 +6,7 @@
  */
 
 import type { ReactNode } from 'react'
-import type { Lesson, Drill } from '../../data/curriculum'
+import type { Lesson, Drill, DrillType } from '../../data/curriculum'
 import type { CurriculumActions } from '../../hooks/useCurriculum'
 import type { DrillScore } from '../../data/curriculum'
 
@@ -128,7 +128,7 @@ interface DrillCardProps {
 }
 
 function DrillCard({ drill, isCompleted, bestScore, onStart }: DrillCardProps) {
-  const typeIcons: Record<string, string> = {
+  const typeIcons: Record<DrillType, string> = {
     'chord-change': '🔄',
     'strum-pattern': '🎶',
     'arpeggio': '🌊',
@@ -141,7 +141,7 @@ function DrillCard({ drill, isCompleted, bestScore, onStart }: DrillCardProps) {
     'progression-play': '🎹',
   }
 
-  const typeLabels: Record<string, string> = {
+  const typeLabels: Record<DrillType, string> = {
     'chord-change': '코드 체인지',
     'strum-pattern': '스트럼 패턴',
     'arpeggio': '아르페지오',

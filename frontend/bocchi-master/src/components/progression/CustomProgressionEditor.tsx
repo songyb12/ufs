@@ -1,4 +1,5 @@
 import { memo, useState } from 'react'
+import type { ChordQuality } from '../../types/music'
 import { MAJOR_DEGREES, type ProgressionStep } from '../../utils/chordProgression'
 import { CHORDS } from '../../utils/scaleCalculator'
 
@@ -15,7 +16,7 @@ export const CustomProgressionEditor = memo(function CustomProgressionEditor({
 }: CustomProgressionEditorProps) {
   const [showAdd, setShowAdd] = useState(false)
 
-  const addStep = (degreeIndex: number, qualityOverride?: string) => {
+  const addStep = (degreeIndex: number, qualityOverride?: ChordQuality) => {
     onStepsChange([...steps, { degreeIndex, qualityOverride }])
     setShowAdd(false)
   }
@@ -32,7 +33,7 @@ export const CustomProgressionEditor = memo(function CustomProgressionEditor({
     onStepsChange(next)
   }
 
-  const updateQuality = (index: number, quality: string | undefined) => {
+  const updateQuality = (index: number, quality: ChordQuality | undefined) => {
     const next = [...steps]
     next[index] = { ...next[index], qualityOverride: quality }
     onStepsChange(next)
@@ -64,7 +65,7 @@ export const CustomProgressionEditor = memo(function CustomProgressionEditor({
                 <select
                   value={step.qualityOverride ?? ''}
                   onChange={(e) =>
-                    updateQuality(i, e.target.value || undefined)
+                    updateQuality(i, (e.target.value || undefined) as ChordQuality | undefined)
                   }
                   className="bg-transparent text-[9px] text-slate-500 border-none outline-none cursor-pointer w-14 text-center"
                 >

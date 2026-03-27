@@ -10,6 +10,13 @@ export interface Note {
 
 export type InstrumentType = 'guitar' | 'bass'
 
+/** Chord quality names — mirrors CHORDS[].name in scaleCalculator.ts */
+export type ChordQuality =
+  | 'Major' | 'Minor' | 'dim' | 'aug' | 'sus2' | 'sus4'
+  | '7th' | 'm7' | 'Maj7' | 'mMaj7' | 'dim7' | 'm7b5' | '7sus4'
+  | 'add9' | 'madd9' | '9th' | 'm9' | 'Maj9'
+  | '5 (Power)'
+
 export interface InstrumentConfig {
   type: InstrumentType
   name: string

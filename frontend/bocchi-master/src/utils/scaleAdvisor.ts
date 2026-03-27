@@ -1,4 +1,4 @@
-import type { NoteName } from '../types/music'
+import type { NoteName, ChordQuality } from '../types/music'
 import type { ResolvedChord } from './chordProgression'
 import { SCALES, type ScaleDefinition, getScaleNoteNames } from './scaleCalculator'
 
@@ -10,7 +10,7 @@ export interface ScaleSuggestion {
 }
 
 // Map chord quality → recommended scale names with reasons
-const QUALITY_SCALE_MAP: Record<string, { scaleName: string; reason: string }[]> = {
+const QUALITY_SCALE_MAP: Partial<Record<ChordQuality, { scaleName: string; reason: string }[]>> = {
   Major: [
     { scaleName: 'Major (Ionian)', reason: 'Chord scale' },
     { scaleName: 'Lydian', reason: 'Bright, dreamy' },

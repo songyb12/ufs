@@ -1,18 +1,18 @@
-import type { NoteName } from '../types/music'
+import type { NoteName, ChordQuality } from '../types/music'
 import { CHROMATIC_SCALE } from '../constants/notes'
 import { CHORDS, getScaleNoteNames } from './scaleCalculator'
 
 // ----- Types -----
 
 export interface DegreeInfo {
-  semitones: number   // semitones from root (major scale: 0,2,4,5,7,9,11)
-  quality: string     // default chord quality — references CHORDS[].name
-  label: string       // Roman numeral label
+  semitones: number        // semitones from root (major scale: 0,2,4,5,7,9,11)
+  quality: ChordQuality    // default chord quality — references CHORDS[].name
+  label: string            // Roman numeral label
 }
 
 export interface ProgressionStep {
-  degreeIndex: number       // 0~6 → index into MAJOR_DEGREES
-  qualityOverride?: string  // override default quality (e.g., '7th' for dominant V7)
+  degreeIndex: number              // 0~7 → index into MAJOR_DEGREES
+  qualityOverride?: ChordQuality   // override default quality (e.g., '7th' for dominant V7)
 }
 
 export interface ProgressionPreset {
@@ -22,10 +22,10 @@ export interface ProgressionPreset {
 
 export interface ResolvedChord {
   root: NoteName
-  quality: string     // chord quality name (matches CHORDS[].name)
-  label: string       // degree label (e.g., 'I', 'vi')
-  chordName: string   // display name (e.g., 'C Maj', 'Am')
-  notes: NoteName[]   // all note names in this chord
+  quality: ChordQuality  // chord quality name (matches CHORDS[].name)
+  label: string          // degree label (e.g., 'I', 'vi')
+  chordName: string      // display name (e.g., 'C Maj', 'Am')
+  notes: NoteName[]      // all note names in this chord
 }
 
 // ----- Major Scale Degrees -----
@@ -342,8 +342,8 @@ export function generateRandomProgression(
 /**
  * Get the chord display name (e.g., "C Maj", "Am", "G7")
  */
-function formatChordName(root: NoteName, quality: string): string {
-  const shortQuality: Record<string, string> = {
+function formatChordName(root: NoteName, quality: ChordQuality): string {
+  const shortQuality: Record<ChordQuality, string> = {
     'Major': 'Maj',
     'Minor': 'm',
     '7th': '7',
@@ -371,7 +371,7 @@ function formatChordName(root: NoteName, quality: string): string {
  * Get the note names for a chord given root and quality name.
  * Looks up ChordDefinition from CHORDS array.
  */
-export function getChordNotes(root: NoteName, quality: string): NoteName[] {
+export function getChordNotes(root: NoteName, quality: ChordQuality): NoteName[] {
   const chordDef = CHORDS.find((c) => c.name === quality)
   if (!chordDef) return [root]
   return getScaleNoteNames(root, chordDef)
@@ -391,9 +391,9 @@ export function resolveProgression(
     const root = CHROMATIC_SCALE[(keyIndex + degree.semitones) % 12]
     const quality = step.qualityOverride ?? degree.quality
     const notes = getChordNotes(root, quality)
-    const qualitySuffix: Record<string, string> = {
+    const qualitySuffix: Partial<Record<ChordQuality, string>> = {
       '7th': '7', 'm7': 'm7', 'Maj7': 'M7', 'dim': 'dim', 'aug': 'aug',
-      'sus2': 'sus2', 'sus4': 'sus4', 'm': 'm',
+      'sus2': 'sus2', 'sus4': 'sus4',
     }
     const label = step.qualityOverride
       ? `${degree.label}${qualitySuffix[step.qualityOverride] ?? ''}`

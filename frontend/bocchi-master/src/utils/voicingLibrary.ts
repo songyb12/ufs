@@ -1,4 +1,4 @@
-import type { NoteName, Note, InstrumentConfig } from '../types/music'
+import type { NoteName, Note, InstrumentConfig, ChordQuality } from '../types/music'
 import { CHROMATIC_SCALE } from '../constants/notes'
 
 // ----- Types -----
@@ -133,7 +133,7 @@ const CAGED_MAJ7: CAGEDShape[] = [
 ]
 
 // Map quality names (matching CHORDS[].name in scaleCalculator.ts) to shape sets
-const CAGED_SHAPES: Record<string, CAGEDShape[]> = {
+const CAGED_SHAPES: Partial<Record<ChordQuality, CAGEDShape[]>> = {
   Major: CAGED_MAJOR,
   Minor: CAGED_MINOR,
   '7th': CAGED_7TH,
@@ -235,7 +235,7 @@ function transposeCagedShape(
  */
 export function getCAGEDVoicings(
   root: NoteName,
-  quality: string,
+  quality: ChordQuality,
   instrument: InstrumentConfig,
 ): ChordVoicing[] {
   // CAGED system only applies to standard 6-string guitar

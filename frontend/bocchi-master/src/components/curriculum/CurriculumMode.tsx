@@ -7,6 +7,7 @@
  */
 
 import { Component, type ReactNode, useState, useEffect, useRef } from 'react'
+import type { AchievementRarity } from '../../data/gamification'
 import { useCurriculum, type LessonCompleteResult } from '../../hooks/useCurriculum'
 import { CurriculumView } from './CurriculumView'
 import { LessonView } from './LessonView'
@@ -279,7 +280,7 @@ function AchievementPopup({
   achievement,
   onDismiss,
 }: {
-  achievement: { name: string; icon: string; description: string; xpReward: number; rarity: string }
+  achievement: { name: string; icon: string; description: string; xpReward: number; rarity: AchievementRarity }
   onDismiss: () => void
 }) {
   const soundPlayed = useRef(false)
@@ -289,14 +290,14 @@ function AchievementPopup({
     import('./soundEffects').then(m => m.playAchievementSound())
   }, [])
 
-  const rarityColors: Record<string, string> = {
+  const rarityColors: Record<AchievementRarity, string> = {
     common: 'border-slate-500',
     rare: 'border-blue-500',
     epic: 'border-purple-500',
     legendary: 'border-yellow-500',
   }
 
-  const rarityBg: Record<string, string> = {
+  const rarityBg: Record<AchievementRarity, string> = {
     common: 'from-slate-800',
     rare: 'from-blue-900/50',
     epic: 'from-purple-900/50',

@@ -1,4 +1,4 @@
-import type { NoteName, Note, InstrumentConfig } from '../types/music'
+import type { NoteName, Note, InstrumentConfig, ChordQuality } from '../types/music'
 import { CHROMATIC_SCALE } from '../constants/notes'
 import { CHORDS, getScaleNoteNames } from './scaleCalculator'
 import type { ChordVoicing } from './voicingLibrary'
@@ -189,7 +189,7 @@ function searchVoicings(
  */
 export function generateVoicings(
   root: NoteName,
-  quality: string,
+  quality: ChordQuality,
   instrument: InstrumentConfig,
 ): ChordVoicing[] {
   const chordDef = CHORDS.find((c) => c.name === quality)

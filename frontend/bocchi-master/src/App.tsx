@@ -749,7 +749,7 @@ export default function App() {
         {(activeChord || (selectedRoot && selectedDefinition)) && (() => {
           const keyRoot = progressionKey ?? selectedRoot
           const isMinor = activeChord
-            ? activeChord.quality === 'minor' || activeChord.quality === 'minor7'
+            ? activeChord.quality === 'Minor' || activeChord.quality === 'm7'
             : selectedDefinition?.name.toLowerCase().includes('minor') ?? false
           const keySig = keyRoot ? getKeySignature(keyRoot, isMinor) : null
           return (
@@ -757,7 +757,7 @@ export default function App() {
               {activeChord ? (
                 <>
                   <span className="text-lg font-bold text-white">
-                    {activeChord.root}{activeChord.quality === 'minor' ? 'm' : activeChord.quality === 'diminished' ? 'dim' : activeChord.quality === 'augmented' ? 'aug' : activeChord.quality === 'dominant7' ? '7' : activeChord.quality === 'minor7' ? 'm7' : activeChord.quality === 'major7' ? 'maj7' : ''}
+                    {activeChord.chordName}
                   </span>
                   {currentVoicing && (
                     <span className="text-xs text-slate-500">{currentVoicing.name}</span>

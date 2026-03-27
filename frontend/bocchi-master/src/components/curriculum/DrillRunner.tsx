@@ -205,14 +205,14 @@ function DrillHeader({
 
 // ─── Ready Screen ───────────────────────────────────
 
-const TYPE_ICONS: Record<string, string> = {
+const TYPE_ICONS: Record<DrillType, string> = {
   'chord-change': '🔄', 'strum-pattern': '🎶', 'arpeggio': '🌊',
   'scale-run': '🎼', 'fretboard-quiz': '🧠', 'rhythm': '🥁',
   'ear-training': '👂', 'song-section': '🎵', 'voicing-match': '🎸',
   'progression-play': '🎹',
 }
 
-const TYPE_DESCRIPTIONS: Record<string, string> = {
+const TYPE_DESCRIPTIONS: Record<DrillType, string> = {
   'chord-change': '아래 코드들을 메트로놈에 맞춰 전환 연습하세요',
   'strum-pattern': '스트럼 패턴을 따라 연습하세요',
   'arpeggio': '코드를 아르페지오로 연주하세요',

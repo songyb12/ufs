@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, memo } from 'react'
 import { loadSettings, loadDailyGoal, type PracticeSession } from '../../utils/storage'
 import { loadPlayerProfile, type PlayerProfile, type DrillBestScore } from '../../data/gamification'
-import type { CurriculumProgress, DrillScore } from '../../data/curriculum'
+import type { CurriculumProgress, DrillScore, DrillType } from '../../data/curriculum'
 
 // ── Drill type labels ──
-const DRILL_TYPE_LABELS: Record<string, string> = {
+const DRILL_TYPE_LABELS: Record<DrillType, string> = {
   'chord-change': 'Chord Change',
   'strum-pattern': 'Strum Pattern',
   'arpeggio': 'Arpeggio',
@@ -99,7 +99,7 @@ function analyzeDrillTypes(
 
     results.push({
       type,
-      label: DRILL_TYPE_LABELS[type] ?? type,
+      label: DRILL_TYPE_LABELS[type as DrillType] ?? type,
       avgAccuracy,
       totalAttempts: totalAtt,
       drillCount: scores.length,
@@ -235,7 +235,7 @@ function generateInsights(
   const explored = new Set(drillStats.map(d => d.type))
   const unexplored = Object.keys(DRILL_TYPE_LABELS).filter(t => !explored.has(t))
   if (unexplored.length > 0 && unexplored.length <= 5) {
-    const labels = unexplored.slice(0, 3).map(t => DRILL_TYPE_LABELS[t]).join(', ')
+    const labels = unexplored.slice(0, 3).map(t => DRILL_TYPE_LABELS[t as DrillType]).join(', ')
     insights.push({
       icon: '🆕',
       text: `아직 시도하지 않은 연습: ${labels}. 커리큘럼 모드에서 도전해보세요.`,
@@ -255,7 +255,7 @@ function generateInsights(
   return insights
 }
 
-const SEVERITY_STYLES: Record<string, string> = {
+const SEVERITY_STYLES: Record<'good' | 'warn' | 'bad', string> = {
   good: 'border-emerald-500/20 bg-emerald-500/5',
   warn: 'border-amber-500/20 bg-amber-500/5',
   bad: 'border-rose-500/20 bg-rose-500/5',

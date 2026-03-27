@@ -7,6 +7,7 @@
  * 참고: 코드 진행 자체는 저작권 대상이 아님.
  */
 
+import type { ChordQuality } from '../types/music'
 import type { ProgressionStep } from '../utils/chordProgression'
 
 // ─── J-Pop 진행에 필요한 확장 Degree 시스템 ─────────
@@ -26,7 +27,7 @@ export interface JPopChordStep {
   /** 루트의 반음 오프셋 from key root (0=I, 2=II, 4=III, 5=IV, 7=V, 9=VI, 11=VII) */
   semitones: number
   /** 코드 퀄리티 (CHORDS[].name 참조) */
-  quality: string
+  quality: ChordQuality
   /** 박자 수 (기본 4) */
   beats?: number
 }
@@ -447,7 +448,7 @@ export function toProgressionSteps(prog: JPopProgression): ProgressionStep[] {
   })
 }
 
-function getDefaultQuality(degreeIndex: number): string {
-  const defaults = ['Major', 'Minor', 'Minor', 'Major', 'Major', 'Minor', 'dim']
+function getDefaultQuality(degreeIndex: number): ChordQuality {
+  const defaults: ChordQuality[] = ['Major', 'Minor', 'Minor', 'Major', 'Major', 'Minor', 'dim']
   return defaults[degreeIndex] ?? 'Major'
 }
