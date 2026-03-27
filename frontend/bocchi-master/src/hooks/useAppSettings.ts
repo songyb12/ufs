@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, type Dispatch, type SetStateAction } from 'react'
 import type { InstrumentConfig } from '../types/music'
 import { INSTRUMENTS, STANDARD_GUITAR } from '../constants/tunings'
 import { loadSettings, saveSettings, isOnboardingDone, markOnboardingDone } from '../utils/storage'
@@ -23,7 +23,27 @@ const initialSettings = loadSettings()
 
 export { initialSettings }
 
-export function useAppSettings() {
+export interface UseAppSettingsReturn {
+  appMode: AppMode
+  switchToFree: () => void
+  switchToCurriculum: () => void
+  panelTab: PanelTab
+  handlePanelTabChange: (tab: PanelTab) => void
+  skillProfile: SkillProfile
+  visibleTabs: PanelTab[]
+  showPanel: (id: PanelId) => boolean
+  handleSkillProfileChange: (profile: SkillProfile) => void
+  showOnboarding: boolean
+  handleOnboardingComplete: (selectedInstrument: InstrumentConfig, goToCurriculum: boolean) => void
+  instrument: InstrumentConfig
+  setInstrument: Dispatch<SetStateAction<InstrumentConfig>>
+  showShortcutHelp: boolean
+  setShowShortcutHelp: Dispatch<SetStateAction<boolean>>
+  beatFlashEnabled: boolean
+  setBeatFlashEnabled: Dispatch<SetStateAction<boolean>>
+}
+
+export function useAppSettings(): UseAppSettingsReturn {
   // ── App Mode Toggle ──
   const [appMode, setAppMode] = useState<AppMode>(
     () => { const v = localStorage.getItem(APP_MODE_KEY); return v === 'free' || v === 'curriculum' ? v : 'free' },

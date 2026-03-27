@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, type Dispatch, type SetStateAction } from 'react'
 import type { InstrumentConfig } from '../types/music'
 import { CHROMATIC_SCALE } from '../constants/notes'
 import type { NoteLabelMode } from '../utils/noteLabelFormatter'
@@ -6,7 +6,38 @@ import type { EnharmonicMode } from '../utils/enharmonic'
 
 const FRETBOARD_CONTROLS_KEY = 'bocchi-fretboard-controls-expanded'
 
-export function useFretboardSettings(instrument: InstrumentConfig) {
+export interface UseFretboardSettingsReturn {
+  showChordTones: boolean
+  setShowChordTones: Dispatch<SetStateAction<boolean>>
+  hideNoteLabels: boolean
+  setHideNoteLabels: Dispatch<SetStateAction<boolean>>
+  showFingering: boolean
+  setShowFingering: Dispatch<SetStateAction<boolean>>
+  compareScaleIdx: number | null
+  setCompareScaleIdx: Dispatch<SetStateAction<number | null>>
+  capo: number
+  setCapo: Dispatch<SetStateAction<number>>
+  effectiveInstrument: InstrumentConfig
+  labelMode: NoteLabelMode
+  setLabelMode: Dispatch<SetStateAction<NoteLabelMode>>
+  enharmonicMode: EnharmonicMode
+  setEnharmonicMode: Dispatch<SetStateAction<EnharmonicMode>>
+  leftHanded: boolean
+  setLeftHanded: Dispatch<SetStateAction<boolean>>
+  fretRange: [number, number]
+  setFretRange: Dispatch<SetStateAction<[number, number]>>
+  autoZoom: boolean
+  setAutoZoom: Dispatch<SetStateAction<boolean>>
+  fretControlsExpanded: boolean
+  toggleFretControls: () => void
+  dimmedStrings: Set<number>
+  toggleStringDim: (stringIndex: number) => void
+  clearDimmedStrings: () => void
+  patternPositions: { stringIndex: number; fret: number }[] | null
+  setPatternPositions: Dispatch<SetStateAction<{ stringIndex: number; fret: number }[] | null>>
+}
+
+export function useFretboardSettings(instrument: InstrumentConfig): UseFretboardSettingsReturn {
   // Chord tone highlighting toggle
   const [showChordTones, setShowChordTones] = useState(false)
 

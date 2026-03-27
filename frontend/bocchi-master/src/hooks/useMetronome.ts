@@ -2,6 +2,32 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { AudioScheduler, type ClickSound, type Subdivision, type AccentLevel } from '../utils/audioScheduler'
 import { getSharedAudioContext } from '../utils/audioContextSingleton'
 
+export interface UseMetronomeReturn {
+  bpm: number
+  setBpm: (bpm: number) => void
+  isPlaying: boolean
+  start: () => Promise<void>
+  stop: () => void
+  toggle: () => void
+  currentBeat: number
+  currentMeasure: number
+  beatsPerMeasure: number
+  setBeatsPerMeasure: (beats: number) => void
+  countIn: boolean
+  setCountIn: (enabled: boolean) => void
+  isCountingIn: boolean
+  clickSound: ClickSound
+  setClickSound: (sound: ClickSound) => void
+  subdivision: Subdivision
+  setSubdivision: (sub: Subdivision) => void
+  swing: number
+  setSwing: (amount: number) => void
+  accentPattern: AccentLevel[] | null
+  setAccentPattern: (pattern: AccentLevel[] | null) => void
+  volume: number
+  setVolume: (vol: number) => void
+}
+
 export function useMetronome(
   externalOnBeatSchedule?: (
     beat: number,
@@ -9,7 +35,7 @@ export function useMetronome(
     time: number,
     ctx: AudioContext,
   ) => void,
-) {
+): UseMetronomeReturn {
   const schedulerRef = useRef<AudioScheduler | null>(null)
 
   const [bpm, setBpmState] = useState(120)
