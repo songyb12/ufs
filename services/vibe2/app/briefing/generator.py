@@ -105,7 +105,7 @@ def generate_briefing_llm(signal_result: SignalResult) -> BriefingResponse:
 
 _TEMPLATES = {
     SignalLevel.GREEN: {
-        "summary": "SOXL 매수/홀드 유리한 환경입니다. 기술적 지표와 매크로 환경이 우호적입니다.",
+        "summary": "SOXL 매수/홀드 유리한 환경입니다.",
         "action": "현 포지션 유지 또는 추가 매수 고려",
     },
     SignalLevel.YELLOW: {
@@ -113,20 +113,65 @@ _TEMPLATES = {
         "action": "신규 진입 자제, 기존 포지션 유지",
     },
     SignalLevel.RED: {
-        "summary": "SOXL 리스크가 높은 구간입니다. 변동성과 레버리지 디케이에 주의하세요.",
+        "summary": "SOXL 리스크가 높은 구간입니다.",
         "action": "포지션 축소 또는 신규 진입 회피 권장",
     },
 }
 
 
+def _build_detail_bullets(details: dict) -> str:
+    """Extract key metrics from signal details into readable bullet lines."""
+    lines: list[str] = []
+    tech = details.get("technical", {})
+    lev = details.get("leverage", {})
+    macro = details.get("macro", {})
+
+    # Technical
+    rsi = tech.get("rsi_value")
+    if rsi is not None:
+        lines.append(f"RSI {rsi:.1f}")
+    close = tech.get("close")
+    if close is not None:
+        lines.append(f"종가 ${close:.2f}")
+
+    # Leverage
+    td = lev.get("tracking_diff_pct")
+    if td is not None:
+        lines.append(f"괴리율 {td:+.1f}%")
+    vix = lev.get("vix")
+    if vix is not None:
+        lines.append(f"VIX {vix:.1f}")
+    dvol = lev.get("daily_volatility_pct")
+    if dvol is not None:
+        lines.append(f"일간변동성 {dvol:.1f}%")
+
+    # Macro
+    dxy = macro.get("dxy")
+    if dxy is not None:
+        lines.append(f"DXY {dxy:.1f}")
+    fg = macro.get("fear_greed")
+    if fg is not None:
+        lines.append(f"F&G {fg:.0f}")
+    us10y = macro.get("us_10y_yield")
+    if us10y is not None:
+        lines.append(f"10Y {us10y:.2f}%")
+
+    return " | ".join(lines) if lines else ""
+
+
 def generate_briefing_fallback(signal_result: SignalResult) -> BriefingResponse:
-    """Generate briefing using rule-based templates (no LLM)."""
+    """Generate briefing using rule-based templates with real metrics (no LLM)."""
     template = _TEMPLATES.get(signal_result.signal, _TEMPLATES[SignalLevel.YELLOW])
+
+    bullets = _build_detail_bullets(signal_result.details)
+    commentary = template["summary"]
+    if bullets:
+        commentary += f" [{bullets}]"
 
     return BriefingResponse(
         date=datetime.now().strftime("%Y-%m-%d"),
         signal=signal_result,
-        commentary=template["summary"],
+        commentary=commentary,
         generated_at=datetime.now(),
     )
 

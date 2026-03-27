@@ -113,6 +113,28 @@ async def get_current_signal(user: str = Depends(get_current_user)):
     return result
 
 
+@router.get("/signal/history", tags=["signal"])
+async def get_signal_history(
+    days: int = Query(default=14, ge=1, le=365),
+    user: str = Depends(get_current_user),
+):
+    """Get signal history for the past N days (lightweight — no briefing payload)."""
+    conn = get_sync_db()
+    try:
+        cursor = conn.execute(
+            "SELECT signal_date, signal_level, score "
+            "FROM signals ORDER BY id DESC LIMIT ?",
+            (days,),
+        )
+        rows = cursor.fetchall()
+        return [
+            {"date": r["signal_date"], "signal": r["signal_level"], "score": r["score"]}
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
 # ── Briefing ──
 
 

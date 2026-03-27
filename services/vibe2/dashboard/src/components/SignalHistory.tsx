@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
 import { authFetch } from "../api.ts";
 
-interface HistoryEntry {
+interface SignalEntry {
   date: string;
-  signal: {
-    signal: "GREEN" | "YELLOW" | "RED";
-    score: number;
-    summary: string;
-  };
-  commentary: string | null;
+  signal: string;
+  score: number;
 }
 
 const COLORS: Record<string, string> = {
@@ -18,12 +14,12 @@ const COLORS: Record<string, string> = {
 };
 
 export default function SignalHistory() {
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<SignalEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tooltip, setTooltip] = useState<{ entry: HistoryEntry; x: number; y: number } | null>(null);
+  const [tooltip, setTooltip] = useState<{ entry: SignalEntry; x: number; y: number } | null>(null);
 
   useEffect(() => {
-    authFetch<HistoryEntry[]>("/briefing/history?days=14")
+    authFetch<SignalEntry[]>("/signal/history?days=14")
       .then((data) => setHistory(data.reverse()))
       .catch(() => setHistory([]))
       .finally(() => setLoading(false));
@@ -61,7 +57,7 @@ export default function SignalHistory() {
                 cx={dotSize / 2}
                 cy={dotSize / 2}
                 r={dotSize / 2 - 1}
-                fill={COLORS[entry.signal.signal] || "#374151"}
+                fill={COLORS[entry.signal] || "#374151"}
                 opacity={0.9}
               />
             </svg>
@@ -80,22 +76,19 @@ export default function SignalHistory() {
             left: "50%",
             transform: "translateX(-50%)",
             marginBottom: "4px",
-            minWidth: "160px",
+            minWidth: "140px",
           }}
         >
           <div className="flex items-center gap-2 mb-1">
             <span
               className="inline-block w-2.5 h-2.5 rounded-full"
-              style={{ backgroundColor: COLORS[tooltip.entry.signal.signal] }}
+              style={{ backgroundColor: COLORS[tooltip.entry.signal] }}
             />
             <span className="text-gray-200 font-semibold">{tooltip.entry.date}</span>
           </div>
           <div className="text-gray-400">
-            {tooltip.entry.signal.signal} ({tooltip.entry.signal.score >= 0 ? "+" : ""}{tooltip.entry.signal.score.toFixed(3)})
+            {tooltip.entry.signal} ({tooltip.entry.score >= 0 ? "+" : ""}{tooltip.entry.score.toFixed(3)})
           </div>
-          {tooltip.entry.commentary && (
-            <div className="text-gray-500 mt-1 line-clamp-2">{tooltip.entry.commentary}</div>
-          )}
         </div>
       )}
     </div>
