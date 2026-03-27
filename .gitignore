@@ -21,6 +21,8 @@ venv/
 
 # SQLite databases (runtime data, not source)
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
 
 # IDE
@@ -40,6 +42,7 @@ node_modules/
 
 # Frontend build output
 frontend/*/dist/
+services/*/dashboard/dist/
 .vite/
 
 # Claude Code
@@ -47,3 +50,9 @@ frontend/*/dist/
 
 # Session Manager runtime data
 services/session-manager/data/sessions/
+
+# Test & coverage artifacts
+.coverage
+coverage.json
+htmlcov/
+.pytest_cache/
