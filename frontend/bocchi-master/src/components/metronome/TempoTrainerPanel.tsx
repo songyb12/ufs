@@ -111,7 +111,7 @@ export function TempoTrainerPanel({
     if (!isPlaying && active) {
       handleStop()
     }
-  }, [isPlaying]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPlaying, active, handleStop])
 
   // Progress calculation
   const progress = active

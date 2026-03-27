@@ -129,7 +129,7 @@ export function useChordProgression(opts: UseChordProgressionOptions) {
   // Track whether chord change was auto (metronome) vs manual
   const isAutoChordChange = useRef(false)
 
-  // When active chord changes, apply optimized index if optimization is ON
+  // When active chord or voicing source changes, apply optimized index if optimization is ON
   useEffect(() => {
     if (isOptimized && optimizedIndices.length > 0) {
       const optIdx = optimizedIndices[activeChordIndex] ?? 0
@@ -138,18 +138,7 @@ export function useChordProgression(opts: UseChordProgressionOptions) {
       setVoicingIndex(0)
     }
     isAutoChordChange.current = false
-  }, [activeChordIndex, isOptimized, optimizedIndices])
-
-  // When voicing source changes, reset index
-  useEffect(() => {
-    if (isOptimized && optimizedIndices.length > 0) {
-      const optIdx = optimizedIndices[activeChordIndex] ?? 0
-      setVoicingIndex(optIdx)
-    } else {
-      setVoicingIndex(0)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps — intentionally triggers only when voicingSource changes
-  }, [voicingSource])
+  }, [activeChordIndex, isOptimized, optimizedIndices, voicingSource])
 
   // Clamp voicingIndex when voicing list changes
   useEffect(() => {

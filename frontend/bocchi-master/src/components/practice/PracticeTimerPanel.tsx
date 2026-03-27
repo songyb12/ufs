@@ -133,12 +133,18 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
     }
   }, [elapsedSeconds, mode, running, totalGoalSeconds, flushToDailyLog])
 
-  // Auto-start when external activity begins
+  // Auto-start when external activity begins.
+  // Only isActive should trigger this — running/elapsedSeconds/expanded are guards, not triggers.
+  // Read guards via refs so they don't restart the effect (which would auto-start mid-session).
+  const runningRef = useRef(running)
+  runningRef.current = running
+  const expandedRef = useRef(expanded)
+  expandedRef.current = expanded
   useEffect(() => {
-    if (isActive && !running && elapsedSeconds === 0 && expanded) {
+    if (isActive && !runningRef.current && elapsedRef.current === 0 && expandedRef.current) {
       startTimer()
     }
-  }, [isActive]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isActive, startTimer])
 
   // Flush on unmount
   useEffect(() => () => {

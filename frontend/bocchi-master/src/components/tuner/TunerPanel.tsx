@@ -150,8 +150,10 @@ export function TunerPanel({ instrument }: TunerPanelProps) {
     setReading(null)
   }, [])
 
-  // Cleanup on unmount
-  useEffect(() => () => { stopListening() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Cleanup on unmount — use ref so the latest stopListening is called without adding it to deps
+  const stopListeningRef = useRef(stopListening)
+  stopListeningRef.current = stopListening
+  useEffect(() => () => { stopListeningRef.current() }, [])
 
   if (!expanded) {
     return (

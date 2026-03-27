@@ -96,8 +96,10 @@ export function DroneTonePanel({ activeRoot }: { activeRoot?: NoteName | null })
     if (gainRef.current) gainRef.current.gain.value = volume
   }, [volume])
 
-  // Cleanup on unmount
-  useEffect(() => () => { stopDrone() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Cleanup on unmount — use ref so the latest stopDrone is called without adding it to deps
+  const stopDroneRef = useRef(stopDrone)
+  stopDroneRef.current = stopDrone
+  useEffect(() => () => { stopDroneRef.current() }, [])
 
   if (!expanded) {
     return (
