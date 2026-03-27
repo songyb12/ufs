@@ -26,11 +26,21 @@ from pathlib import Path
 import httpx
 import pytest
 
+import app.auth as auth_module
 import app.main as main_module
+import app.models as models_module
+import app.routes_api as routes_api_module
+import app.session as session_module
+import app.state as state_module
 from app.main import app, ClaudeSession, PlanPhase
+from starlette.testclient import TestClient
 
 
 # ── 공통 픽스처 ───────────────────────────────────────────────────────────────
+
+TEST_ADMIN_KEY = "test-admin-key"
+ADMIN_HEADERS = {"X-Admin-Key": TEST_ADMIN_KEY}
+
 
 @pytest.fixture(autouse=True)
 def reset_state(monkeypatch, tmp_path):
@@ -40,10 +50,17 @@ def reset_state(monkeypatch, tmp_path):
     sessions_dir.mkdir()
     logs_dir.mkdir()
 
-    monkeypatch.setattr(main_module, "PROJECTS_FILE", tmp_path / "projects.json")
+    monkeypatch.setattr(models_module, "PROJECTS_FILE", tmp_path / "projects.json")
     monkeypatch.setattr(main_module, "TEMPLATES_FILE", tmp_path / "templates.json")
+    monkeypatch.setattr(routes_api_module, "TEMPLATES_FILE", tmp_path / "templates.json")
+    monkeypatch.setattr(routes_api_module, "LOGS_DIR", logs_dir)
     monkeypatch.setattr(main_module, "SESSIONS_DIR", sessions_dir)
     monkeypatch.setattr(main_module, "LOGS_DIR", logs_dir)
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", sessions_dir)
+    monkeypatch.setattr(session_module, "LOGS_DIR", logs_dir)
+    monkeypatch.setattr(state_module, "_shutting_down", False)
+    # Admin 인증 — 테스트용 키 주입
+    monkeypatch.setenv("ADMIN_API_KEY", TEST_ADMIN_KEY)
 
     main_module._session_create_log.clear()
     main_module.sessions.clear()
@@ -282,6 +299,16 @@ class TestProjects:
 
 class TestBrowse:
 
+    @pytest.fixture(autouse=True)
+    def allow_tmp_path(self, monkeypatch, tmp_path):
+        """tmp_path를 허용 루트에 추가 — 테스트용 경로 격리"""
+        from pathlib import Path
+        monkeypatch.setattr(
+            auth_module,
+            "_ALLOWED_BROWSE_ROOTS",
+            (tmp_path, Path.home(), main_module.APP_DIR.parent.parent),
+        )
+
     async def test_browse_valid_path_returns_200(self, client, tmp_path):
         r = await client.get("/api/browse", params={"path": str(tmp_path)})
         assert r.status_code == 200
@@ -289,8 +316,8 @@ class TestBrowse:
         assert "current" in body
         assert "items" in body
 
-    async def test_browse_invalid_path_returns_400(self, client):
-        r = await client.get("/api/browse", params={"path": "/no/such/dir/zzz"})
+    async def test_browse_invalid_path_returns_400(self, client, tmp_path):
+        r = await client.get("/api/browse", params={"path": str(tmp_path / "no_such_dir")})
         assert r.status_code == 400
 
     async def test_browse_lists_subdirs(self, client, tmp_path):
@@ -300,6 +327,21 @@ class TestBrowse:
         names = [i["name"] for i in r.json()["items"]]
         assert "subdir_a" in names
         assert "subdir_b" in names
+
+    async def test_browse_disallowed_path_returns_403(self, client, monkeypatch, tmp_path):
+        """허용 루트 밖 경로 → 403"""
+        # tmp_path를 허용 목록에서 제외하여 비허용 경로 시뮬레이션
+        monkeypatch.setattr(auth_module, "_ALLOWED_BROWSE_ROOTS", ())
+        r = await client.get("/api/browse", params={"path": str(tmp_path)})
+        assert r.status_code == 403
+
+    async def test_browse_home_subdir_allowed(self, client, tmp_path):
+        """홈 디렉토리 하위는 탐색 허용"""
+        from pathlib import Path
+        home = Path.home()
+        r = await client.get("/api/browse", params={"path": str(home)})
+        # 홈이 실제로 존재하면 200, 없으면 400 — 둘 다 403이 아니어야 함
+        assert r.status_code != 403
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -483,7 +525,7 @@ class TestShells:
         assert r.json() == []
 
     async def test_create_shell_503_when_no_winpty(self, client, monkeypatch):
-        monkeypatch.setattr(main_module, "HAS_WINPTY", False)
+        monkeypatch.setattr(routes_api_module, "HAS_WINPTY", False)
         r = await client.post("/api/shells", json={"shell_type": "cmd"})
         assert r.status_code == 503
 
@@ -570,7 +612,7 @@ class TestAdminEndpoints:
 
     async def test_admin_status_returns_structure(self, client):
         """/admin/status 응답에 필수 키 + 타입 검증"""
-        r = await client.get("/admin/status")
+        r = await client.get("/admin/status", headers=ADMIN_HEADERS)
         assert r.status_code == 200
         data = r.json()
         assert "active_pipelines" in data
@@ -582,7 +624,7 @@ class TestAdminEndpoints:
 
     async def test_admin_status_safe_to_restart_when_idle(self, client):
         """파이프라인 없는 idle 상태 → safe_to_restart == True"""
-        r = await client.get("/admin/status")
+        r = await client.get("/admin/status", headers=ADMIN_HEADERS)
         assert r.status_code == 200
         data = r.json()
         assert data["active_pipelines"] == 0
@@ -590,7 +632,7 @@ class TestAdminEndpoints:
 
     async def test_admin_resume_not_found(self, client):
         """존재하지 않는 run_id → 404"""
-        r = await client.post("/admin/resume/nonexistent-id")
+        r = await client.post("/admin/resume/nonexistent-id", headers=ADMIN_HEADERS)
         assert r.status_code == 404
 
     async def test_admin_restart_returns_accepted(self, monkeypatch, client):
@@ -598,9 +640,134 @@ class TestAdminEndpoints:
         import os
         monkeypatch.setattr(os, "execv", lambda *_: None)
         monkeypatch.setattr(main_module, "_shutting_down", False)
-        r = await client.post("/admin/restart")
+        r = await client.post("/admin/restart", headers=ADMIN_HEADERS)
         assert r.status_code in (200, 202)
         data = r.json()
         assert "status" in data
         # 테스트 이후 _shutting_down 복원 (monkeypatch가 자동 처리)
 
+    async def test_admin_status_no_key_returns_403(self, client):
+        """X-Admin-Key 헤더 없으면 403"""
+        r = await client.get("/admin/status")
+        assert r.status_code == 403
+
+    async def test_admin_status_wrong_key_returns_403(self, client):
+        """잘못된 X-Admin-Key → 403"""
+        r = await client.get("/admin/status", headers={"X-Admin-Key": "wrong-key"})
+        assert r.status_code == 403
+
+    async def test_admin_restart_no_key_returns_403(self, client):
+        """POST /admin/restart: 헤더 없으면 403"""
+        r = await client.post("/admin/restart")
+        assert r.status_code == 403
+
+    async def test_admin_resume_no_key_returns_403(self, client):
+        """POST /admin/resume/{id}: 헤더 없으면 403"""
+        r = await client.post("/admin/resume/some-id")
+        assert r.status_code == 403
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 13. Lifespan — startup 세션 복원 / 좀비 정리 / shutdown 플래그
+# ════════════════════════════════════════════════════════════════════════════════
+
+class TestLifespan:
+    """D-2: lifespan startup/shutdown 이벤트 테스트 (starlette TestClient)"""
+
+    @pytest.fixture(autouse=True)
+    def patch_for_lifespan(self, monkeypatch, tmp_path):
+        """session_module + pipeline_store 경로를 tmp_path로 격리"""
+        import sqlite3 as _sqlite3
+        import app.pipeline_store as pipeline_store_module
+        # reset_state(autouse)가 이미 sessions_dir/logs_dir를 만들어 두므로 exist_ok=True
+        (tmp_path / "sessions").mkdir(exist_ok=True)
+        (tmp_path / "logs").mkdir(exist_ok=True)
+        db_path = tmp_path / "pipeline.db"
+        monkeypatch.setattr(pipeline_store_module, "_DB_PATH", db_path)
+        # 새 DB 파일에 스키마 초기화 (lifespan이 get_resumable_runs 호출하기 전에 필요)
+        conn = _sqlite3.connect(str(db_path))
+        pipeline_store_module._init_db(conn)
+        conn.commit()
+        conn.close()
+
+    def test_startup_restores_session(self, tmp_path):
+        """startup 시 SESSIONS_DIR의 JSON 파일에서 세션 복원"""
+        sessions_dir = tmp_path / "sessions"
+        sid = "restored-abc123"
+        (sessions_dir / f"{sid}.json").write_text(
+            json.dumps({
+                "id": sid,
+                "work_dir": str(tmp_path),
+                "model": "",
+                "name": sid,
+                "skip_permissions": False,
+                "mcp_config": "",
+                "session_uuid": None,
+                "output_lines": [],
+                "created_at": "2024-01-01T00:00:00",
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "pipeline_id": None,
+                "pipeline_role": None,
+            }),
+            encoding="utf-8",
+        )
+
+        with TestClient(app) as _:
+            assert sid in main_module.sessions
+
+    def test_startup_cleans_zombie_files(self, tmp_path):
+        """startup 시 sv-/pw- 좀비 세션 파일 삭제"""
+        sessions_dir = tmp_path / "sessions"
+        zombie = sessions_dir / "sv-supervisor-xyz.json"
+        zombie.write_text("{}", encoding="utf-8")
+
+        with TestClient(app) as _:
+            assert not zombie.exists()
+
+    def test_shutdown_sets_shutting_down_flag(self):
+        """shutdown 시 state._shutting_down = True 설정"""
+        assert state_module._shutting_down is False  # reset_state가 보장
+        with TestClient(app) as _:
+            pass
+        assert state_module._shutting_down is True
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 14. WebSocket — /ws/{session_id} 및 /ws/shell/{id}
+# ════════════════════════════════════════════════════════════════════════════════
+
+class TestWebSocket:
+    """D-3: WebSocket 연결 테스트 (TestClient.websocket_connect)"""
+
+    def test_ws_no_token_rejected(self):
+        """ADMIN_API_KEY 설정 시 token 없으면 인증 에러 — reset_state가 키 설정 보장"""
+        client = TestClient(app)
+        with client.websocket_connect("/ws/any-session") as ws:
+            data = ws.receive_json()
+            assert data.get("error") == "인증 실패"
+
+    def test_ws_nonexistent_session_sends_error(self):
+        """/ws/nonexistent-id + 올바른 token → 세션 없음 에러"""
+        client = TestClient(app)
+        with client.websocket_connect(f"/ws/no-such-session?token={TEST_ADMIN_KEY}") as ws:
+            data = ws.receive_json()
+            assert "error" in data
+
+    def test_ws_valid_session_sends_output_message(self):
+        """유효한 세션 + token → output/alive 포함 첫 메시지 수신"""
+        sid = f"ws-{uuid.uuid4().hex[:8]}"
+        main_module.sessions[sid] = ClaudeSession(sid, ".", "")
+
+        client = TestClient(app, raise_server_exceptions=False)
+        with client.websocket_connect(f"/ws/{sid}?token={TEST_ADMIN_KEY}") as ws:
+            data = ws.receive_json()
+            assert "output" in data
+            assert "alive" in data
+
+    def test_ws_shell_nonexistent_sends_error(self):
+        """/ws/shell/no-such-id + token → Shell 없음 에러"""
+        client = TestClient(app)
+        with client.websocket_connect(f"/ws/shell/no-such-shell?token={TEST_ADMIN_KEY}") as ws:
+            data = ws.receive_json()
+            assert "error" in data

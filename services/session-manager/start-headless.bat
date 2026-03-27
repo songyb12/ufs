@@ -1,10 +1,9 @@
 @echo off
-cd /d "D:\Claude\01_UFS\services\session-manager"
-if exist .venv\Scripts\activate.bat (
-    call .venv\Scripts\activate.bat
-) else (
-    python -m venv .venv
-    call .venv\Scripts\activate.bat
-    pip install -r requirements.txt
-)
-python -m app.main >> logs\service.log 2>&1
+:: ============================================================================
+:: Session Manager Headless Starter (watchdog 경유)
+:: ============================================================================
+:: 이전: python -m app.main 직접 실행 → 죽으면 그대로 종료
+:: 현재: watchdog.bat --headless 경유 → 자동 재시작
+:: ============================================================================
+cd /d "%~dp0"
+call watchdog.bat --headless

@@ -53,6 +53,7 @@ WAL(Write-Ahead Logging) 모드에서는 Reader가 Writer를 차단하지 않아
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -65,6 +66,16 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextmanager
+def _get_conn():
+    """Open a connection, yield it, and ensure it is closed on exit."""
+    conn = _connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _init_db(conn: sqlite3.Connection) -> None:
@@ -102,39 +113,31 @@ def _now_iso() -> str:
 def create_run(run_id: str, session_id: str, total_stages: int) -> None:
     """신규 파이프라인 실행 레코드 생성."""
     now = _now_iso()
-    with _lock:
-        conn = _connect()
-        try:
-            conn.execute(
-                """
-                INSERT INTO pipeline_runs
-                    (id, session_id, status, current_stage, total_stages,
-                     stage_outputs, created_at, updated_at, error)
-                VALUES (?, ?, 'running', 0, ?, '{}', ?, ?, NULL)
-                """,
-                (run_id, session_id, total_stages, now, now),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+    with _lock, _get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO pipeline_runs
+                (id, session_id, status, current_stage, total_stages,
+                 stage_outputs, created_at, updated_at, error)
+            VALUES (?, ?, 'running', 0, ?, '{}', ?, ?, NULL)
+            """,
+            (run_id, session_id, total_stages, now, now),
+        )
+        conn.commit()
 
 
 def update_stage(run_id: str, stage_idx: int, status: str) -> None:
     """현재 실행 중인 스테이지 인덱스와 상태 갱신."""
-    with _lock:
-        conn = _connect()
-        try:
-            conn.execute(
-                """
-                UPDATE pipeline_runs
-                SET current_stage = ?, status = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (stage_idx, status, _now_iso(), run_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+    with _lock, _get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE pipeline_runs
+            SET current_stage = ?, status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (stage_idx, status, _now_iso(), run_id),
+        )
+        conn.commit()
 
 
 def save_checkpoint(run_id: str, stage_idx: int, output: dict) -> None:
@@ -144,126 +147,129 @@ def save_checkpoint(run_id: str, stage_idx: int, output: dict) -> None:
     기존 체크포인트는 덮어쓰지 않고 병합(merge).
     """
     key = str(stage_idx)
-    with _lock:
-        conn = _connect()
-        try:
-            row = conn.execute(
-                "SELECT stage_outputs FROM pipeline_runs WHERE id = ?",
-                (run_id,),
-            ).fetchone()
-            if row is None:
-                return
+    with _lock, _get_conn() as conn:
+        row = conn.execute(
+            "SELECT stage_outputs FROM pipeline_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return
 
-            existing: dict = json.loads(row["stage_outputs"] or "{}")
-            existing[key] = output
+        existing: dict = json.loads(row["stage_outputs"] or "{}")
+        existing[key] = output
 
-            conn.execute(
-                """
-                UPDATE pipeline_runs
-                SET stage_outputs = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (json.dumps(existing, ensure_ascii=False, default=str), _now_iso(), run_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        conn.execute(
+            """
+            UPDATE pipeline_runs
+            SET stage_outputs = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (json.dumps(existing, ensure_ascii=False, default=str), _now_iso(), run_id),
+        )
+        conn.commit()
 
 
 def get_checkpoint(run_id: str, stage_idx: int) -> Optional[dict]:
     """저장된 스테이지 체크포인트 반환. 없으면 None."""
     key = str(stage_idx)
-    with _lock:
-        conn = _connect()
-        try:
-            row = conn.execute(
-                "SELECT stage_outputs FROM pipeline_runs WHERE id = ?",
-                (run_id,),
-            ).fetchone()
-            if row is None:
-                return None
-            outputs: dict = json.loads(row["stage_outputs"] or "{}")
-            return outputs.get(key)
-        finally:
-            conn.close()
+    with _lock, _get_conn() as conn:
+        row = conn.execute(
+            "SELECT stage_outputs FROM pipeline_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        outputs: dict = json.loads(row["stage_outputs"] or "{}")
+        return outputs.get(key)
 
 
 def get_resumable_runs() -> list[dict]:
     """status가 'running' 또는 'interrupted'인 파이프라인 목록 반환."""
-    with _lock:
-        conn = _connect()
-        try:
-            rows = conn.execute(
-                """
-                SELECT id, session_id, status, current_stage, total_stages,
-                       stage_outputs, created_at, updated_at, error
-                FROM pipeline_runs
-                WHERE status IN ('running', 'interrupted')
-                ORDER BY created_at ASC
-                """,
-            ).fetchall()
-            result = []
-            for r in rows:
-                d = dict(r)
-                d["stage_outputs"] = json.loads(d["stage_outputs"] or "{}")
-                result.append(d)
-            return result
-        finally:
-            conn.close()
+    with _lock, _get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, session_id, status, current_stage, total_stages,
+                   stage_outputs, created_at, updated_at, error
+            FROM pipeline_runs
+            WHERE status IN ('running', 'interrupted')
+            ORDER BY created_at ASC
+            """,
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["stage_outputs"] = json.loads(d["stage_outputs"] or "{}")
+            result.append(d)
+        return result
 
 
 def mark_complete(run_id: str) -> None:
     """파이프라인을 completed 상태로 마킹."""
-    with _lock:
-        conn = _connect()
-        try:
-            conn.execute(
-                """
-                UPDATE pipeline_runs
-                SET status = 'completed', updated_at = ?, error = NULL
-                WHERE id = ?
-                """,
-                (_now_iso(), run_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+    with _lock, _get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE pipeline_runs
+            SET status = 'completed', updated_at = ?, error = NULL
+            WHERE id = ?
+            """,
+            (_now_iso(), run_id),
+        )
+        conn.commit()
 
 
 def mark_failed(run_id: str, stage_idx: int, error_msg: str) -> None:
     """파이프라인을 failed 상태로 마킹. 실패 스테이지와 에러 메시지 기록."""
-    with _lock:
-        conn = _connect()
-        try:
-            conn.execute(
-                """
-                UPDATE pipeline_runs
-                SET status = 'failed', current_stage = ?, error = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (stage_idx, error_msg, _now_iso(), run_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+    with _lock, _get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE pipeline_runs
+            SET status = 'failed', current_stage = ?, error = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (stage_idx, error_msg, _now_iso(), run_id),
+        )
+        conn.commit()
 
 
 def mark_interrupted(run_id: str) -> None:
     """서버 종료 등으로 중단된 파이프라인을 interrupted 상태로 마킹."""
-    with _lock:
-        conn = _connect()
-        try:
-            conn.execute(
-                """
-                UPDATE pipeline_runs
-                SET status = 'interrupted', updated_at = ?
-                WHERE id = ?
+    with _lock, _get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE pipeline_runs
+            SET status = 'interrupted', updated_at = ?
+            WHERE id = ?
+            """,
+            (_now_iso(), run_id),
+        )
+        conn.commit()
+
+
+def cleanup_interrupted_runs(run_ids: list[str] | None = None) -> int:
+    """interrupted 상태 파이프라인 run을 삭제.
+
+    Args:
+        run_ids: 특정 run만 삭제. None이면 모든 interrupted run 삭제.
+
+    Returns:
+        삭제된 행 수.
+    """
+    with _lock, _get_conn() as conn:
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            cur = conn.execute(
+                f"""
+                DELETE FROM pipeline_runs
+                WHERE status = 'interrupted' AND id IN ({placeholders})
                 """,
-                (_now_iso(), run_id),
+                run_ids,
             )
-            conn.commit()
-        finally:
-            conn.close()
+        else:
+            cur = conn.execute(
+                "DELETE FROM pipeline_runs WHERE status = 'interrupted'"
+            )
+        conn.commit()
+        return cur.rowcount
 
 
 def cleanup_old_runs(days: int = 7) -> int:
@@ -274,18 +280,14 @@ def cleanup_old_runs(days: int = 7) -> int:
     """
     from datetime import timedelta
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    with _lock:
-        conn = _connect()
-        try:
-            cur = conn.execute(
-                """
-                DELETE FROM pipeline_runs
-                WHERE status IN ('completed', 'failed')
-                  AND updated_at < ?
-                """,
-                (cutoff,),
-            )
-            conn.commit()
-            return cur.rowcount
-        finally:
-            conn.close()
+    with _lock, _get_conn() as conn:
+        cur = conn.execute(
+            """
+            DELETE FROM pipeline_runs
+            WHERE status IN ('completed', 'failed')
+              AND updated_at < ?
+            """,
+            (cutoff,),
+        )
+        conn.commit()
+        return cur.rowcount

@@ -19,9 +19,11 @@ USER appuser
 
 EXPOSE 8006
 
+VOLUME ["/app/data"]
+
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=60s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request,os; urllib.request.urlopen(f'http://localhost:{os.environ.get(\"SERVICE_PORT\",\"8006\")}/')" || exit 1
+    CMD python -c "import urllib.request,os; urllib.request.urlopen(f'http://localhost:{os.environ.get(\"SERVICE_PORT\",\"8006\")}/health')" || exit 1
 
 CMD ["python", "-m", "app.main"]

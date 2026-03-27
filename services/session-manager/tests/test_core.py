@@ -30,6 +30,11 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import app.main as main_module
+import app.models as models_module
+import app.pipeline as pipeline_module
+import app.session as session_module
+import app.shell as shell_module
+import app.state as state_module
 from app.main import (
     _check_rate_limit,
     MAX_SESSION_CREATES_PER_MINUTE,
@@ -595,7 +600,7 @@ class TestWorkdirTildeExpansion:
                 captured["cwd"] = kwargs.get("cwd")
                 raise RuntimeError("mock — subprocess 실행 불필요")
 
-            monkeypatch.setattr(main_module, "CLAUDE_EXE", "claude")
+            monkeypatch.setattr(state_module, "CLAUDE_EXE", "claude")
             session = ClaudeSession(f"td{uuid.uuid4().hex[:4]}", work_dir, "")
             with patch("asyncio.create_subprocess_exec",
                        AsyncMock(side_effect=fake_exec)):
@@ -642,7 +647,7 @@ class TestClaudeExeNoneGuard:
 
     def test_none_exe_appends_error_message(self, monkeypatch):
         """CLAUDE_EXE=None이면 output_lines에 error 타입 항목이 추가되어야 한다"""
-        monkeypatch.setattr(main_module, "CLAUDE_EXE", None)
+        monkeypatch.setattr(state_module, "CLAUDE_EXE", None)
 
         async def _run():
             session = ClaudeSession("ne01", ".", "")
@@ -659,7 +664,7 @@ class TestClaudeExeNoneGuard:
 
     def test_none_exe_does_not_raise(self, monkeypatch):
         """CLAUDE_EXE=None이면 예외 없이 정상 종료해야 한다 (TypeError 회귀 방지)"""
-        monkeypatch.setattr(main_module, "CLAUDE_EXE", None)
+        monkeypatch.setattr(state_module, "CLAUDE_EXE", None)
 
         async def _run():
             session = ClaudeSession("ne02", ".", "")
@@ -670,7 +675,7 @@ class TestClaudeExeNoneGuard:
     def test_none_exe_does_not_change_busy_state(self, monkeypatch):
         """CLAUDE_EXE=None 경로는 busy 상태를 변경하지 않아야 한다
         (busy 전환은 _process_queue 레벨에서 관리)"""
-        monkeypatch.setattr(main_module, "CLAUDE_EXE", None)
+        monkeypatch.setattr(state_module, "CLAUDE_EXE", None)
 
         async def _run():
             session = ClaudeSession("ne03", ".", "")
@@ -749,8 +754,8 @@ class TestShellSessionRunningLoop:
         mock_pty.isalive.return_value = False  # _read_loop 즉시 종료
         mock_pty_cls = MagicMock()
         mock_pty_cls.spawn.return_value = mock_pty
-        monkeypatch.setattr(main_module, "HAS_WINPTY", True)
-        monkeypatch.setattr(main_module, "PtyProcess", mock_pty_cls, raising=False)
+        monkeypatch.setattr(shell_module, "HAS_WINPTY", True)
+        monkeypatch.setattr(shell_module, "PtyProcess", mock_pty_cls, raising=False)
         return mock_pty
 
     def test_start_assigns_running_loop(self, monkeypatch):
@@ -771,16 +776,16 @@ class TestShellSessionRunningLoop:
 
         asyncio.run(_test())
 
-    def test_start_outside_async_context_raises(self, monkeypatch):
-        """start()를 async 컨텍스트 밖에서 호출하면 RuntimeError가 발생해야 한다.
+    def test_start_outside_async_context_sets_loop_to_none(self, monkeypatch):
+        """start()를 async 컨텍스트 밖에서 호출하면 _loop가 None이어야 한다.
 
-        get_running_loop()는 실행 중인 루프가 없으면 RuntimeError를 발생시킨다.
-        get_event_loop() 방식에서는 경고만 발생했음 — 이 테스트가 회귀 방지.
+        RuntimeError를 전파하는 대신 None으로 폴백하여 _push_data의 기존
+        `if self._loop and self._loop.is_running()` 가드가 처리한다.
         """
         self._setup_pty_mock(monkeypatch)
         shell = ShellSession("sh02", ".", "cmd", 80, 24)
-        with pytest.raises(RuntimeError, match="no running event loop"):
-            shell.start()
+        shell.start()  # RuntimeError를 발생시키지 않아야 함
+        assert shell._loop is None
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -877,14 +882,14 @@ class TestProjectsPersistence:
 
     def test_load_returns_empty_when_file_missing(self, monkeypatch, tmp_path):
         """projects.json이 없으면 빈 리스트를 반환해야 한다"""
-        monkeypatch.setattr(main_module, "PROJECTS_FILE", tmp_path / "projects.json")
+        monkeypatch.setattr(models_module, "PROJECTS_FILE", tmp_path / "projects.json")
         assert load_projects() == []
 
     def test_load_handles_corrupt_json_and_creates_backup(self, monkeypatch, tmp_path):
         """손상된 JSON 파일은 .bak으로 백업 후 빈 리스트를 반환해야 한다"""
         fake_path = tmp_path / "projects.json"
         fake_path.write_text("{invalid json content", encoding="utf-8")
-        monkeypatch.setattr(main_module, "PROJECTS_FILE", fake_path)
+        monkeypatch.setattr(models_module, "PROJECTS_FILE", fake_path)
 
         result = load_projects()
 
@@ -895,7 +900,7 @@ class TestProjectsPersistence:
     def test_save_and_load_roundtrip(self, monkeypatch, tmp_path):
         """save_projects 후 load_projects로 동일한 데이터를 복원해야 한다"""
         fake_path = tmp_path / "projects.json"
-        monkeypatch.setattr(main_module, "PROJECTS_FILE", fake_path)
+        monkeypatch.setattr(models_module, "PROJECTS_FILE", fake_path)
 
         projects = [
             {"name": "TestProject", "path": "/test/path", "added_at": "2026-01-01T00:00:00"}
@@ -908,7 +913,7 @@ class TestProjectsPersistence:
     def test_save_uses_atomic_write(self, monkeypatch, tmp_path):
         """save_projects가 원자적 쓰기를 사용하는지 검증 (.tmp 파일이 최종 교체됨)"""
         fake_path = tmp_path / "projects.json"
-        monkeypatch.setattr(main_module, "PROJECTS_FILE", fake_path)
+        monkeypatch.setattr(models_module, "PROJECTS_FILE", fake_path)
 
         save_projects([{"name": "Test", "path": "/test"}])
 
@@ -921,7 +926,7 @@ class TestProjectsPersistence:
     def test_save_preserves_unicode(self, monkeypatch, tmp_path):
         """한국어/유니코드 프로젝트 이름이 손실 없이 저장/복원되어야 한다"""
         fake_path = tmp_path / "projects.json"
-        monkeypatch.setattr(main_module, "PROJECTS_FILE", fake_path)
+        monkeypatch.setattr(models_module, "PROJECTS_FILE", fake_path)
 
         projects = [{"name": "한국어 프로젝트", "path": "/경로/테스트"}]
         save_projects(projects)
@@ -946,44 +951,31 @@ class TestPipelineRunnerStartRollback:
         main_module.sessions[sid] = s
         return s
 
-    def test_supervisor_failure_removes_worker_from_sessions(self, monkeypatch):
-        """supervisor 생성 실패 시 sessions에서 pw-* 항목이 제거되어야 한다"""
+    def test_supervisor_failure_resets_source_pipeline_binding(self, monkeypatch):
+        """supervisor 생성 실패 시 source 세션의 pipeline 바인딩이 롤백되어야 한다"""
         src = self._make_source_session()
         runner = PipelineRunner(src, "goal", "claude-opus-4-6", 3, "cli", 1)
 
-        def _fake_create_worker():
-            wid = f"pw-{runner.id}"
-            worker = ClaudeSession(wid, ".", "claude-opus-4-6")
-            worker.start_worker = lambda: None
-            worker.save_state = lambda: None
-            main_module.sessions[wid] = worker
-            return worker
-
-        monkeypatch.setattr(runner, "_create_worker_session", _fake_create_worker)
         monkeypatch.setattr(runner, "_create_supervisor_session",
                             lambda: (_ for _ in ()).throw(RuntimeError("mock supervisor fail")))
+        monkeypatch.setattr(src, "save_state", lambda: None)
 
         with pytest.raises(RuntimeError, match="mock supervisor fail"):
             runner.start()
 
-        assert f"pw-{runner.id}" not in main_module.sessions, (
-            "supervisor 생성 실패 후 pw-* 세션이 sessions에 남아있으면 안 됨"
+        assert src.pipeline_id is None, (
+            "supervisor 생성 실패 후 source.pipeline_id가 None으로 롤백되어야 함"
         )
+        assert src.pipeline_role is None, (
+            "supervisor 생성 실패 후 source.pipeline_role이 None으로 롤백되어야 함"
+        )
+        assert runner.status == "failed"
 
     def test_supervisor_failure_resets_source_pipeline_id(self, monkeypatch):
-        """supervisor 생성 실패 시 source 세션의 pipeline_id가 None으로 초기화되어야 한다"""
+        """supervisor 생성 실패 시 source 세션의 pipeline_id가 None으로 초기화되어야 한다 (하위호환)"""
         src = self._make_source_session()
         runner = PipelineRunner(src, "goal", "claude-opus-4-6", 3, "cli", 1)
 
-        def _fake_create_worker():
-            wid = f"pw-{runner.id}"
-            worker = ClaudeSession(wid, ".", "claude-opus-4-6")
-            worker.start_worker = lambda: None
-            worker.save_state = lambda: None
-            main_module.sessions[wid] = worker
-            return worker
-
-        monkeypatch.setattr(runner, "_create_worker_session", _fake_create_worker)
         monkeypatch.setattr(runner, "_create_supervisor_session",
                             lambda: (_ for _ in ()).throw(RuntimeError("mock supervisor fail")))
         monkeypatch.setattr(src, "save_state", lambda: None)
@@ -996,20 +988,11 @@ class TestPipelineRunnerStartRollback:
         )
 
     def test_api_mode_no_supervisor_succeeds(self, monkeypatch):
-        """mode='api'이면 supervisor 없이 태스크만 생성되어야 한다 (정상 경로)"""
+        """mode='api'이면 _create_supervisor_session 호출 없이 태스크만 생성되어야 한다"""
         async def _run():
             src = self._make_source_session()
             runner = PipelineRunner(src, "goal", "claude-opus-4-6", 3, "api", 1)
 
-            def _fake_create_worker():
-                wid = f"pw-{runner.id}"
-                worker = ClaudeSession(wid, ".", "claude-opus-4-6")
-                worker.start_worker = lambda: None
-                worker.save_state = lambda: None
-                main_module.sessions[wid] = worker
-                return worker
-
-            monkeypatch.setattr(runner, "_create_worker_session", _fake_create_worker)
             monkeypatch.setattr(src, "save_state", lambda: None)
 
             # _run_loop을 즉시 반환하는 코루틴으로 대체
@@ -1049,7 +1032,7 @@ class TestPlanPhaseApproveRollback:
         """runner.start() 실패 시 pipelines에 고아 항목이 남으면 안 된다"""
         phase, src = self._make_plan_phase()
 
-        monkeypatch.setattr(main_module, "PipelineRunner",
+        monkeypatch.setattr(pipeline_module, "PipelineRunner",
                             lambda *a, **kw: _FailingRunner())
 
         async def _run():
@@ -1065,7 +1048,7 @@ class TestPlanPhaseApproveRollback:
         """runner.start() 실패 시 PlanPhase.pipeline_id가 설정되면 안 된다"""
         phase, src = self._make_plan_phase()
 
-        monkeypatch.setattr(main_module, "PipelineRunner",
+        monkeypatch.setattr(pipeline_module, "PipelineRunner",
                             lambda *a, **kw: _FailingRunner())
 
         async def _run():
@@ -1083,7 +1066,7 @@ class TestPlanPhaseApproveRollback:
 
         async def _run():
             fake_runner = _SucceedingRunner()
-            monkeypatch.setattr(main_module, "PipelineRunner",
+            monkeypatch.setattr(pipeline_module, "PipelineRunner",
                                 lambda *a, **kw: fake_runner)
             result = await phase.approve(None, 3, 1)
             assert result == fake_runner.id
@@ -1325,8 +1308,8 @@ class TestHandleStreamEvent:
 class TestClaudeSessionStatePersistence:
 
     def _make_session(self, monkeypatch, tmp_path) -> ClaudeSession:
-        monkeypatch.setattr(main_module, "SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr(main_module, "LOGS_DIR", tmp_path)
+        monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr(session_module, "LOGS_DIR", tmp_path)
         sid = f"st-{uuid.uuid4().hex[:6]}"
         s = ClaudeSession(sid, "/work", "opus")
         s.name = "test-session"
