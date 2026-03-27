@@ -27,6 +27,9 @@ export const MetronomePendulum = memo(function MetronomePendulum({
   const rafRef = useRef<number | null>(null)
   const phaseRef = useRef(0)
   const lastTimeRef = useRef(0)
+  // Use a ref so the animation loop reads the current beat without restarting RAF
+  const currentBeatRef = useRef(currentBeat)
+  currentBeatRef.current = currentBeat
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -61,7 +64,7 @@ export const MetronomePendulum = memo(function MetronomePendulum({
       const angle = Math.sin(phaseRef.current) * MAX_ANGLE
 
       ctx.clearRect(0, 0, WIDTH, HEIGHT)
-      const isDownbeat = currentBeat === 0
+      const isDownbeat = currentBeatRef.current === 0
       drawPendulum(ctx, angle, isDownbeat)
 
       rafRef.current = requestAnimationFrame(animate)
@@ -72,7 +75,7 @@ export const MetronomePendulum = memo(function MetronomePendulum({
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
-  }, [bpm, isPlaying, currentBeat])
+  }, [bpm, isPlaying])
 
   return (
     <canvas

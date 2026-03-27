@@ -122,9 +122,14 @@ function searchVoicings(
   })
 
   // Backtracking DFS
+  // minFret/maxFret track the span of fretted (>0) notes seen so far — O(1) per node,
+  // replacing the previous slice+filter+spread approach that allocated a new array each call.
   const current: number[] = new Array(stringCount).fill(-1)
 
-  function dfs(stringIdx: number): void {
+  // spanMin/spanMax: running min/max of fretted (>0) notes seen so far.
+  // Both start at 0 as a sentinel meaning "no fretted note yet".
+  // Open strings (fret=0) and muted strings (fret=-1) do not affect the span.
+  function dfs(stringIdx: number, spanMin: number, spanMax: number): void {
     // Prune: too many results already
     if (results.length >= MAX_RESULTS * 10) return
 
@@ -154,22 +159,21 @@ function searchVoicings(
     for (const fret of candidates[stringIdx]) {
       current[stringIdx] = fret
 
-      // Early pruning: check fret span constraint
+      // Early pruning: check fret span constraint using running min/max — no array allocation
       if (fret > 0) {
-        const frettedSoFar = current.slice(0, stringIdx + 1).filter((f) => f > 0)
-        if (frettedSoFar.length > 1) {
-          const span = Math.max(...frettedSoFar) - Math.min(...frettedSoFar)
-          if (span > MAX_FRET_SPAN) continue
-        }
+        const newMin = spanMin === 0 ? fret : Math.min(spanMin, fret)
+        const newMax = Math.max(spanMax, fret)
+        if (newMax - newMin > MAX_FRET_SPAN) continue
+        dfs(stringIdx + 1, newMin, newMax)
+      } else {
+        dfs(stringIdx + 1, spanMin, spanMax)
       }
-
-      dfs(stringIdx + 1)
     }
 
     current[stringIdx] = -1 // reset for backtrack
   }
 
-  dfs(0)
+  dfs(0, 0, 0)
   return results
 }
 

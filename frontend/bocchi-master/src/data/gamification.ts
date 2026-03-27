@@ -226,7 +226,19 @@ export function createDefaultProfile(instrument: 'guitar' | 'bass' = 'guitar'): 
 export function loadPlayerProfile(): PlayerProfile | null {
   try {
     const raw = localStorage.getItem(PROFILE_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<PlayerProfile>
+    // Merge with defaults so old schemas missing array fields don't crash
+    // checkAchievements (which calls .length / .includes on these arrays)
+    const defaults = createDefaultProfile(parsed.instrument === 'bass' ? 'bass' : 'guitar')
+    return {
+      ...defaults,
+      ...parsed,
+      achievements: Array.isArray(parsed.achievements) ? parsed.achievements : [],
+      completedLessons: Array.isArray(parsed.completedLessons) ? parsed.completedLessons : [],
+      completedDrills: Array.isArray(parsed.completedDrills) ? parsed.completedDrills : [],
+      completedSongs: Array.isArray(parsed.completedSongs) ? parsed.completedSongs : [],
+    }
   } catch {
     return null
   }

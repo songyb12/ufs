@@ -163,6 +163,8 @@ export function CallResponsePanel({ midiConnected, lastMidiNote }: CallResponseP
   const lastProcessedRef = useRef<{ note: number; time: number }>({ note: -1, time: 0 })
   const phaseRef = useRef<Phase>('idle')
   phaseRef.current = phase
+  // Tracks all active play/replay timeouts so they can be cancelled on cancelRound/unmount
+  const playTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
   // Pick random pattern from current difficulty, avoiding last used
   const lastPatternRef = useRef<string>('')
@@ -178,6 +180,10 @@ export function CallResponsePanel({ midiConnected, lastMidiNote }: CallResponseP
 
   // Play pattern through synthEngine
   const playPattern = useCallback(async (pattern: Pattern) => {
+    // Clear any previously scheduled highlight timers before starting
+    playTimersRef.current.forEach(clearTimeout)
+    playTimersRef.current = []
+
     const ctx = await ensureResumed()
     const now = ctx.currentTime
     let offset = 0
@@ -190,18 +196,22 @@ export function CallResponsePanel({ midiConnected, lastMidiNote }: CallResponseP
         pluckAttack: true,
       })
       // Highlight current note during playback
-      setTimeout(() => {
-        if (phaseRef.current === 'listening') setCurrentPlayIndex(i)
-      }, offset)
+      playTimersRef.current.push(
+        setTimeout(() => {
+          if (phaseRef.current === 'listening') setCurrentPlayIndex(i)
+        }, offset)
+      )
       offset += n.durationMs
     })
     // After pattern finishes → switch to responding
-    setTimeout(() => {
-      if (phaseRef.current === 'listening') {
-        setCurrentPlayIndex(-1)
-        setPhase('responding')
-      }
-    }, offset + 200)
+    playTimersRef.current.push(
+      setTimeout(() => {
+        if (phaseRef.current === 'listening') {
+          setCurrentPlayIndex(-1)
+          setPhase('responding')
+        }
+      }, offset + 200)
+    )
   }, [ensureResumed])
 
   // Start a round
@@ -268,6 +278,9 @@ export function CallResponsePanel({ midiConnected, lastMidiNote }: CallResponseP
   // Replay the current pattern
   const replayPattern = useCallback(async () => {
     if (!currentPattern || phase === 'listening') return
+    playTimersRef.current.forEach(clearTimeout)
+    playTimersRef.current = []
+
     const ctx = await ensureResumed()
     const now = ctx.currentTime
     let offset = 0
@@ -279,19 +292,28 @@ export function CallResponsePanel({ midiConnected, lastMidiNote }: CallResponseP
         gain: 0.35,
         pluckAttack: true,
       })
-      setTimeout(() => setCurrentPlayIndex(i), offset)
+      playTimersRef.current.push(setTimeout(() => setCurrentPlayIndex(i), offset))
       offset += n.durationMs
     })
-    setTimeout(() => setCurrentPlayIndex(-1), offset)
+    playTimersRef.current.push(setTimeout(() => setCurrentPlayIndex(-1), offset))
   }, [currentPattern, phase, ensureResumed])
 
   // Cancel current round
   const cancelRound = useCallback(() => {
+    playTimersRef.current.forEach(clearTimeout)
+    playTimersRef.current = []
     setPhase('idle')
     setCurrentPattern(null)
     setPlayedNotes([])
     playedNotesRef.current = []
     setCurrentPlayIndex(-1)
+  }, [])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      playTimersRef.current.forEach(clearTimeout)
+    }
   }, [])
 
   // Stats

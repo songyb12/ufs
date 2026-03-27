@@ -20,6 +20,7 @@ export function BpmSlider({ bpm, onChange }: BpmSliderProps) {
         value={bpm}
         onChange={(e) => onChange(Number(e.target.value))}
         className="flex-1 h-2 accent-orange-500"
+        aria-label={`BPM: ${bpm}`}
       />
 
       <button

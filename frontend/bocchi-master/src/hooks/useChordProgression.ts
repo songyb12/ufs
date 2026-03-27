@@ -62,17 +62,6 @@ export function useChordProgression(opts: UseChordProgressionOptions) {
     { degreeIndex: 0 }, // I
   ])
 
-  const handleCustomToggle = useCallback(() => {
-    setIsCustomProgression((v) => {
-      const next = !v
-      if (next) {
-        onCustomPresetUpdate(customSteps)
-      }
-      return next
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps — onCustomPresetUpdate is defined after this callback; adding it would require reordering or cause a circular reference
-  }, [customSteps])
-
   const onCustomPresetUpdate = useCallback((steps: ProgressionStep[]) => {
     setCustomSteps(steps)
     if (steps.length > 0) {
@@ -81,6 +70,16 @@ export function useChordProgression(opts: UseChordProgressionOptions) {
       setProgressionPreset(null)
     }
   }, [])
+
+  const handleCustomToggle = useCallback(() => {
+    setIsCustomProgression((v) => {
+      const next = !v
+      if (next) {
+        onCustomPresetUpdate(customSteps)
+      }
+      return next
+    })
+  }, [customSteps, onCustomPresetUpdate])
 
   const handleCustomStepsChange = useCallback((steps: ProgressionStep[]) => {
     onCustomPresetUpdate(steps)

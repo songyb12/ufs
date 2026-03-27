@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react'
 import type { Note, NoteName } from './types/music'
 import { AppShell } from './components/layout/AppShell'
 import { Fretboard } from './components/fretboard/Fretboard'
@@ -31,9 +31,9 @@ import { saveSettings } from './utils/storage'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIntervalTrainer } from './hooks/useIntervalTrainer'
 import { IntervalTrainerPanel } from './components/trainer/IntervalTrainerPanel'
-import { PracticeHistoryPanel } from './components/practice/PracticeHistoryPanel'
-import { WeaknessAnalysisPanel } from './components/practice/WeaknessAnalysisPanel'
-import { ReminderSharePanel } from './components/practice/ReminderSharePanel'
+const PracticeHistoryPanel = lazy(() => import('./components/practice/PracticeHistoryPanel').then(m => ({ default: m.PracticeHistoryPanel })))
+const WeaknessAnalysisPanel = lazy(() => import('./components/practice/WeaknessAnalysisPanel').then(m => ({ default: m.WeaknessAnalysisPanel })))
+const ReminderSharePanel = lazy(() => import('./components/practice/ReminderSharePanel').then(m => ({ default: m.ReminderSharePanel })))
 import { ShortcutHelpOverlay } from './components/help/ShortcutHelpOverlay'
 import { ScaleFinderPanel } from './components/scale/ScaleFinderPanel'
 import { FretboardQuizPanel, type FretboardQuizHandle } from './components/trainer/FretboardQuizPanel'
@@ -45,14 +45,14 @@ import { TempoTrainerPanel } from './components/metronome/TempoTrainerPanel'
 import { TuningQuickSwitch } from './components/fretboard/TuningQuickSwitch'
 import { ChordTransitionTimer } from './components/trainer/ChordTransitionTimer'
 import { ChordToneDrillPanel } from './components/trainer/ChordToneDrillPanel'
-import { CallResponsePanel } from './components/trainer/CallResponsePanel'
-import { CircleOfFifths } from './components/theory/CircleOfFifths'
+const CallResponsePanel = lazy(() => import('./components/trainer/CallResponsePanel').then(m => ({ default: m.CallResponsePanel })))
+const CircleOfFifths = lazy(() => import('./components/theory/CircleOfFifths').then(m => ({ default: m.CircleOfFifths })))
 import { BeatFlash } from './components/metronome/BeatFlash'
 import { DroneTonePanel } from './components/practice/DroneTonePanel'
-import { TunerPanel } from './components/tuner/TunerPanel'
+const TunerPanel = lazy(() => import('./components/tuner/TunerPanel').then(m => ({ default: m.TunerPanel })))
 import { NoteToast, type NoteToastHandle } from './components/ui/NoteToast'
-import { CurriculumMode } from './components/curriculum/CurriculumMode'
-import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
+const CurriculumMode = lazy(() => import('./components/curriculum/CurriculumMode').then(m => ({ default: m.CurriculumMode })))
+const OnboardingWizard = lazy(() => import('./components/onboarding/OnboardingWizard').then(m => ({ default: m.OnboardingWizard })))
 import { PANEL_TABS, SKILL_PROFILE_OPTIONS } from './utils/panelConfig'
 import { CollapsibleSection } from './components/ui/CollapsibleSection'
 import { useAppSettings, initialSettings } from './hooks/useAppSettings'
@@ -119,16 +119,24 @@ export default function App() {
     return CHROMATIC_SCALE[midi.lastNote.note % 12]
   }, [midi.lastNote])
 
+  // Stable refs for MIDI effect — soundEngine/practice return new object references
+  // every render (App re-renders on every metronome beat via currentBeat state),
+  // so we use refs to avoid replaying the last MIDI note on every beat tick.
+  const soundEngineRef = useRef(soundEngine)
+  soundEngineRef.current = soundEngine
+  const practiceRef = useRef(practice)
+  practiceRef.current = practice
+
   // Play sound + evaluate practice when MIDI note arrives
   useEffect(() => {
     if (!midi.lastNote) return
     const midiNum = midi.lastNote.note
     const name = CHROMATIC_SCALE[midiNum % 12]
     const octave = Math.floor(midiNum / 12) - 1
-    soundEngine.playFretboardNote({ name, octave, midiNumber: midiNum })
-    practice.evaluateNote(midiNum)
+    soundEngineRef.current.playFretboardNote({ name, octave, midiNumber: midiNum })
+    practiceRef.current.evaluateNote(midiNum)
     rhythmScore.evaluate()
-  }, [midi.lastNote, soundEngine, practice, rhythmScore.evaluate])
+  }, [midi.lastNote, rhythmScore.evaluate])
 
   // Scale/Chord overlay state
   const [selectedRoot, setSelectedRoot] = useState<NoteName | null>(
@@ -455,7 +463,7 @@ export default function App() {
 
   return (
     <>
-    {showOnboarding && <OnboardingWizard onComplete={handleOnboardingComplete} />}
+    {showOnboarding && <Suspense fallback={null}><OnboardingWizard onComplete={handleOnboardingComplete} /></Suspense>}
     <AppShell instrument={instrument} onInstrumentChange={setInstrument}>
       {/* ── Mode Tabs ── */}
       <div className="flex items-center gap-1 mb-4 pb-3 border-b border-slate-700">
@@ -503,7 +511,9 @@ export default function App() {
 
       {/* ── Curriculum Mode ── */}
       {appMode === 'curriculum' ? (
-        <CurriculumMode onSwitchToFreeMode={switchToFree} />
+        <Suspense fallback={<div className="text-slate-400 text-center py-8">Loading curriculum...</div>}>
+          <CurriculumMode onSwitchToFreeMode={switchToFree} />
+        </Suspense>
       ) : (
       <>
       {/* Note click info toast */}
@@ -989,10 +999,10 @@ export default function App() {
             />
           </CollapsibleSection>}
 
-          {showPanel('callResponse') && <CallResponsePanel
+          {showPanel('callResponse') && <Suspense fallback={null}><CallResponsePanel
             midiConnected={midi.isConnected}
             lastMidiNote={midi.lastNote}
-          />}
+          /></Suspense>}
 
           {showPanel('fretboardQuiz') && <FretboardQuizPanel
             ref={fretboardQuizRef}
@@ -1031,10 +1041,10 @@ export default function App() {
             onScaleSelect={handleScaleFinderSelect}
           />}
 
-          {showPanel('circleOfFifths') && <CircleOfFifths
+          {showPanel('circleOfFifths') && <Suspense fallback={null}><CircleOfFifths
             activeKey={progressionKey ?? selectedRoot}
             onKeySelect={handleCircleKeySelect}
-          />}
+          /></Suspense>}
 
           {showPanel('scalePattern') && <ScalePatternPanel
             instrument={instrument}
@@ -1051,7 +1061,7 @@ export default function App() {
           ══════════════════════════════════════════════════ */}
       {(skillProfile === 'beginner' || panelTab === 'tools') && (
         <div className="space-y-4">
-          {showPanel('tuner') && <TunerPanel instrument={effectiveInstrument} />}
+          {showPanel('tuner') && <Suspense fallback={null}><TunerPanel instrument={effectiveInstrument} /></Suspense>}
 
           {showPanel('midiStatus') && <CollapsibleSection title="MIDI Status" icon="🎹">
             <MidiStatus
@@ -1073,11 +1083,13 @@ export default function App() {
           ══════════════════════════════════════════════════ */}
       {(skillProfile === 'beginner' || panelTab === 'stats') && (
         <div className="space-y-4">
-          {showPanel('weaknessAnalysis') && <WeaknessAnalysisPanel />}
+          <Suspense fallback={null}>
+            {showPanel('weaknessAnalysis') && <WeaknessAnalysisPanel />}
 
-          {showPanel('reminderShare') && <ReminderSharePanel />}
+            {showPanel('reminderShare') && <ReminderSharePanel />}
 
-          {showPanel('practiceHistory') && <PracticeHistoryPanel />}
+            {showPanel('practiceHistory') && <PracticeHistoryPanel />}
+          </Suspense>
         </div>
       )}
 

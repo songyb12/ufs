@@ -19,7 +19,9 @@ export function useSoundEngine() {
     // Collect MIDI numbers for non-muted strings, low to high
     const midiNotes = voicing.frets
       .map((fret, stringIdx) =>
-        fret >= 0 ? instrument.tuning[stringIdx].midiNumber + fret : null,
+        fret >= 0 && stringIdx < instrument.tuning.length
+          ? instrument.tuning[stringIdx].midiNumber + fret
+          : null,
       )
       .filter((n): n is number => n !== null)
     playChord(ctx, midiNotes, mode)

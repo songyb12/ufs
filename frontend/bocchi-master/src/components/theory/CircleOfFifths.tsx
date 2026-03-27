@@ -127,7 +127,11 @@ export const CircleOfFifths = memo(function CircleOfFifths({
             return (
               <g
                 key={`major-${i}`}
+                role="button"
+                tabIndex={0}
+                aria-label={`Select key ${key} Major`}
                 onClick={() => onKeySelect?.(key)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onKeySelect?.(key) } }}
                 className="cursor-pointer"
               >
                 <path

@@ -347,7 +347,7 @@ function RunningPhase({ drill, onFinish }: {
     case 'fretboard-quiz':
       return <FretboardQuizDrill drill={drill} onFinish={onFinish} />
     case 'ear-training':
-      return <EarTrainingDrill drill={drill} onFinish={onFinish} />
+      return <EarTrainingDrill onFinish={onFinish} />
     default:
       return <SelfAssessmentDrill drill={drill} onFinish={onFinish} />
   }
@@ -383,6 +383,17 @@ function FretboardQuizDrill({ drill, onFinish }: {
     setFeedback(null)
   }, [notePool])
 
+  // Compute choices deterministically from targetNote — useMemo triggers re-render on change
+  const choices = useMemo(() => {
+    const pool = [...notePool].filter(n => n !== targetNote)
+    const distractors: string[] = []
+    while (distractors.length < Math.min(3, pool.length)) {
+      const idx = Math.floor(Math.random() * pool.length)
+      distractors.push(pool.splice(idx, 1)[0])
+    }
+    return [targetNote, ...distractors].sort(() => Math.random() - 0.5)
+  }, [targetNote, notePool])
+
   const handleAnswer = useCallback((note: string) => {
     if (feedback !== null) return
     const isCorrect = note === targetNote
@@ -407,21 +418,6 @@ function FretboardQuizDrill({ drill, onFinish }: {
   }, [feedback, targetNote, correct, streak, bestStreak, questionIndex, totalQuestions, onFinish, generateNext])
 
   const progress = Math.round(((questionIndex) / totalQuestions) * 100)
-
-  // Build answer choices: target + distractors
-  const choices = useRef<string[]>([])
-
-  // Regenerate choices when target changes (via useEffect only, not during render)
-  useEffect(() => {
-    const pool = [...notePool].filter(n => n !== targetNote)
-    const distractors: string[] = []
-    while (distractors.length < Math.min(3, pool.length)) {
-      const idx = Math.floor(Math.random() * pool.length)
-      const pick = pool.splice(idx, 1)[0]
-      distractors.push(pick)
-    }
-    choices.current = [targetNote, ...distractors].sort(() => Math.random() - 0.5)
-  }, [targetNote, notePool])
 
   return (
     <div className="space-y-4">
@@ -452,7 +448,7 @@ function FretboardQuizDrill({ drill, onFinish }: {
 
         {/* Answer buttons */}
         <div className="grid grid-cols-2 gap-3">
-          {choices.current.map(note => (
+          {choices.map(note => (
             <button
               key={note}
               onClick={() => handleAnswer(note)}
@@ -477,21 +473,22 @@ function FretboardQuizDrill({ drill, onFinish }: {
 // ─── Ear Training Drill ─────────────────────────────
 
 function EarTrainingDrill({ onFinish }: {
-  drill: Drill; onFinish: (accuracy: number, details?: string) => void
+  onFinish: (accuracy: number, details?: string) => void
 }) {
   const trainer = useIntervalTrainer()
   const totalQuestions = 10
   const startedRef = useRef(false)
   const finishedRef = useRef(false)
 
-  // Auto-start on mount
+  // Auto-start on mount — empty deps: trainer reference changes every render (new object),
+  // so [trainer] would call stop() on every re-render (timer ticks every second).
   useEffect(() => {
     if (!startedRef.current) {
       startedRef.current = true
-      trainer.start()
+      trainer.start().catch(console.error)
     }
     return () => { trainer.stop() }
-  }, [trainer])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-finish after N questions
   useEffect(() => {

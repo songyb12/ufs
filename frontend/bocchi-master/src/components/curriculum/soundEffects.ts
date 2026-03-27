@@ -28,6 +28,7 @@ function playTone(
 
   osc.start(startTime)
   osc.stop(startTime + duration)
+  osc.onended = () => { osc.disconnect(); gain.disconnect() }
 }
 
 /** 레슨/드릴 완료: 상승 2음 (C5 → E5) */

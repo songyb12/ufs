@@ -72,6 +72,18 @@ export function playNote(ctx: AudioContext, opts: PlayNoteOptions): void {
   osc1.stop(t + duration)
   osc2.stop(t + duration)
 
+  // Disconnect all main-chain nodes after the note ends.
+  // Without this, GainNode/BiquadFilterNode stay connected to ctx.destination
+  // (as silent nodes) until the AudioContext is closed — leaking memory in long sessions.
+  osc1.onended = () => {
+    osc1.disconnect()
+    osc2.disconnect()
+    mixGain1.disconnect()
+    mixGain2.disconnect()
+    filter.disconnect()
+    gainNode.disconnect()
+  }
+
   // Pluck attack: brief noise burst simulating pick/finger striking string
   if (pluckAttack) {
     const bufferSize = Math.floor(ctx.sampleRate * 0.015) // 15ms
@@ -95,6 +107,13 @@ export function playNote(ctx: AudioContext, opts: PlayNoteOptions): void {
     noiseGain.connect(ctx.destination)
     noiseSrc.start(t)
     noiseSrc.stop(t + 0.02)
+
+    // Disconnect pluck chain after it ends (fires ~20ms after note start)
+    noiseSrc.onended = () => {
+      noiseSrc.disconnect()
+      noiseFilter.disconnect()
+      noiseGain.disconnect()
+    }
   }
 }
 

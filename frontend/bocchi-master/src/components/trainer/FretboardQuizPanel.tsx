@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
+import { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import type { NoteName } from '../../types/music'
 import { CHROMATIC_SCALE } from '../../constants/notes'
 
@@ -68,6 +68,9 @@ export const FretboardQuizPanel = forwardRef<FretboardQuizHandle, FretboardQuizP
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     setTimeLeft(null)
   }, [])
+
+  // Cancel countdown interval on unmount
+  useEffect(() => () => stopTimer(), [stopTimer])
 
   const generateNote = useCallback(() => {
     const config = DIFFICULTY_CONFIG[difficultyRef.current]

@@ -1,3 +1,4 @@
+import { memo, useMemo, useCallback } from 'react'
 import type { NoteName } from '../../types/music'
 import { CHROMATIC_SCALE } from '../../constants/notes'
 import {
@@ -52,7 +53,7 @@ interface ChordProgressionPanelProps {
   onCustomStepsChange: (steps: ProgressionStep[]) => void
 }
 
-export function ChordProgressionPanel({
+export const ChordProgressionPanel = memo(function ChordProgressionPanel({
   progressionKey,
   progressionPreset,
   activeChordIndex,
@@ -81,16 +82,19 @@ export function ChordProgressionPanel({
   customSteps,
   onCustomStepsChange,
 }: ChordProgressionPanelProps) {
-  // Resolve progression into concrete chords
-  const resolvedChords: ResolvedChord[] =
-    progressionKey && progressionPreset
+  // Memoized: App re-renders every metronome beat (currentBeat state), but
+  // resolveProgression only needs to rerun when key or preset changes.
+  const resolvedChords: ResolvedChord[] = useMemo(
+    () => progressionKey && progressionPreset
       ? resolveProgression(progressionKey, progressionPreset)
-      : []
+      : [],
+    [progressionKey, progressionPreset],
+  )
 
-  const handleClear = () => {
+  const handleClear = useCallback(() => {
     onKeyChange(null)
     onPresetChange(null)
-  }
+  }, [onKeyChange, onPresetChange])
 
   const hasChords = resolvedChords.length > 0
 
@@ -408,4 +412,4 @@ export function ChordProgressionPanel({
       )}
     </div>
   )
-}
+})

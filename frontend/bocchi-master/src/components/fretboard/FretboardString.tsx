@@ -18,8 +18,9 @@ export const FretboardString = memo(function FretboardString({
   // Thicker strings at lower indices (bass strings)
   const maxWidth = 2.5
   const minWidth = 0.8
-  const strokeWidth =
-    maxWidth - ((maxWidth - minWidth) * stringIndex) / (totalStrings - 1)
+  const strokeWidth = totalStrings <= 1
+    ? maxWidth
+    : maxWidth - ((maxWidth - minWidth) * stringIndex) / (totalStrings - 1)
 
   return (
     <line

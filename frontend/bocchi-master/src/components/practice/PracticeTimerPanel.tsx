@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { loadDailyGoal, saveDailyGoal, addDailyPracticeTime } from '../../utils/storage'
+import { getSharedAudioContext } from '../../utils/audioContextSingleton'
 
 interface PracticeTimerPanelProps {
   /** Whether any practice activity is happening (metronome, practice mode, etc.) */
@@ -111,8 +112,7 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
       setRunning(false)
       setCompleted(true)
       flushToDailyLog()
-      try {
-        const ctx = new AudioContext()
+      getSharedAudioContext().then(ctx => {
         const playTone = (freq: number, delay: number) => {
           const osc = ctx.createOscillator()
           const gain = ctx.createGain()
@@ -124,13 +124,12 @@ export function PracticeTimerPanel({ isActive }: PracticeTimerPanelProps) {
           gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.5)
           osc.start(ctx.currentTime + delay)
           osc.stop(ctx.currentTime + delay + 0.5)
+          osc.onended = () => { osc.disconnect(); gain.disconnect() }
         }
         playTone(523, 0)
         playTone(659, 0.2)
         playTone(784, 0.4)
-        // Close AudioContext after tones finish to avoid resource leak
-        setTimeout(() => ctx.close().catch(() => {}), 1500)
-      } catch { /* ignore audio errors */ }
+      }).catch(() => { /* ignore audio errors */ })
     }
   }, [elapsedSeconds, mode, running, totalGoalSeconds, flushToDailyLog])
 

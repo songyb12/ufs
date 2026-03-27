@@ -120,18 +120,30 @@ export interface CurriculumActions {
 
 const PROGRESS_KEY = 'bocchi-curriculum-progress'
 
+const DEFAULT_PROGRESS: CurriculumProgress = {
+  currentLevelIndex: 0,
+  completedLessons: [],
+  completedDrills: [],
+  drillBestScores: {},
+  unlockedLevels: [0],
+}
+
 function loadProgress(): CurriculumProgress {
   try {
     const raw = localStorage.getItem(PROGRESS_KEY)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<CurriculumProgress>
+      // Merge with defaults so old schemas missing array fields don't crash
+      return {
+        ...DEFAULT_PROGRESS,
+        ...parsed,
+        completedLessons: Array.isArray(parsed.completedLessons) ? parsed.completedLessons : [],
+        completedDrills: Array.isArray(parsed.completedDrills) ? parsed.completedDrills : [],
+        unlockedLevels: Array.isArray(parsed.unlockedLevels) ? parsed.unlockedLevels : [0],
+      }
+    }
   } catch { /* ignore */ }
-  return {
-    currentLevelIndex: 0,
-    completedLessons: [],
-    completedDrills: [],
-    drillBestScores: {},
-    unlockedLevels: [0],
-  }
+  return { ...DEFAULT_PROGRESS }
 }
 
 function saveProgress(progress: CurriculumProgress): void {

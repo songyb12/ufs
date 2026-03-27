@@ -142,12 +142,16 @@ export function MetronomePanel({
     ?? Array.from({ length: beatsPerMeasure }, (_, i) => (i === 0 ? 2 : 1) as AccentLevel)
 
   // Cycle accent level on beat dot click: 1 → 2 → 0 → 1
+  // Build a new pattern of exactly beatsPerMeasure length so that dots beyond the
+  // old accentPattern length (when switching to a higher time signature) can be updated.
   const cycleAccent = useCallback((beatIndex: number) => {
     const current = effectiveAccents[beatIndex] ?? 1
     const next: AccentLevel = current === 1 ? 2 : current === 2 ? 0 : 1
-    const newPattern = effectiveAccents.map((a, i) => (i === beatIndex ? next : a))
+    const newPattern = Array.from({ length: beatsPerMeasure }, (_, i): AccentLevel =>
+      i === beatIndex ? next : (effectiveAccents[i] ?? 1),
+    )
     onAccentPatternChange(newPattern)
-  }, [effectiveAccents, onAccentPatternChange])
+  }, [effectiveAccents, beatsPerMeasure, onAccentPatternChange])
 
   // Reset accent pattern (back to default)
   const hasCustomAccent = accentPattern !== null
@@ -173,6 +177,7 @@ export function MetronomePanel({
             value={beatsPerMeasure}
             onChange={(e) => setBeatsPerMeasure(Number(e.target.value))}
             className="bg-slate-700 text-slate-300 text-sm rounded px-2 py-1 outline-none"
+            aria-label="Time signature"
           >
             <option value={2}>2/4</option>
             <option value={3}>3/4</option>
@@ -314,7 +319,7 @@ export function MetronomePanel({
               value={Math.round(volume * 100)}
               onChange={(e) => onVolumeChange(Number(e.target.value) / 100)}
               className="w-16 h-1 accent-sky-500"
-              title={`Volume: ${Math.round(volume * 100)}%`}
+              aria-label={`Volume: ${Math.round(volume * 100)}%`}
             />
             <span className="text-[10px] text-slate-500 tabular-nums w-7 text-right">
               {Math.round(volume * 100)}%
@@ -352,7 +357,7 @@ export function MetronomePanel({
               value={swing}
               onChange={(e) => onSwingChange(Number(e.target.value))}
               className="w-16 h-1 accent-violet-500"
-              title={`Swing: ${swing}%`}
+              aria-label={`Swing: ${swing}%`}
             />
             <span className="text-[10px] text-slate-500 tabular-nums w-7 text-right">
               {swing}%

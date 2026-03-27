@@ -39,7 +39,10 @@ export function DroneTonePanel({ activeRoot }: { activeRoot?: NoteName | null })
     if (activeRoot && !playing) setNote(activeRoot)
   }, [activeRoot, playing])
 
+  const startingRef = useRef(false)
   const startDrone = useCallback(async () => {
+    if (startingRef.current) return
+    startingRef.current = true
     const ctx = await getSharedAudioContext()
     ctxRef.current = ctx
 
@@ -55,6 +58,7 @@ export function DroneTonePanel({ activeRoot }: { activeRoot?: NoteName | null })
     oscRef.current = osc
     gainRef.current = gain
     setPlaying(true)
+    startingRef.current = false
   }, [waveform, note, octave, volume])
 
   const stopDrone = useCallback(() => {
@@ -65,7 +69,12 @@ export function DroneTonePanel({ activeRoot }: { activeRoot?: NoteName | null })
         (ctxRef.current?.currentTime ?? 0) + 0.05,
       )
       const osc = oscRef.current
-      setTimeout(() => { try { osc.stop() } catch { /* already stopped */ } }, 60)
+      const gain = gainRef.current
+      setTimeout(() => {
+        try { osc.stop() } catch { /* already stopped */ }
+        osc.disconnect()
+        gain?.disconnect()
+      }, 60)
     }
     oscRef.current = null
     gainRef.current = null

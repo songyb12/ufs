@@ -133,8 +133,8 @@ export interface KeySignature {
   flats: NoteName[]
 }
 
-// Order of sharps: F C G D A E B → order of flats: B E A D G C F
-const SHARP_ORDER: NoteName[] = ['F#', 'C#', 'G#', 'D#', 'A#']
+// Order of sharps: F# C# G# D# A# E#(=F) B#(=C) — order of flats: Bb Eb Ab Db Gb
+const SHARP_ORDER: NoteName[] = ['F#', 'C#', 'G#', 'D#', 'A#', 'F', 'C']
 const FLAT_ORDER: NoteName[] = ['A#', 'D#', 'G#', 'C#', 'F#']  // enharmonic Bb Eb Ab Db Gb
 
 // Major keys and their signature (positive = sharps, negative = flats)

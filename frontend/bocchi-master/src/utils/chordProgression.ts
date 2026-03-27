@@ -31,13 +31,15 @@ export interface ResolvedChord {
 // ----- Major Scale Degrees -----
 
 export const MAJOR_DEGREES: DegreeInfo[] = [
-  { semitones: 0,  quality: 'Major', label: 'I' },
-  { semitones: 2,  quality: 'Minor', label: 'ii' },
-  { semitones: 4,  quality: 'Minor', label: 'iii' },
-  { semitones: 5,  quality: 'Major', label: 'IV' },
-  { semitones: 7,  quality: 'Major', label: 'V' },
-  { semitones: 9,  quality: 'Minor', label: 'vi' },
-  { semitones: 11, quality: 'dim',   label: 'vii°' },
+  { semitones: 0,  quality: 'Major', label: 'I' },     // 0
+  { semitones: 2,  quality: 'Minor', label: 'ii' },    // 1
+  { semitones: 4,  quality: 'Minor', label: 'iii' },   // 2
+  { semitones: 5,  quality: 'Major', label: 'IV' },    // 3
+  { semitones: 7,  quality: 'Major', label: 'V' },     // 4
+  { semitones: 9,  quality: 'Minor', label: 'vi' },    // 5
+  { semitones: 11, quality: 'dim',   label: 'vii°' },  // 6
+  // Chromatic borrowed chord — used in rock/pop progressions
+  { semitones: 10, quality: 'Major', label: 'bVII' },  // 7
 ]
 
 // ----- Preset Library -----
@@ -230,7 +232,7 @@ export const PROGRESSION_PRESETS: ProgressionPreset[] = [
     name: 'J-Rock (I5-bVII5-IV5-V5)',
     steps: [
       { degreeIndex: 0, qualityOverride: '5 (Power)' },  // I5
-      { degreeIndex: 6, qualityOverride: '5 (Power)' },  // bVII5 (approx)
+      { degreeIndex: 7, qualityOverride: '5 (Power)' },  // bVII5
       { degreeIndex: 3, qualityOverride: '5 (Power)' },  // IV5
       { degreeIndex: 4, qualityOverride: '5 (Power)' },  // V5
     ],
@@ -301,7 +303,7 @@ export function generateRandomProgression(
   }
 
   const steps: ProgressionStep[] = []
-  let effectiveLength = length
+  const effectiveLength = length
 
   // Reserve last 2 slots for cadence if requested
   const cadenceLength = endWithCadence ? Math.min(2, length) : 0

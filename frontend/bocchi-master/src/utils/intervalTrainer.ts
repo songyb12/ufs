@@ -174,6 +174,7 @@ export function playTone(
 
   osc.start(time)
   osc.stop(time + duration)
+  osc.onended = () => { osc.disconnect(); gain.disconnect() }
 }
 
 // ── Stats Helper ──

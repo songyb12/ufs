@@ -157,12 +157,16 @@ export function VoicingComparePanel({
           return (
             <div
               key={originalIndex}
+              role="button"
+              tabIndex={0}
+              aria-label={`Select voicing #${originalIndex + 1}: ${voicing.name}`}
               className={`flex flex-col items-center px-2 py-1.5 rounded-lg border-2 cursor-pointer transition-all ${
                 isActive
                   ? 'border-emerald-400 bg-emerald-500/10'
                   : 'border-slate-700 bg-slate-800 hover:border-slate-600'
               }`}
               onClick={() => onSelect(originalIndex)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(originalIndex) } }}
               onMouseEnter={() => handleHoverStart(originalIndex)}
               onMouseLeave={handleHoverEnd}
             >

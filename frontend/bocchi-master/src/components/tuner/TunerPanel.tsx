@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import type { InstrumentConfig, NoteName } from '../../types/music'
 import { CHROMATIC_SCALE } from '../../constants/notes'
 import { detectPitch, frequencyToNote } from '../../utils/pitchDetector'
+import { getSharedAudioContext } from '../../utils/audioContextSingleton'
 
 interface TunerPanelProps {
   instrument: InstrumentConfig
@@ -40,6 +41,7 @@ export function TunerPanel({ instrument }: TunerPanelProps) {
   const [reading, setReading] = useState<TunerReading | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const startingRef = useRef(false)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -95,6 +97,8 @@ export function TunerPanel({ instrument }: TunerPanelProps) {
   }, [findNearestString])
 
   const startListening = useCallback(async () => {
+    if (startingRef.current) return
+    startingRef.current = true
     setError(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -102,7 +106,8 @@ export function TunerPanel({ instrument }: TunerPanelProps) {
       })
       streamRef.current = stream
 
-      const ctx = new AudioContext()
+      // Use shared AudioContext to avoid hitting browser limit (~6 contexts)
+      const ctx = await getSharedAudioContext()
       audioCtxRef.current = ctx
 
       const source = ctx.createMediaStreamSource(stream)
@@ -120,6 +125,8 @@ export function TunerPanel({ instrument }: TunerPanelProps) {
       rafRef.current = requestAnimationFrame(analyze)
     } catch {
       setError('마이크 접근이 거부되었습니다.')
+    } finally {
+      startingRef.current = false
     }
   }, [analyze])
 
@@ -134,10 +141,8 @@ export function TunerPanel({ instrument }: TunerPanelProps) {
       streamRef.current.getTracks().forEach(t => t.stop())
       streamRef.current = null
     }
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close().catch(() => {})
-      audioCtxRef.current = null
-    }
+    // Do NOT close the shared AudioContext — other components (metronome, synth) may be using it
+    audioCtxRef.current = null
     analyserRef.current = null
     bufferRef.current = null
 
@@ -253,8 +258,6 @@ export function TunerPanel({ instrument }: TunerPanelProps) {
           <div className="flex justify-center gap-2">
             {instrument.tuning.map((note, i) => {
               const isTarget = reading?.targetString === i
-              const stringNum = instrument.tuning.length - i  // display order: high to low visually
-              void stringNum
               return (
                 <div
                   key={i}

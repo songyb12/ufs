@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import { getSharedAudioContext } from '../utils/audioContextSingleton'
 import {
   generateQuestion,
@@ -20,7 +20,7 @@ export interface IntervalTrainerState {
   lastAnswer: { semitones: number; correct: boolean } | null
   revealed: boolean
 
-  start: () => void
+  start: () => Promise<void>
   stop: () => void
   setSetIndex: (idx: number) => void
   setDirection: (d: IntervalDirection) => void
@@ -39,21 +39,12 @@ export function useIntervalTrainer(): IntervalTrainerState {
   const [lastAnswer, setLastAnswer] = useState<{ semitones: number; correct: boolean } | null>(null)
   const [revealed, setRevealed] = useState(false)
 
-  const ctxRef = useRef<AudioContext | null>(null)
-
-  const getCtx = useCallback(async () => {
-    if (!ctxRef.current) {
-      ctxRef.current = await getSharedAudioContext()
-    }
-    return ctxRef.current
-  }, [])
-
   const playCurrentQuestion = useCallback(
     async (q: IntervalQuestion) => {
-      const ctx = await getCtx()
+      const ctx = await getSharedAudioContext()
       playInterval(ctx, q)
     },
-    [getCtx],
+    [],
   )
 
   const generateAndPlay = useCallback(
@@ -77,9 +68,9 @@ export function useIntervalTrainer(): IntervalTrainerState {
     const intervals = INTERVAL_SETS[setIndex]?.intervals ?? [7]
     const q = generateQuestion(intervals, direction)
     setQuestion(q)
-    const ctx = await getCtx()
+    const ctx = await getSharedAudioContext()
     playInterval(ctx, q)
-  }, [setIndex, direction, getCtx])
+  }, [setIndex, direction])
 
   const stop = useCallback(() => {
     setActive(false)

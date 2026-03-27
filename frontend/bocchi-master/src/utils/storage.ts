@@ -112,8 +112,12 @@ export function loadSettings(): PersistedSettings {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return { ...DEFAULTS }
     const parsed = JSON.parse(raw) as Partial<PersistedSettings>
-    // Merge with defaults to handle missing keys from older versions
-    return { ...DEFAULTS, ...parsed }
+    // Merge with defaults to handle missing keys from older versions.
+    // Guard array fields: a corrupted null value would override the [] default
+    // and cause [session, ...null] to throw in addPracticeSession.
+    const merged = { ...DEFAULTS, ...parsed }
+    if (!Array.isArray(merged.practiceHistory)) merged.practiceHistory = []
+    return merged
   } catch {
     return { ...DEFAULTS }
   }
@@ -180,10 +184,16 @@ export function importPracticeData(jsonString: string): { imported: number; erro
       return { imported: 0, errors: ['Invalid practice history format'] }
     }
 
-    // Validate each session
+    // Validate each session — check all required PracticeSession fields
     const validSessions = sessions.filter((s, i) => {
-      if (!s.date || typeof s.accuracy !== 'number') {
-        errors.push(`Session ${i}: missing required fields`)
+      if (
+        !s.date ||
+        !Number.isFinite(s.accuracy) ||
+        !Number.isFinite(s.totalAttempts) ||
+        !Number.isFinite(s.correctAttempts) ||
+        !Number.isFinite(s.durationSeconds)
+      ) {
+        errors.push(`Session ${i}: missing or invalid required fields`)
         return false
       }
       return true

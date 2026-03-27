@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { AudioScheduler, type ClickSound, type Subdivision, type AccentLevel } from '../utils/audioScheduler'
 import { getSharedAudioContext } from '../utils/audioContextSingleton'
 
@@ -67,6 +67,9 @@ export function useMetronome(
     setCurrentBeat(-1)
     setCurrentMeasure(0)
   }, [])
+
+  // Stop scheduler on unmount to cancel its internal setInterval
+  useEffect(() => () => { schedulerRef.current?.stop() }, [])
 
   const toggle = useCallback(() => {
     if (isPlayingRef.current) stop()

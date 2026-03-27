@@ -34,6 +34,7 @@ export function scheduleKick(ctx: AudioContext, time: number, volume = 0.7): voi
 
   osc.start(time)
   osc.stop(time + 0.4)
+  osc.onended = () => { osc.disconnect(); gain.disconnect() }
 }
 
 /**
@@ -64,9 +65,12 @@ export function scheduleSnare(ctx: AudioContext, time: number, volume = 0.5): vo
   oscGain.gain.exponentialRampToValueAtTime(0.001, time + 0.08)
   osc.start(time)
   osc.stop(time + 0.08)
+  osc.onended = () => { osc.disconnect(); oscGain.disconnect() }
 
   noise.start(time)
   noise.stop(time + 0.15)
+  // noise ends last (0.15s > osc 0.08s) — disconnect full noise chain here
+  noise.onended = () => { noise.disconnect(); filter.disconnect(); gain.disconnect() }
 }
 
 /**
@@ -89,6 +93,7 @@ export function scheduleHihat(ctx: AudioContext, time: number, open = false, vol
 
   noise.start(time)
   noise.stop(time + duration)
+  noise.onended = () => { noise.disconnect(); filter.disconnect(); gain.disconnect() }
 }
 
 /**
@@ -115,4 +120,5 @@ export function scheduleBassNote(
 
   osc.start(time)
   osc.stop(time + duration)
+  osc.onended = () => { osc.disconnect(); gain.disconnect() }
 }

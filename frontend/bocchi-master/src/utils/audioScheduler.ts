@@ -14,10 +14,17 @@ const LOOKAHEAD = 0.1       // seconds to look ahead for scheduling
 const SCHEDULE_INTERVAL = 25 // ms between scheduling checks
 
 export interface SchedulerCallbacks {
+  /** Fires at the actual beat time via setTimeout — NOT at scheduling time.
+   *  Use for UI updates (beat flash, chord advance).
+   *  `time` is the AudioContext timestamp of the beat; the callback fires
+   *  approximately when that moment arrives, not up to LOOKAHEAD (100ms) early.
+   *  Contrast with `onBeatSchedule`, which fires inside the lookahead window
+   *  for sample-accurate audio node scheduling. */
   onBeat: (beatNumber: number, time: number) => void
   onMeasureChange?: (measure: number) => void
   /** Fires at scheduling time (in lookahead window) with precise audio time.
-   *  Use for sample-accurate audio scheduling (backing track, etc.) */
+   *  Use for sample-accurate audio scheduling (backing track, etc.).
+   *  May fire up to LOOKAHEAD (100ms) before the beat sounds. */
   onBeatSchedule?: (beat: number, measure: number, time: number) => void
   /** Fires when count-in phase starts/ends */
   onCountInChange?: (isCountingIn: boolean) => void
@@ -69,7 +76,7 @@ export class AudioScheduler {
    * Subdivisions are scheduled at evenly-spaced intervals within the beat,
    * with optional swing applied to even-numbered sub-beats.
    */
-  private scheduleNote(time: number): void {
+  private scheduleNote(time: number, pendingMeasure: number | null = null): void {
     const isCountIn = this.countInBeatsRemaining > 0
 
     // During normal play, fire scheduling callback for backing track etc.
@@ -83,7 +90,20 @@ export class AudioScheduler {
 
     // Schedule the main beat click
     this.scheduleClick(time, isCountIn, /* isSubdivision */ false)
-    this.callbacks.onBeat(this.currentBeat, time)
+
+    // Fire onBeat (and onMeasureChange if this is a downbeat) at actual beat time.
+    // Both are delayed by the same amount so they arrive together in React's batch.
+    // Without the delay, visual indicators would fire up to LOOKAHEAD (100ms) early.
+    // Capture values now — this.currentBeat/currentMeasure advance before the timeout fires.
+    const beatNumber = this.currentBeat
+    const measureNum = pendingMeasure
+    const delayMs = Math.max(0, (time - this.audioContext.currentTime) * 1000)
+    setTimeout(() => {
+      if (this.isPlaying) {
+        if (measureNum !== null) this.callbacks.onMeasureChange?.(measureNum)
+        this.callbacks.onBeat(beatNumber, time)
+      }
+    }, delayMs)
 
     // Schedule subdivision clicks (only during normal play, not count-in)
     if (!isCountIn && this.subdivision > 1) {
@@ -141,6 +161,11 @@ export class AudioScheduler {
         this.applyClickSound(osc, gain, time, accentLevel === 2)
       }
     }
+
+    // Disconnect all nodes after the oscillator finishes to prevent AudioNode accumulation.
+    // Metronome fires multiple times per second — without cleanup, nodes pile up for the
+    // entire duration of the AudioContext (shared singleton = app lifetime).
+    osc.onended = () => { osc.disconnect(); gain.disconnect(); masterGain.disconnect() }
   }
 
   private scheduler = (): void => {
@@ -167,14 +192,17 @@ export class AudioScheduler {
         continue
       }
 
-      // Normal play: detect new measure on downbeat (beat 0)
+      // Normal play: detect new measure on downbeat (beat 0).
+      // Pass the new measure number to scheduleNote so it fires onMeasureChange
+      // in the same delayed callback as onBeat — both arrive at actual beat time.
+      let pendingMeasure: number | null = null
       if (this.currentBeat === 0 && !this.isFirstBeat) {
         this.currentMeasure++
-        this.callbacks.onMeasureChange?.(this.currentMeasure)
+        pendingMeasure = this.currentMeasure
       }
       this.isFirstBeat = false
 
-      this.scheduleNote(this.nextNoteTime)
+      this.scheduleNote(this.nextNoteTime, pendingMeasure)
       const secondsPerBeat = 60.0 / this.bpm
       this.nextNoteTime += secondsPerBeat
       this.currentBeat = (this.currentBeat + 1) % this.beatsPerMeasure
