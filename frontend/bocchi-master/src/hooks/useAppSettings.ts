@@ -12,6 +12,10 @@ import {
 type AppMode = 'free' | 'curriculum'
 const APP_MODE_KEY = 'bocchi-app-mode'
 
+// UI mode: 'beginner' = simplified tabs, 'advanced' = all features
+export type UiMode = 'beginner' | 'advanced'
+const UI_MODE_KEY = 'bocchi-ui-mode'
+
 function resolveInstrument(name: string, type: string): InstrumentConfig {
   return INSTRUMENTS.find((i) => i.name === name)
     ?? INSTRUMENTS.find((i) => i.type === type)
@@ -33,6 +37,9 @@ export interface UseAppSettingsReturn {
   visibleTabs: PanelTab[]
   showPanel: (id: PanelId) => boolean
   handleSkillProfileChange: (profile: SkillProfile) => void
+  uiMode: UiMode
+  handleUiModeChange: (mode: UiMode) => void
+  showFlatList: boolean
   showOnboarding: boolean
   handleOnboardingComplete: (selectedInstrument: InstrumentConfig, goToCurriculum: boolean) => void
   instrument: InstrumentConfig
@@ -53,7 +60,7 @@ export function useAppSettings(): UseAppSettingsReturn {
 
   // ── Panel Tab ──
   const [panelTab, setPanelTab] = useState<PanelTab>(
-    () => { const v = localStorage.getItem(PANEL_TAB_KEY); return (v === 'play' || v === 'drill' || v === 'theory' || v === 'tools' || v === 'stats') ? v : 'play' },
+    () => { const v = localStorage.getItem(PANEL_TAB_KEY); return (v === 'play' || v === 'drill' || v === 'theory' || v === 'tools' || v === 'stats' || v === 'song') ? v : 'play' },
   )
   const handlePanelTabChange = useCallback((tab: PanelTab) => {
     setPanelTab(tab)
@@ -67,13 +74,25 @@ export function useAppSettings(): UseAppSettingsReturn {
       return (v === 'beginner' || v === 'intermediate' || v === 'advanced') ? v : 'beginner'
     },
   )
-  const visibleTabs = useMemo(() => getVisibleTabs(skillProfile), [skillProfile])
-  const showPanel = useCallback((id: PanelId) => isPanelVisible(id, skillProfile), [skillProfile])
+
+  // ── UI Mode (beginner/advanced toggle) ──
+  const [uiMode, setUiMode] = useState<UiMode>(
+    () => { const v = localStorage.getItem(UI_MODE_KEY); return v === 'advanced' ? v : 'beginner' },
+  )
+
+  // effectiveProfile: beginner uiMode forces 'beginner', advanced uses actual skillProfile
+  const effectiveProfile: SkillProfile = uiMode === 'beginner' ? 'beginner' : skillProfile
+  // showFlatList: preserve old flat-list behavior only in advanced mode with beginner skillProfile
+  const showFlatList = uiMode === 'advanced' && skillProfile === 'beginner'
+
+  const visibleTabs = useMemo(() => getVisibleTabs(effectiveProfile), [effectiveProfile])
+  const showPanel = useCallback((id: PanelId) => isPanelVisible(id, effectiveProfile), [effectiveProfile])
 
   const handleSkillProfileChange = useCallback((profile: SkillProfile) => {
     setSkillProfile(profile)
     localStorage.setItem(SKILL_PROFILE_KEY, profile)
-    const newVisible = getVisibleTabs(profile)
+    const ep = uiMode === 'beginner' ? 'beginner' as SkillProfile : profile
+    const newVisible = getVisibleTabs(ep)
     setPanelTab(prev => {
       if (!newVisible.includes(prev)) {
         const next = newVisible[0] ?? 'play'
@@ -82,7 +101,22 @@ export function useAppSettings(): UseAppSettingsReturn {
       }
       return prev
     })
-  }, [])
+  }, [uiMode])
+
+  const handleUiModeChange = useCallback((mode: UiMode) => {
+    setUiMode(mode)
+    localStorage.setItem(UI_MODE_KEY, mode)
+    const ep: SkillProfile = mode === 'beginner' ? 'beginner' : skillProfile
+    const newVisible = getVisibleTabs(ep)
+    setPanelTab(prev => {
+      if (!newVisible.includes(prev)) {
+        const next = newVisible[0] ?? 'play'
+        localStorage.setItem(PANEL_TAB_KEY, next)
+        return next
+      }
+      return prev
+    })
+  }, [skillProfile])
 
   // ── Onboarding Wizard ──
   const [showOnboarding, setShowOnboarding] = useState(() => !isOnboardingDone())
@@ -114,6 +148,8 @@ export function useAppSettings(): UseAppSettingsReturn {
     panelTab, handlePanelTabChange,
     // Skill profile
     skillProfile, visibleTabs, showPanel, handleSkillProfileChange,
+    // UI mode
+    uiMode, handleUiModeChange, showFlatList,
     // Onboarding
     showOnboarding, handleOnboardingComplete,
     // Instrument

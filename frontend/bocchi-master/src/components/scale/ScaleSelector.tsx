@@ -16,6 +16,7 @@ interface ScaleSelectorProps {
   onRootChange: (root: NoteName | null) => void
   onDefinitionChange: (def: ScaleDefinition | ChordDefinition | null) => void
   onModeChange: (mode: Mode) => void
+  beginnerMode?: boolean
 }
 
 // ── Group definitions for optgroup rendering ──
@@ -84,6 +85,21 @@ const CHORD_GROUPS: DefinitionGroup[] = [
   },
 ]
 
+const BEGINNER_SCALES = new Set([
+  'Major (Ionian)', 'Natural Minor (Aeolian)',
+  'Pentatonic Major', 'Pentatonic Minor', 'Blues',
+])
+
+const BEGINNER_CHORDS = new Set([
+  'Major', 'Minor', 'sus2', 'sus4', '7th', 'm7', 'Maj7',
+])
+
+function filterGroups(groups: DefinitionGroup[], allowed: Set<string>): DefinitionGroup[] {
+  return groups
+    .map(g => ({ ...g, items: g.items.filter(d => allowed.has(d.name)) }))
+    .filter(g => g.items.length > 0)
+}
+
 export function ScaleSelector({
   selectedRoot,
   selectedDefinition,
@@ -91,8 +107,12 @@ export function ScaleSelector({
   onRootChange,
   onDefinitionChange,
   onModeChange,
+  beginnerMode = false,
 }: ScaleSelectorProps) {
-  const groups = mode === 'scale' ? SCALE_GROUPS : CHORD_GROUPS
+  const allGroups = mode === 'scale' ? SCALE_GROUPS : CHORD_GROUPS
+  const groups = beginnerMode
+    ? filterGroups(allGroups, mode === 'scale' ? BEGINNER_SCALES : BEGINNER_CHORDS)
+    : allGroups
   const allDefs = mode === 'scale' ? SCALES : CHORDS
 
   const handleClear = () => {

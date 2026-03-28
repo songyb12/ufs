@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import SERVICE_REGISTRY, settings
+from app.routers import chord_search
 
 logger = logging.getLogger("ufs.gateway")
 
@@ -39,6 +40,9 @@ app = FastAPI(
     version=settings.VERSION,
     lifespan=lifespan,
 )
+
+# Routers
+app.include_router(chord_search.router)
 
 # CORS — allow Shell and dev frontends
 app.add_middleware(

@@ -1,7 +1,7 @@
 // ── Panel Tab & Skill Profile Configuration ──
 // Extracted from App.tsx to reduce file size
 
-export type PanelTab = 'play' | 'drill' | 'theory' | 'tools' | 'stats'
+export type PanelTab = 'play' | 'drill' | 'theory' | 'tools' | 'stats' | 'song'
 export const PANEL_TAB_KEY = 'bocchi-panel-tab'
 
 export const PANEL_TABS: { id: PanelTab; label: string; icon: string }[] = [
@@ -10,6 +10,7 @@ export const PANEL_TABS: { id: PanelTab; label: string; icon: string }[] = [
   { id: 'theory', label: '이론', icon: '📖' },
   { id: 'tools', label: '도구', icon: '🔧' },
   { id: 'stats', label: '분석', icon: '📊' },
+  { id: 'song', label: '곡', icon: '🎶' },
 ]
 
 // ── Skill Profile System ──
@@ -36,6 +37,8 @@ export type PanelId =
   | 'tuner' | 'midiStatus' | 'practiceTimer'
   // stats tab
   | 'weaknessAnalysis' | 'reminderShare' | 'practiceHistory'
+  // song tab
+  | 'songChord'
 
 export const PANEL_MIN_LEVEL: Record<PanelId, SkillProfile> = {
   // play — beginner gets metronome + chordProgression
@@ -57,14 +60,16 @@ export const PANEL_MIN_LEVEL: Record<PanelId, SkillProfile> = {
   circleOfFifths: 'intermediate',
   scalePattern: 'intermediate',
   droneTone: 'advanced',
-  // tools — beginner gets tuner
+  // tools — beginner gets tuner + practiceTimer
   tuner: 'beginner',
   midiStatus: 'intermediate',
-  practiceTimer: 'intermediate',
-  // stats
+  practiceTimer: 'beginner',
+  // stats — beginner gets practiceHistory
   weaknessAnalysis: 'advanced',
   reminderShare: 'intermediate',
-  practiceHistory: 'intermediate',
+  practiceHistory: 'beginner',
+  // song
+  songChord: 'beginner',
 }
 
 // Which tab each panel belongs to
@@ -78,6 +83,7 @@ export const PANEL_TAB_MAP: Record<PanelId, PanelTab> = {
   droneTone: 'theory',
   tuner: 'tools', midiStatus: 'tools', practiceTimer: 'tools',
   weaknessAnalysis: 'stats', reminderShare: 'stats', practiceHistory: 'stats',
+  songChord: 'song',
 }
 
 export function isPanelVisible(panelId: PanelId, profile: SkillProfile): boolean {

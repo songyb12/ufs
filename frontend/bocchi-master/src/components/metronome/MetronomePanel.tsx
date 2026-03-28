@@ -58,6 +58,7 @@ export interface MetronomePanelProps {
   onBeatFlashChange?: (enabled: boolean) => void
   volume?: number
   onVolumeChange?: (vol: number) => void
+  beginnerMode?: boolean
 }
 
 /**
@@ -106,8 +107,8 @@ function BeatDot({
     <div
       ref={dotRef}
       onClick={onClick}
-      className={`${sizeClass} rounded-full transition-colors duration-75 cursor-pointer ${baseColor}`}
-      title={`Accent: ${accentLevel === 2 ? 'strong' : accentLevel === 1 ? 'normal' : 'ghost'} — click to cycle`}
+      className={`${sizeClass} rounded-full transition-colors duration-75 ${onClick ? 'cursor-pointer' : ''} ${baseColor}`}
+      title={onClick ? `Accent: ${accentLevel === 2 ? 'strong' : accentLevel === 1 ? 'normal' : 'ghost'} — click to cycle` : undefined}
     />
   )
 }
@@ -136,6 +137,7 @@ export function MetronomePanel({
   onBeatFlashChange,
   volume = 0.8,
   onVolumeChange,
+  beginnerMode = false,
 }: MetronomePanelProps) {
   // Build effective accent array (default: beat 0 = accent, rest = normal)
   const effectiveAccents: AccentLevel[] = accentPattern
@@ -228,10 +230,10 @@ export function MetronomePanel({
             key={i}
             active={currentBeat === i}
             accentLevel={effectiveAccents[i] ?? 1}
-            onClick={() => cycleAccent(i)}
+            onClick={beginnerMode ? undefined : () => cycleAccent(i)}
           />
         ))}
-        {hasCustomAccent && (
+        {!beginnerMode && hasCustomAccent && (
           <button
             onClick={() => onAccentPatternChange(null)}
             className="text-[10px] text-slate-500 hover:text-slate-300 ml-1"
@@ -243,136 +245,146 @@ export function MetronomePanel({
       </div>
 
       {/* Pendulum animation */}
-      {showPendulum && (
+      {!beginnerMode && showPendulum && (
         <MetronomePendulum bpm={bpm} isPlaying={isPlaying} currentBeat={currentBeat} />
       )}
 
       {/* Quick tempo presets */}
-      <QuickTempos currentBpm={bpm} onSelect={setBpm} />
+      {!beginnerMode && <QuickTempos currentBpm={bpm} onSelect={setBpm} />}
 
       {/* BPM slider + options row */}
       <div className="flex items-center gap-2">
         <div className="flex-1">
           <BpmSlider bpm={bpm} onChange={setBpm} />
         </div>
-        <button
-          onClick={() => setShowPendulum((v) => !v)}
-          className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
-            showPendulum
-              ? 'border-sky-500/50 bg-sky-500/20 text-sky-400'
-              : 'border-slate-600 bg-slate-700 text-slate-500 hover:text-slate-300'
-          }`}
-          title="Show animated pendulum"
-        >
-          Pendulum
-        </button>
-        <button
-          onClick={() => onCountInChange(!countIn)}
-          className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
-            countIn
-              ? 'border-amber-500/50 bg-amber-500/20 text-amber-400'
-              : 'border-slate-600 bg-slate-700 text-slate-500 hover:text-slate-300'
-          }`}
-          title="1-bar count-in before playback starts"
-        >
-          Count-in
-        </button>
-        {onBeatFlashChange && (
-          <button
-            onClick={() => onBeatFlashChange(!beatFlash)}
-            className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
-              beatFlash
-                ? 'border-orange-500/50 bg-orange-500/20 text-orange-400'
-                : 'border-slate-600 bg-slate-700 text-slate-500 hover:text-slate-300'
-            }`}
-            title="Flash screen border on each beat"
-          >
-            Flash
-          </button>
+        {!beginnerMode && (
+          <>
+            <button
+              onClick={() => setShowPendulum((v) => !v)}
+              className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
+                showPendulum
+                  ? 'border-sky-500/50 bg-sky-500/20 text-sky-400'
+                  : 'border-slate-600 bg-slate-700 text-slate-500 hover:text-slate-300'
+              }`}
+              title="Show animated pendulum"
+            >
+              Pendulum
+            </button>
+            <button
+              onClick={() => onCountInChange(!countIn)}
+              className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
+                countIn
+                  ? 'border-amber-500/50 bg-amber-500/20 text-amber-400'
+                  : 'border-slate-600 bg-slate-700 text-slate-500 hover:text-slate-300'
+              }`}
+              title="1-bar count-in before playback starts"
+            >
+              Count-in
+            </button>
+            {onBeatFlashChange && (
+              <button
+                onClick={() => onBeatFlashChange(!beatFlash)}
+                className={`px-2 py-1 rounded text-xs font-semibold transition-colors border whitespace-nowrap ${
+                  beatFlash
+                    ? 'border-orange-500/50 bg-orange-500/20 text-orange-400'
+                    : 'border-slate-600 bg-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+                title="Flash screen border on each beat"
+              >
+                Flash
+              </button>
+            )}
+          </>
         )}
       </div>
 
       {/* Click sound selector */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-slate-500">Sound:</span>
-        {CLICK_SOUNDS.map((s) => (
-          <button
-            key={s.value}
-            onClick={() => onClickSoundChange(s.value)}
-            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-              clickSound === s.value
-                ? 'bg-sky-500/20 text-sky-400 ring-1 ring-sky-500/40'
-                : 'bg-slate-700 text-slate-500 hover:text-slate-300'
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
-        {onVolumeChange && (
-          <>
-            <span className="text-slate-700 mx-0.5">|</span>
-            <span className="text-xs text-slate-500">Vol:</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={Math.round(volume * 100)}
-              onChange={(e) => onVolumeChange(Number(e.target.value) / 100)}
-              className="w-16 h-1 accent-sky-500"
-              aria-label={`Volume: ${Math.round(volume * 100)}%`}
-            />
-            <span className="text-[10px] text-slate-500 tabular-nums w-7 text-right">
-              {Math.round(volume * 100)}%
-            </span>
-          </>
-        )}
-      </div>
+      {!beginnerMode && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500">Sound:</span>
+          {CLICK_SOUNDS.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => onClickSoundChange(s.value)}
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                clickSound === s.value
+                  ? 'bg-sky-500/20 text-sky-400 ring-1 ring-sky-500/40'
+                  : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+          {onVolumeChange && (
+            <>
+              <span className="text-slate-700 mx-0.5">|</span>
+              <span className="text-xs text-slate-500">Vol:</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round(volume * 100)}
+                onChange={(e) => onVolumeChange(Number(e.target.value) / 100)}
+                className="w-16 h-1 accent-sky-500"
+                aria-label={`Volume: ${Math.round(volume * 100)}%`}
+              />
+              <span className="text-[10px] text-slate-500 tabular-nums w-7 text-right">
+                {Math.round(volume * 100)}%
+              </span>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Subdivision selector */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-slate-500">Subdivision:</span>
-        {SUBDIVISIONS.map((s) => (
-          <button
-            key={s.value}
-            onClick={() => onSubdivisionChange(s.value)}
-            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-              subdivision === s.value
-                ? 'bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/40'
-                : 'bg-slate-700 text-slate-500 hover:text-slate-300'
-            }`}
-            title={s.label}
-          >
-            {s.icon}
-          </button>
-        ))}
-        {/* Swing control (only shown for subdivisions >= 2) */}
-        {subdivision >= 2 && (
-          <>
-            <span className="text-slate-700 mx-0.5">|</span>
-            <span className="text-xs text-slate-500">Swing:</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={swing}
-              onChange={(e) => onSwingChange(Number(e.target.value))}
-              className="w-16 h-1 accent-violet-500"
-              aria-label={`Swing: ${swing}%`}
-            />
-            <span className="text-[10px] text-slate-500 tabular-nums w-7 text-right">
-              {swing}%
-            </span>
-          </>
-        )}
-      </div>
+      {!beginnerMode && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500">Subdivision:</span>
+          {SUBDIVISIONS.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => onSubdivisionChange(s.value)}
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                subdivision === s.value
+                  ? 'bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/40'
+                  : 'bg-slate-700 text-slate-500 hover:text-slate-300'
+              }`}
+              title={s.label}
+            >
+              {s.icon}
+            </button>
+          ))}
+          {/* Swing control (only shown for subdivisions >= 2) */}
+          {subdivision >= 2 && (
+            <>
+              <span className="text-slate-700 mx-0.5">|</span>
+              <span className="text-xs text-slate-500">Swing:</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={swing}
+                onChange={(e) => onSwingChange(Number(e.target.value))}
+                className="w-16 h-1 accent-violet-500"
+                aria-label={`Swing: ${swing}%`}
+              />
+              <span className="text-[10px] text-slate-500 tabular-nums w-7 text-right">
+                {swing}%
+              </span>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Tempo Trainer */}
-      <TempoTrainer
-        currentBpm={bpm}
-        setBpm={setBpm}
-        isPlaying={isPlaying}
-        currentMeasure={currentMeasure}
-      />
+      {!beginnerMode && (
+        <TempoTrainer
+          currentBpm={bpm}
+          setBpm={setBpm}
+          isPlaying={isPlaying}
+          currentMeasure={currentMeasure}
+        />
+      )}
     </div>
   )
 }
