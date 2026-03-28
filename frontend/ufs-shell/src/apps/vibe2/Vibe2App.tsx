@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
+// ── Types ──
+
 interface Vibe2Health {
   service: string
   status: string
@@ -7,6 +9,65 @@ interface Vibe2Health {
   uptime?: number
   database?: string
 }
+
+interface SignalDetails {
+  technical?: Record<string, unknown>
+  leverage?: Record<string, unknown>
+  macro?: Record<string, unknown>
+}
+
+interface SignalResult {
+  signal: 'GREEN' | 'YELLOW' | 'RED'
+  score: number
+  summary: string
+  action: string
+  risks: string[]
+  details: SignalDetails
+}
+
+interface BriefingData {
+  date: string
+  signal: SignalResult
+  commentary: string | null
+  generated_at: string | null
+}
+
+const SIGNAL_COLORS = {
+  GREEN: { bg: 'bg-emerald-500/20', border: 'border-emerald-500/40', text: 'text-emerald-400', dot: 'bg-emerald-400', label: 'SAFE' },
+  YELLOW: { bg: 'bg-yellow-500/20', border: 'border-yellow-500/40', text: 'text-yellow-400', dot: 'bg-yellow-400', label: 'CAUTION' },
+  RED: { bg: 'bg-red-500/20', border: 'border-red-500/40', text: 'text-red-400', dot: 'bg-red-400', label: 'DANGER' },
+} as const
+
+const TOKEN_KEY = 'vibe2_shell_token'
+
+// ── Auth helpers ──
+
+function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token)
+}
+
+function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
+async function authFetch<T>(url: string): Promise<T> {
+  const token = getToken()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const res = await fetch(url, { headers })
+  if (res.status === 401) {
+    clearToken()
+    throw new Error('Unauthorized')
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json() as Promise<T>
+}
+
+// ── Component ──
 
 export default function Vibe2App() {
   const [viewMode, setViewMode] = useState<'overview' | 'dashboard'>('overview')
@@ -16,7 +77,19 @@ export default function Vibe2App() {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Health check with auto-refresh
+  // Auth state
+  const [token, setTokenState] = useState<string | null>(getToken)
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' })
+  const [loginError, setLoginError] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+
+  // Data state
+  const [signal, setSignal] = useState<SignalResult | null>(null)
+  const [briefing, setBriefing] = useState<BriefingData | null>(null)
+  const [dataLoading, setDataLoading] = useState(false)
+  const [dataError, setDataError] = useState('')
+
+  // Health check with 30s polling
   useEffect(() => {
     const checkHealth = () => {
       fetch('/api/vibe2/health')
@@ -28,6 +101,60 @@ export default function Vibe2App() {
     const interval = setInterval(checkHealth, 30_000)
     return () => clearInterval(interval)
   }, [])
+
+  // Fetch signal + briefing when token is available
+  const fetchData = useCallback(() => {
+    if (!token) return
+    setDataLoading(true)
+    setDataError('')
+    Promise.all([
+      authFetch<SignalResult>('/api/vibe2/signal/current').catch(() => null),
+      authFetch<BriefingData>('/api/vibe2/briefing/latest').catch(() => null),
+    ]).then(([sig, brief]) => {
+      setSignal(sig)
+      setBriefing(brief)
+      setDataLoading(false)
+    }).catch(() => {
+      setDataLoading(false)
+      setDataError('Failed to fetch data')
+    })
+  }, [token])
+
+  useEffect(() => {
+    if (token) fetchData()
+  }, [token, fetchData])
+
+  // Login handler
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoginLoading(true)
+    setLoginError('')
+    try {
+      const res = await fetch('/api/vibe2/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ detail: 'Login failed' }))
+        throw new Error(body.detail || 'Login failed')
+      }
+      const data = await res.json()
+      setToken(data.token)
+      setTokenState(data.token)
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Login failed')
+    } finally {
+      setLoginLoading(false)
+    }
+  }
+
+  const handleLogout = () => {
+    clearToken()
+    setTokenState(null)
+    setSignal(null)
+    setBriefing(null)
+  }
 
   // Iframe lifecycle management
   useEffect(() => {
@@ -136,51 +263,200 @@ export default function Vibe2App() {
     )
   }
 
+  // ── Signal color config ──
+  const sc = signal ? SIGNAL_COLORS[signal.signal] : null
+
   // ── Overview mode ──
   return (
     <div className="max-w-4xl mx-auto animate-fade-in">
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#06b6d415' }}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#06b6d4" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2 12l5-5v3h7V7l5 5-5 5v-3H7v3z" />
-            </svg>
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#06b6d415' }}>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#06b6d4" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2 12l5-5v3h7V7l5 5-5 5v-3H7v3z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-white">VIBE <span className="text-cyan-400">2.0</span></h1>
+              <p className="text-ufs-400 text-xs">SOXL Investment Intelligence Briefing</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">
-              VIBE <span className="text-cyan-400">2.0</span>
-            </h1>
-            <p className="text-ufs-400 text-xs">SOXL Investment Intelligence Briefing</p>
+          {/* Health indicator */}
+          <div className="flex items-center gap-2">
+            {healthLoading ? (
+              <span className="text-xs px-2.5 py-1 rounded-full bg-ufs-600 text-ufs-400 animate-pulse">checking...</span>
+            ) : health ? (
+              <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                v{health.version}
+                {health.uptime != null && <span className="text-emerald-500/60">| {Math.floor(health.uptime / 60)}m</span>}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                Offline
+              </span>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Actions + Status */}
-      <div className="flex items-center gap-3 mb-6 flex-wrap">
+      {/* Dashboard CTA — prominent */}
+      <div className="flex items-center gap-3 mb-6">
         <button
           onClick={() => setViewMode('dashboard')}
-          className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-300 text-sm hover:bg-cyan-500/30 transition-all border border-cyan-500/30 hover:border-cyan-400/50 hover:shadow-lg hover:shadow-cyan-500/10 active:scale-[0.98]"
+          className="flex-1 sm:flex-none px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-600/30 to-cyan-500/20 text-cyan-200 text-sm font-medium hover:from-cyan-600/40 hover:to-cyan-500/30 transition-all border border-cyan-500/30 hover:border-cyan-400/50 hover:shadow-lg hover:shadow-cyan-500/10 active:scale-[0.98]"
         >
-          Open Dashboard
+          Open Full Dashboard
         </button>
         <a href="/svc/vibe2/" target="_blank" rel="noopener noreferrer"
-          className="px-3 py-2.5 rounded-lg bg-cyan-500/10 text-cyan-400 text-sm hover:bg-cyan-500/20 transition-all border border-cyan-500/20 hover:border-cyan-400/40">
-          ↗ 새 탭에서 열기
+          className="px-3 py-3 rounded-xl bg-ufs-800 text-ufs-400 text-sm hover:text-cyan-400 hover:bg-ufs-700 transition-all border border-ufs-600/30 hover:border-cyan-500/30">
+          ↗
         </a>
-        {healthLoading ? (
-          <span className="text-xs px-2 py-1 rounded-full bg-ufs-600 text-ufs-400 animate-pulse">checking...</span>
-        ) : health ? (
-          <span className={`text-xs px-2 py-1 rounded-full ${health.status === 'healthy' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-            {health.status} v{health.version}
-          </span>
-        ) : (
-          <span className="text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-400">Backend unreachable</span>
+        {token && (
+          <button onClick={handleLogout} className="text-xs text-ufs-500 hover:text-red-400 px-2 py-1 transition-colors">
+            Logout
+          </button>
         )}
       </div>
 
+      {/* Login / Signal+Briefing area */}
+      {!token ? (
+        /* ── Login Form ── */
+        <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-5 mb-6">
+          <h3 className="text-sm font-semibold text-cyan-300 mb-3">Login to view live data</h3>
+          <form onSubmit={handleLogin} className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[140px]">
+              <label className="text-[11px] text-ufs-400 block mb-1">Username</label>
+              <input
+                type="text"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm(f => ({ ...f, username: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg bg-ufs-800 border border-ufs-600/50 text-sm text-white placeholder-ufs-500 focus:border-cyan-500/50 focus:outline-none transition-colors"
+                placeholder="dev"
+                autoComplete="username"
+              />
+            </div>
+            <div className="flex-1 min-w-[140px]">
+              <label className="text-[11px] text-ufs-400 block mb-1">Password</label>
+              <input
+                type="password"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm(f => ({ ...f, password: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg bg-ufs-800 border border-ufs-600/50 text-sm text-white placeholder-ufs-500 focus:border-cyan-500/50 focus:outline-none transition-colors"
+                placeholder="••••••••"
+                autoComplete="current-password"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="px-4 py-2 rounded-lg bg-cyan-500/20 text-cyan-300 text-sm hover:bg-cyan-500/30 transition-colors border border-cyan-500/30 disabled:opacity-50"
+            >
+              {loginLoading ? 'Logging in...' : 'Login'}
+            </button>
+          </form>
+          {loginError && <p className="text-xs text-red-400 mt-2">{loginError}</p>}
+        </div>
+      ) : (
+        /* ── Live Data Cards ── */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+          {/* Signal Summary Card */}
+          <div className={`rounded-xl border p-4 ${sc ? `${sc.bg} ${sc.border}` : 'border-ufs-600/30 bg-ufs-800'}`}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-ufs-400 uppercase tracking-wider">Current Signal</h3>
+              <button onClick={fetchData} disabled={dataLoading} className="text-[10px] text-ufs-500 hover:text-cyan-400 transition-colors disabled:opacity-50">
+                {dataLoading ? 'loading...' : 'refresh'}
+              </button>
+            </div>
+            {dataLoading && !signal ? (
+              <div className="flex items-center justify-center py-6">
+                <div className="w-5 h-5 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin" />
+              </div>
+            ) : signal ? (
+              <>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`w-12 h-12 rounded-xl ${sc!.bg} flex items-center justify-center`}>
+                    <span className={`w-4 h-4 rounded-full ${sc!.dot}`} />
+                  </div>
+                  <div>
+                    <div className={`text-2xl font-bold ${sc!.text}`}>{signal.signal}</div>
+                    <div className="text-xs text-ufs-400">Score: {signal.score}/100</div>
+                  </div>
+                </div>
+                {signal.summary && (
+                  <p className="text-xs text-ufs-300 mb-2 leading-relaxed">{signal.summary}</p>
+                )}
+                {signal.action && (
+                  <div className="text-[11px] text-ufs-400 bg-ufs-900/50 rounded-lg px-3 py-2">
+                    <span className="text-cyan-400 font-medium">Action:</span> {signal.action}
+                  </div>
+                )}
+                {signal.risks.length > 0 && (
+                  <div className="mt-2">
+                    <span className="text-[10px] text-ufs-500 uppercase">Risks:</span>
+                    <ul className="mt-1 space-y-0.5">
+                      {signal.risks.slice(0, 3).map((r, i) => (
+                        <li key={i} className="text-[11px] text-red-400/80 flex items-start gap-1">
+                          <span className="mt-0.5 shrink-0">!</span> {r}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            ) : dataError ? (
+              <p className="text-xs text-red-400 py-4">{dataError}</p>
+            ) : (
+              <p className="text-xs text-ufs-500 py-4">No signal data available</p>
+            )}
+          </div>
+
+          {/* Briefing Preview Card */}
+          <div className="rounded-xl border border-ufs-600/30 bg-ufs-800 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-ufs-400 uppercase tracking-wider">Latest Briefing</h3>
+              {briefing?.date && (
+                <span className="text-[10px] text-ufs-500">{briefing.date}</span>
+              )}
+            </div>
+            {dataLoading && !briefing ? (
+              <div className="flex items-center justify-center py-6">
+                <div className="w-5 h-5 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin" />
+              </div>
+            ) : briefing ? (
+              <>
+                {briefing.commentary ? (
+                  <p className="text-xs text-ufs-300 leading-relaxed line-clamp-6 whitespace-pre-line">
+                    {briefing.commentary}
+                  </p>
+                ) : (
+                  <p className="text-xs text-ufs-500 italic">No commentary available</p>
+                )}
+                {briefing.generated_at && (
+                  <p className="text-[10px] text-ufs-500 mt-3">
+                    Generated: {new Date(briefing.generated_at).toLocaleString('ko-KR')}
+                  </p>
+                )}
+                <button
+                  onClick={() => setViewMode('dashboard')}
+                  className="mt-3 text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+                >
+                  View full briefing in Dashboard →
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-ufs-500 py-4">No briefing data available</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Quick API Test */}
-      <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 mb-6">
-        <span className="text-xs font-semibold text-cyan-300 block mb-2">Quick API Test</span>
+      <div className="rounded-xl border border-ufs-600/20 bg-ufs-800/50 p-4 mb-6">
+        <span className="text-xs font-semibold text-ufs-500 block mb-2">Quick API Test</span>
         <div className="flex flex-wrap gap-2">
           {[
             { label: 'Health', url: '/api/vibe2/health' },
