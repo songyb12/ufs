@@ -33,15 +33,15 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/life/, ''),
       },
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      // Claude Session Manager
       '/api/claude': {
         target: 'http://localhost:8006',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/claude/, ''),
+      },
+      // Catch-all: must be LAST among /api/* rules
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       },
       // Frontend service proxies (iframe targets)
       '/svc/bocchi': {
