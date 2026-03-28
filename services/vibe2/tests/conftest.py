@@ -56,8 +56,8 @@ def auth_header(auth_token):
 def sample_ohlcv():
     """Generate a realistic 200-day OHLCV DataFrame."""
     np.random.seed(42)
-    n = 200
-    dates = pd.bdate_range(end=pd.Timestamp.now(), periods=n)
+    dates = pd.bdate_range(end=pd.Timestamp.now(), periods=200)
+    n = len(dates)
     base = 50.0
     returns = np.random.normal(0.001, 0.03, n)
     close = base * np.cumprod(1 + returns)
@@ -73,8 +73,8 @@ def sample_ohlcv():
 @pytest.fixture
 def oversold_df():
     """DataFrame designed to produce RSI ~25 (strong downtrend)."""
-    n = 200
-    dates = pd.bdate_range(end=pd.Timestamp.now(), periods=n)
+    dates = pd.bdate_range(end=pd.Timestamp.now(), periods=200)
+    n = len(dates)
     # Steady decline: most days negative
     close = np.zeros(n)
     close[0] = 100.0
@@ -94,8 +94,8 @@ def oversold_df():
 @pytest.fixture
 def overbought_df():
     """DataFrame designed to produce RSI ~75+ (strong uptrend)."""
-    n = 200
-    dates = pd.bdate_range(end=pd.Timestamp.now(), periods=n)
+    dates = pd.bdate_range(end=pd.Timestamp.now(), periods=200)
+    n = len(dates)
     close = np.zeros(n)
     close[0] = 20.0
     np.random.seed(20)
@@ -114,8 +114,8 @@ def overbought_df():
 def mock_collectors():
     """Mock all external collector calls (yfinance, httpx)."""
     np.random.seed(42)
-    n = 200
-    dates = pd.bdate_range(end=pd.Timestamp.now(), periods=n)
+    dates = pd.bdate_range(end=pd.Timestamp.now(), periods=200)
+    n = len(dates)
     close = 50.0 * np.cumprod(1 + np.random.normal(0.001, 0.02, n))
     df = pd.DataFrame({
         "open": close * 0.999,

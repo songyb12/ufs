@@ -26,8 +26,8 @@ class TestCalculateTechnical:
 
     def test_price_above_all_ma_positive(self):
         """When close is above all moving averages, ma_score > 0."""
-        n = 250
-        dates = pd.bdate_range(end=pd.Timestamp.now(), periods=n)
+        dates = pd.bdate_range(end=pd.Timestamp.now(), periods=250)
+        n = len(dates)
         # Steady uptrend so price is always above MAs
         close = np.linspace(10, 100, n)
         df = pd.DataFrame({
@@ -42,8 +42,8 @@ class TestCalculateTechnical:
 
     def test_price_below_all_ma_negative(self):
         """When close is below all moving averages, ma_score < 0."""
-        n = 250
-        dates = pd.bdate_range(end=pd.Timestamp.now(), periods=n)
+        dates = pd.bdate_range(end=pd.Timestamp.now(), periods=250)
+        n = len(dates)
         # Steady downtrend
         close = np.linspace(100, 10, n)
         df = pd.DataFrame({

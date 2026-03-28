@@ -10,13 +10,14 @@ from app.engine.leverage import LeverageScore, calculate_leverage
 def _make_df(start_price, end_price, n=30):
     """Create a simple OHLCV DataFrame with linear price movement."""
     dates = pd.bdate_range(end=pd.Timestamp.now(), periods=n)
-    close = np.linspace(start_price, end_price, n)
+    actual_n = len(dates)
+    close = np.linspace(start_price, end_price, actual_n)
     return pd.DataFrame({
         "open": close * 0.999,
         "high": close * 1.005,
         "low": close * 0.995,
         "close": close,
-        "volume": np.full(n, 5_000_000),
+        "volume": np.full(actual_n, 5_000_000),
     }, index=dates)
 
 
@@ -54,8 +55,8 @@ class TestCalculateLeverage:
 
     def test_low_daily_vol_positive_divergence(self):
         """Low daily volatility (< 3%) → divergence_score > 0."""
-        n = 30
-        dates = pd.bdate_range(end=pd.Timestamp.now(), periods=n)
+        dates = pd.bdate_range(end=pd.Timestamp.now(), periods=30)
+        n = len(dates)
         # Very stable prices — tiny daily changes
         close = 50.0 + np.random.RandomState(42).normal(0, 0.1, n).cumsum()
         close = np.maximum(close, 40.0)
