@@ -21,18 +21,20 @@ export function SongSearchBar({ onSelect }: SongSearchBarProps) {
   const [open, setOpen] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [songsVersion, setSongsVersion] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Popular songs for empty query suggestions
   const suggestions = useMemo(() => {
+    void songsVersion
     const all = getAllSongs()
     const seeds = all.filter(s => s.source === 'seed')
     const shuffled = [...seeds].sort(() => Math.random() - 0.5)
     return shuffled.slice(0, 5).map(s => ({
       id: s.id, title: s.title, artist: s.artist, source: s.source,
     } as SongSearchResult))
-  }, [])
+  }, [songsVersion])
 
   const doSearch = useCallback((q: string) => {
     if (!q.trim()) {
@@ -99,6 +101,7 @@ export function SongSearchBar({ onSelect }: SongSearchBarProps) {
 
       const song: Song = await resp.json()
       saveSong(song)
+      setSongsVersion(v => v + 1)
       onSelect(song)
       setQuery('')
       setOpen(false)

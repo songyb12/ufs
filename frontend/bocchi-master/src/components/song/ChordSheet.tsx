@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type { Song, SongSectionName } from '../../types/song'
 import { transposeSong } from '../../utils/transpose'
 
@@ -48,14 +48,18 @@ export function ChordSheet({ song, currentSectionIndex, onChordClick }: ChordShe
     try {
       if (!document.fullscreenElement) {
         await containerRef.current.requestFullscreen()
-        setIsFullscreen(true)
       } else {
         await document.exitFullscreen()
-        setIsFullscreen(false)
       }
     } catch {
       // Fullscreen not supported
     }
+  }, [])
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
   }, [])
 
   const fsText = isFullscreen ? 'text-4xl' : 'text-2xl'

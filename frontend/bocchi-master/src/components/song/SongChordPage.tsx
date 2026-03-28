@@ -16,12 +16,14 @@ export function SongChordPage({ onViewOnFretboard }: SongChordPageProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('search')
   const [copiedChords, setCopiedChords] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [songsVersion, setSongsVersion] = useState(0)
 
   const recommended = useMemo(() => {
+    void songsVersion // trigger recalculation
     const all = getAllSongs()
     const shuffled = [...all].sort(() => Math.random() - 0.5)
     return shuffled.slice(0, 5)
-  }, [])
+  }, [songsVersion])
 
   const handleSelect = (song: Song) => {
     setSelectedSong(song)
@@ -62,6 +64,7 @@ export function SongChordPage({ onViewOnFretboard }: SongChordPageProps) {
     setSelectedSong(null)
     setViewMode('search')
     setConfirmDelete(false)
+    setSongsVersion(v => v + 1)
   }, [selectedSong])
 
   if (selectedSong && viewMode === 'live') {
