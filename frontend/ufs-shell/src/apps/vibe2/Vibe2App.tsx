@@ -38,7 +38,7 @@ const SIGNAL_COLORS = {
   RED: { bg: 'bg-red-500/20', border: 'border-red-500/40', text: 'text-red-400', dot: 'bg-red-400', label: 'DANGER' },
 } as const
 
-const TOKEN_KEY = 'vibe2_shell_token'
+const TOKEN_KEY = 'vibe2_token'
 
 // ── Auth helpers ──
 
