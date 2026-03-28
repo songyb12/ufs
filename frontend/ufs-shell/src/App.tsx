@@ -6,6 +6,7 @@ import { ErrorBoundary } from './shared/ErrorBoundary.tsx'
 const Home = lazy(() => import('./shell/Home.tsx'))
 const BocchiApp = lazy(() => import('./apps/bocchi/BocchiApp.tsx'))
 const VibeApp = lazy(() => import('./apps/vibe/VibeApp.tsx'))
+const Vibe2App = lazy(() => import('./apps/vibe2/Vibe2App.tsx'))
 const LifeApp = lazy(() => import('./apps/life/LifeApp.tsx'))
 const EngOpsApp = lazy(() => import('./apps/eng-ops/EngOpsApp.tsx'))
 const ClaudeApp = lazy(() => import('./apps/claude/ClaudeApp.tsx'))
@@ -38,6 +39,7 @@ export function App() {
         <Route index element={<LazyRoute><Home /></LazyRoute>} />
         <Route path="bocchi/*" element={<LazyRoute appName="Bocchi-master"><BocchiApp /></LazyRoute>} />
         <Route path="vibe/*" element={<LazyRoute appName="VIBE"><VibeApp /></LazyRoute>} />
+        <Route path="vibe2/*" element={<LazyRoute appName="VIBE 2.0"><Vibe2App /></LazyRoute>} />
         <Route path="life/*" element={<LazyRoute appName="Life-Master"><LifeApp /></LazyRoute>} />
         <Route path="eng-ops/*" element={<LazyRoute appName="Engineering-Ops"><EngOpsApp /></LazyRoute>} />
         <Route path="claude/*" element={<LazyRoute appName="Claude"><ClaudeApp /></LazyRoute>} />
