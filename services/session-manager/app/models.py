@@ -164,6 +164,16 @@ class PipelineStartRequest(BaseModel):
     max_iterations: int = Field(default=20, ge=1, le=100)
     max_cycles: int = Field(default=100, ge=1, le=200)
     mode: str = Field(default="cli", pattern="^(api|cli)$")
+    # Cycle 고급 기능
+    cycle_phases: Optional[list[str]] = Field(
+        default=None,
+        description="사이클별 페이즈 이름 목록 (미지정 시 기본 4단계 순환 적용)")
+    cycle_reflection: bool = Field(
+        default=True,
+        description="사이클 종료 시 반성/재계획 실행 여부")
+    cycle_checkpoint: bool = Field(
+        default=False,
+        description="사이클 시작 전 사용자 확인 대기 여부 (POST /cycle-confirm으로 승인)")
 
 
 class PipelineStopRequest(BaseModel):

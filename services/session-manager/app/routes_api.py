@@ -1054,8 +1054,13 @@ async def start_pipeline(body: PipelineStartRequest):
             status_code=409,
             detail=f"Session already bound to pipeline {session.pipeline_id}")
 
-    runner = PipelineRunner(session, body.goal, body.supervisor_model,
-                            body.max_iterations, body.mode, body.max_cycles)
+    runner = PipelineRunner(
+        session, body.goal, body.supervisor_model,
+        body.max_iterations, body.mode, body.max_cycles,
+        cycle_phases=body.cycle_phases,
+        cycle_reflection=body.cycle_reflection,
+        cycle_checkpoint=body.cycle_checkpoint,
+    )
     pipelines[runner.id] = runner
     try:
         runner.start()
@@ -1068,6 +1073,9 @@ async def start_pipeline(body: PipelineStartRequest):
         "session_id": session.id,
         "status": runner.status,
         "mode": body.mode,
+        "cycle_reflection": runner.cycle_reflection,
+        "cycle_checkpoint": runner.cycle_checkpoint,
+        "cycle_phases": runner.cycle_phases,
     }
 
 
@@ -1134,6 +1142,48 @@ async def get_pipeline_report(pipeline_id: str):
             None if p.report
             else "파이프라인이 실행 중입니다. 완료/중단 후 report가 생성됩니다."
         ),
+    }
+
+
+@router.post("/pipelines/{pipeline_id}/cycle-confirm")
+async def confirm_pipeline_cycle(pipeline_id: str):
+    """Cycle checkpoint 대기 중인 파이프라인의 다음 사이클 실행을 승인.
+
+    cycle_checkpoint=True로 시작된 파이프라인이 사이클 전환 시 status='paused'로
+    대기할 때 이 엔드포인트로 승인하면 다음 사이클이 시작됩니다.
+
+    응답:
+    - confirmed=True: 승인 성공, 파이프라인 재개
+    - confirmed=False: 파이프라인이 checkpoint 대기 상태가 아님
+    """
+    if pipeline_id not in pipelines:
+        raise HTTPException(status_code=404, detail="파이프라인 없음")
+    p = pipelines[pipeline_id]
+    confirmed = p.confirm_cycle()
+    return {
+        "pipeline_id": pipeline_id,
+        "confirmed": confirmed,
+        "status": p.status,
+        "current_cycle": p.current_cycle,
+        "current_phase": p._get_cycle_phase(),
+        "message": (
+            f"사이클 {p.current_cycle} ({p._get_cycle_phase()}) 승인됨"
+            if confirmed else
+            "파이프라인이 checkpoint 대기 상태가 아닙니다"
+        ),
+    }
+
+
+@router.get("/pipelines/{pipeline_id}/cycle-summaries")
+async def get_cycle_summaries(pipeline_id: str):
+    """파이프라인의 사이클별 반성 요약 전체 조회."""
+    if pipeline_id not in pipelines:
+        raise HTTPException(status_code=404, detail="파이프라인 없음")
+    p = pipelines[pipeline_id]
+    return {
+        "pipeline_id": pipeline_id,
+        "cycle_summaries": p.cycle_summaries,
+        "count": len(p.cycle_summaries),
     }
 
 
