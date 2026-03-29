@@ -565,13 +565,16 @@ class PipelineRunner:
             f"반복 {self.iteration + 1}부터 이어서 실행합니다.")
         self._task = asyncio.create_task(self._run_loop())
 
-    def _add_history(self, role: str, content: str):
-        self.history.append({
+    def _add_history(self, role: str, content: str, extra: dict | None = None):
+        entry: dict = {
             "role": role,
             "content": content,
             "iteration": self.iteration,
             "timestamp": datetime.now().strftime("%H:%M:%S"),
-        })
+        }
+        if extra:
+            entry.update(extra)
+        self.history.append(entry)
 
     # ─── 리포트 보조 메서드 ─────────────────────────────
 
@@ -961,6 +964,9 @@ class PipelineRunner:
             "timestamp": datetime.now().isoformat(),
         }
         self.cycle_summaries.append(summary)
+        self._add_history("cycle_reflection", reflection,
+                          extra={"cycle": completed_cycle, "phase": completed_phase,
+                                 "next_phase": next_phase})
         self._add_history("system",
             f"✅ 사이클 {completed_cycle} 반성 완료 → 다음 페이즈: {next_phase}")
 
@@ -1433,6 +1439,11 @@ class PipelineRunner:
             "cycle_reflection": self.cycle_reflection,
             "cycle_checkpoint": self.cycle_checkpoint,
             "cycle_summaries_count": len(self.cycle_summaries),
+            "checkpoint_waiting": (
+                self.status == "paused"
+                and self._cycle_confirm_event is not None
+                and not self._cycle_confirm_event.is_set()
+            ),
             "total_iterations": (self.current_cycle - 1) * self.max_iterations + self.iteration,
             "summary": self.summary,
             "created_at": self.created_at,

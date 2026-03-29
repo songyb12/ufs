@@ -1243,9 +1243,10 @@ body {
                 <!-- 프리셋 / AI 추천 -->
                 <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
                     <label style="font-size:12px;color:var(--text-dim);white-space:nowrap">프리셋</label>
-                    <select id="pipelinePreset" onchange="applyPreset(this.value)" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:12px">
+                    <select id="pipelinePreset" onchange="onPresetChange(this.value)" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:12px">
                         <option value="">— 선택 —</option>
                     </select>
+                    <button class="btn btn-small btn-danger" id="presetDeleteBtn" onclick="deleteSelectedPreset()" title="선택한 사용자 설정 삭제" style="display:none;white-space:nowrap">&#10005;</button>
                     <button class="btn btn-small" onclick="recommendConfig()" id="recommendBtn" style="background:var(--purple,#8b5cf6);color:white;white-space:nowrap" title="목표 텍스트 기반 AI 설정 추천">&#129302; AI 추천</button>
                     <button class="btn btn-small" onclick="saveCurrentConfig()" title="현재 설정을 템플릿으로 저장" style="white-space:nowrap">&#128190; 저장</button>
                 </div>
@@ -3007,6 +3008,18 @@ async function loadPipelineConfigs() {
     } catch (e) { console.warn('loadPipelineConfigs error:', e); }
 }
 
+function onPresetChange(name) {
+    applyPreset(name);
+    const entry = _pipelineConfigsCache ? _pipelineConfigsCache.find(c => c.name === name) : null;
+    const deleteBtn = document.getElementById('presetDeleteBtn');
+    if (deleteBtn) deleteBtn.style.display = (entry && !entry.builtin) ? '' : 'none';
+}
+
+function deleteSelectedPreset() {
+    const name = document.getElementById('pipelinePreset').value;
+    if (name) deletePipelineConfig(name);
+}
+
 function applyPreset(name) {
     if (!name || !_pipelineConfigsCache) return;
     const entry = _pipelineConfigsCache.find(c => c.name === name);
@@ -3073,6 +3086,26 @@ async function saveCurrentConfig() {
         document.getElementById('pipelinePreset').value = name;
         alert('저장 완료: ' + label);
     } catch (e) { alert('저장 실패: ' + e.message); }
+}
+
+async function confirmCycleCheckpoint() {
+    if (!activePipelineId) return;
+    const btn = document.getElementById('pipelineCycleConfirmBtn');
+    if (btn) btn.disabled = true;
+    try {
+        await api('POST', `/pipelines/${activePipelineId}/cycle-confirm`);
+    } catch (e) { alert('확인 실패: ' + e.message); }
+    finally { if (btn) btn.disabled = false; }
+}
+
+async function deletePipelineConfig(name) {
+    if (!confirm(`설정 "${name}"을 삭제하시겠습니까?`)) return;
+    try {
+        await api('DELETE', `/pipeline-configs/${name}`);
+        _pipelineConfigsCache = null;
+        document.getElementById('pipelinePreset').value = '';
+        await loadPipelineConfigs();
+    } catch (e) { alert('삭제 실패: ' + e.message); }
 }
 
 // ─── Pipeline ──────────────────────────────────────────────────────
@@ -3252,12 +3285,29 @@ async function pollPipeline() {
         const cycleText = data.max_cycles > 1 ? `Cycle ${data.current_cycle}/${data.max_cycles} | ` : '';
         document.getElementById('pipelineIterText').textContent = `${cycleText}Iter ${data.iteration}/${data.max_iterations} (${totalIter} total)`;
 
-        const statusColors = { running: 'var(--orange)', completed: 'var(--green)', failed: 'var(--red)', stopped: 'var(--text-dim)' };
+        const statusColors = { running: 'var(--orange)', paused: 'var(--yellow,#f59e0b)', completed: 'var(--green)', failed: 'var(--red)', stopped: 'var(--text-dim)' };
         const modeLabel = data.mode === 'cli' ? 'CLI' : 'API';
-        const statusLabels = { running: `실행 중 [${modeLabel}]...`, completed: '완료', failed: '실패', stopped: '중단됨', idle: '대기' };
+        const statusLabels = { running: `실행 중 [${modeLabel}]...`, paused: '⏸ Checkpoint 대기', completed: '완료', failed: '실패', stopped: '중단됨', idle: '대기' };
         const stEl = document.getElementById('pipelineStatusText');
         stEl.textContent = statusLabels[data.status] || data.status;
         stEl.style.color = statusColors[data.status] || 'var(--text)';
+
+        // Checkpoint 대기 중: "계속 진행" 버튼 표시/숨김
+        let confirmBtn = document.getElementById('pipelineCycleConfirmBtn');
+        if (data.checkpoint_waiting) {
+            if (!confirmBtn) {
+                confirmBtn = document.createElement('button');
+                confirmBtn.id = 'pipelineCycleConfirmBtn';
+                confirmBtn.className = 'btn btn-small';
+                confirmBtn.style.cssText = 'background:var(--green);color:white;margin-left:8px';
+                confirmBtn.onclick = confirmCycleCheckpoint;
+                stEl.parentElement.appendChild(confirmBtn);
+            }
+            confirmBtn.textContent = `▶ 사이클 ${data.current_cycle} 계속 진행`;
+            confirmBtn.style.display = '';
+        } else if (confirmBtn) {
+            confirmBtn.style.display = 'none';
+        }
 
         // 세션 정보 표시
         const infoEl = document.getElementById('pipelineSessionInfo');
@@ -3267,7 +3317,7 @@ async function pollPipeline() {
         renderPipelineHistory(data.history);
 
         // 완료/실패/중단 시 폴링 중지 + 알림 (running → 종료 전환 시 1회만)
-        if (data.status !== 'running') {
+        if (data.status !== 'running' && data.status !== 'paused') {
             clearInterval(pipelinePollTimer);
             pipelinePollTimer = null;
             document.getElementById('pipelineStartBtn').style.display = '';
@@ -3322,6 +3372,16 @@ function renderPipelineHistory(history) {
                 <div style="margin-top:4px;white-space:pre-wrap;color:var(--text);max-height:300px;overflow-y:auto;font-family:monospace;font-size:11px">${escapeHtml(h.content)}</div>
                 </details>
             </div>`;
+        } else if (h.role === 'cycle_reflection') {
+            const cycleNum = h.cycle != null ? h.cycle : '?';
+            const phase = h.phase ? ` [${escHtml(h.phase)}]` : '';
+            const nextPhase = h.next_phase ? ` → ${escHtml(h.next_phase)}` : '';
+            html += `<details style="margin:8px 0;border-left:3px solid var(--accent);border-radius:6px;background:var(--bg-secondary);padding:0">
+                <summary style="padding:8px 10px;cursor:pointer;font-size:12px;font-weight:500;color:var(--accent);list-style:none">
+                    ${time}📝 사이클 ${cycleNum}${phase} 반성 결과${nextPhase}
+                </summary>
+                <div style="padding:8px 12px;font-size:12px;white-space:pre-wrap;color:var(--text);max-height:300px;overflow-y:auto;border-top:1px solid var(--border)">${escapeHtml(h.content)}</div>
+            </details>`;
         } else if (h.role === 'system') {
             html += `<div style="margin:4px 0;font-size:11px;color:var(--text-dim);font-style:italic">${time}${escapeHtml(h.content)}</div>`;
         } else if (h.role === 'error') {
