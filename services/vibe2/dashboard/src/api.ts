@@ -1,4 +1,7 @@
-const BASE_URL = "/api";
+// VITE_API_BASE is set at Docker build time to "/api/vibe2" so that API
+// calls from inside the shell iframe route through the shell nginx proxy.
+// In dev (npm run dev) it is unset, so the Vite dev proxy handles /api.
+const BASE_URL = (import.meta.env.VITE_API_BASE as string) || "/api";
 
 const TOKEN_KEY = "vibe2_token";
 

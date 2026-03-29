@@ -4,6 +4,9 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
+# Base path for shell iframe proxy (/svc/vibe2/) and API prefix
+ENV VITE_BASE_PATH=/svc/vibe2/
+ENV VITE_API_BASE=/api/vibe2
 RUN npm run build
 
 # Stage 2: Serve
