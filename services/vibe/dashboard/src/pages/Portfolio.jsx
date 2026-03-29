@@ -73,7 +73,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
         return g
       })
       .catch(err => { console.error('Groups load error:', err); toast.error('그룹 로드 실패: ' + err.message) })
-  }, [activeGroupId])
+  }, [activeGroupId, toast])
 
   const loadData = useCallback((groupId, hidden) => {
     const gid = groupId || activeGroupId
@@ -89,7 +89,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
       })
       .catch(err => { console.error(err); setError(err.message); toast.error('데이터 로드 실패: ' + err.message) })
       .finally(() => setLoading(false))
-  }, [activeGroupId, showHidden])
+  }, [activeGroupId, showHidden, toast])
 
   useEffect(() => {
     loadGroups().then(() => loadData())
@@ -1300,7 +1300,7 @@ export default function Portfolio({ onNavigate, refreshKey }) {
             <tbody>
               {Object.entries(entryMap).map(([sym, sc]) => {
                 let targets = {}
-                try { targets = typeof sc.target_prices_json === 'string' ? JSON.parse(sc.target_prices_json) : (sc.target_prices_json || {}) } catch {}
+                try { targets = typeof sc.target_prices_json === 'string' ? JSON.parse(sc.target_prices_json) : (sc.target_prices_json || {}) } catch { /* malformed JSON — use default empty */ }
                 return (
                   <tr key={`entry-${sym}-${sc.market}`}>
                     <td><strong>{sym}</strong></td>

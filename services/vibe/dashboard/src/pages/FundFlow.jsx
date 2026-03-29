@@ -67,7 +67,7 @@ export default function FundFlow({ onNavigate, refreshKey }) {
       })
       .catch(err => { setError(err.message); toast.error('자금 흐름 로드 실패: ' + err.message) })
       .finally(() => setLoading(false))
-  }, [days])
+  }, [days, toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
 

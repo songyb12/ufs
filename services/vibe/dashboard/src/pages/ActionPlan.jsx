@@ -50,7 +50,7 @@ export default function ActionPlan({ onNavigate, refreshKey }) {
       .then(d => { setData(d); setError(null) })
       .catch(err => { setError(err.message); toast.error('액션 플랜 로드 실패') })
       .finally(() => setLoading(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
 

@@ -103,7 +103,7 @@ export default function Overview({ onNavigate, refreshKey }) {
         }
       })
       .catch(err => { console.error(err); setError(err.message); toast.error('데이터 로드 실패: ' + err.message) })
-  }, [])
+  }, [toast])
 
   useEffect(() => {
     loadData().finally(() => setLoading(false))
@@ -114,7 +114,7 @@ export default function Overview({ onNavigate, refreshKey }) {
       loadData().catch(err => { console.error('Auto-refresh error:', err); toast.warn('자동 갱신 실패') })
     }, 5 * 60 * 1000)
     return () => clearInterval(interval)
-  }, [loadData])
+  }, [loadData, toast])
 
   if (loading) return <div className="loading"><span className="spinner" /> 로딩 중...</div>
   if (error) return <div className="loading" style={{ color: 'var(--red)' }}>오류: {error}</div>
@@ -122,7 +122,6 @@ export default function Overview({ onNavigate, refreshKey }) {
 
   const {
     signals: sigCounts = {},
-    portfolio = {},
     pipelines = {},
     data = {},
     hard_limit_count = 0,

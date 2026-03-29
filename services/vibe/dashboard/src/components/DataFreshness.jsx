@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react'
  * @param {boolean} [compact] - Compact mode (dot + time only)
  */
 export default function DataFreshness({ updatedAt, onRefresh, refreshing, compact }) {
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
 
   // Tick every 30s to update relative time
   useEffect(() => {
@@ -92,9 +92,10 @@ export default function DataFreshness({ updatedAt, onRefresh, refreshing, compac
  *
  * @param {number} [staleMinutes=5] - Minutes before data is considered stale
  */
+// eslint-disable-next-line react-refresh/only-export-components -- hook and component intentionally co-located
 export function useDataFreshness(staleMinutes = 5) {
   const [updatedAt, setUpdatedAt] = useState(null)
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30000)

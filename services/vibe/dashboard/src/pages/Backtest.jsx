@@ -30,7 +30,7 @@ export default function Backtest({ onNavigate, refreshKey }) {
       .then(data => { setResults(Array.isArray(data) ? data : []); setError(null) })
       .catch(err => { console.error(err); setError(err.message); toast.error('백테스트 로드 실패: ' + err.message) })
       .finally(() => setLoading(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadResults() }, [loadResults, refreshKey])
 

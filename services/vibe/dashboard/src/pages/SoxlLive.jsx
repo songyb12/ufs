@@ -7,7 +7,7 @@ import {
   getSoxlLiveQuote, getSoxlIntraday, getSoxlLiveIndicators,
   getSoxlSectorCorrelation, getSoxlAlerts, createSoxlAlert, deleteSoxlAlert,
   getSoxlAiAnalysis, runSoxlBacktest, compareSoxlModes, generateSoxlStrategy,
-  exportSoxlTradesCSV, getSoxlBacktestStats, optimizeSoxlParams,
+  exportSoxlTradesCSV, optimizeSoxlParams,
   getSoxlOptimizeHistory,
 } from '../api'
 import DataFreshness from '../components/DataFreshness'
@@ -15,7 +15,7 @@ import DataFreshness from '../components/DataFreshness'
 // ── Helpers ──
 const fmtPct = (v) => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
 const fmtPrice = (v) => v == null ? '—' : `$${v.toFixed(2)}`
-const fmtVol = (v) => {
+const _fmtVol = (v) => {
   if (!v) return '—'
   if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`
   if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`
@@ -744,9 +744,10 @@ function SoxlBacktestTab() {
   const fmtNum = (v, d = 2) => v == null ? '—' : v.toFixed(d)
 
   // Filtered and sorted trades
+  const rawTrades = result?.trades
   const filteredTrades = useMemo(() => {
-    if (!result?.trades) return []
-    let trades = result.trades
+    if (!rawTrades) return []
+    let trades = rawTrades
     if (tradeFilter === 'wins') trades = trades.filter(t => (t.return_pct || 0) > 0)
     else if (tradeFilter === 'losses') trades = trades.filter(t => (t.return_pct || 0) <= 0)
     else if (tradeFilter !== 'all') trades = trades.filter(t => t.exit_reason === tradeFilter)
@@ -759,7 +760,7 @@ function SoxlBacktestTab() {
       })
     }
     return trades
-  }, [result?.trades, tradeFilter, sortCol, sortDir])
+  }, [rawTrades, tradeFilter, sortCol, sortDir])
 
   const handleSort = (col) => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -1550,7 +1551,7 @@ export default function SoxlLive({ onNavigate }) {
   const [indicators, setIndicators] = useState(null)
   const [sector, setSector] = useState(null)
   const [alerts, setAlerts] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
   const [sseEnabled, setSseEnabled] = useState(true)
   const intervalRef = useRef(null)
 

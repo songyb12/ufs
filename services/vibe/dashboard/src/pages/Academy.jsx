@@ -32,7 +32,7 @@ export default function Academy({ onNavigate, refreshKey }) {
       })
       .catch(() => toast.error('아카데미 데이터 로드 실패'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
 

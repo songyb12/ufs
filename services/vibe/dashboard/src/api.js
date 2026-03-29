@@ -842,7 +842,7 @@ export async function cleanupSoxlBacktests(keep = 20) {
 
 // ── SOXL Backtest Trade Export ──
 
-export function exportSoxlTradesCSV(trades, mode = '', period = '') {
+export function exportSoxlTradesCSV(trades, mode = '') {
   const headers = [
     'Entry Date', 'Entry Price', 'RSI', 'VIX', 'Geo Score',
     'Exit Date', 'Exit Price', 'Exit Reason',

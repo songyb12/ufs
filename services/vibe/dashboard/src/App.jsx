@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, Component } from 'react'
 import LoginGate from './components/LoginGate'
-import { ToastProvider, useToast } from './components/Toast'
+import { ToastProvider } from './components/Toast'
 import Sidebar from './components/Sidebar'
 import DataFreshness from './components/DataFreshness'
 import { refreshPrices } from './api'
@@ -122,7 +122,7 @@ function App() {
       setRefreshKey(k => k + 1)
       setLastRefreshed(new Date())
       if (toastRef.current) toastRef.current.success(`전체 갱신 완료 (가격 ${rows}건)`)
-    } catch (err) {
+    } catch {
       setRefreshKey(k => k + 1)
       if (toastRef.current) toastRef.current.warn(`가격 갱신 실패, 페이지 데이터만 갱신됨`)
     } finally {

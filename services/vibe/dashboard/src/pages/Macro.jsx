@@ -75,7 +75,7 @@ export default function Macro({ onNavigate, refreshKey }) {
       })
       .catch(err => toast.error('Load failed: ' + err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
 

@@ -19,7 +19,7 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
   // AI Analysis state
   const [showAIPanel, setShowAIPanel] = useState(false)
   const [aiQuestion, setAIQuestion] = useState('')
-  const [aiResult, setAIResult] = useState(null)
+  const [, setAIResult] = useState(null)
   const [aiLoading, setAILoading] = useState(false)
   const [aiHistory, setAIHistory] = useState([])
 
@@ -43,7 +43,7 @@ export default function MarketBrief({ onNavigate, refreshKey }) {
       })
       .catch(err => { setError(err.message); toast.error('브리핑 로드 실패: ' + err.message) })
       .finally(() => setLoading(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
 

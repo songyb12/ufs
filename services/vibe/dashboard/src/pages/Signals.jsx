@@ -29,7 +29,7 @@ export default function Signals({ onNavigate, refreshKey }) {
       .then(([h, p]) => { setSignals(h.signals || []); setPerf(p); setError(null) })
       .catch(err => { console.error(err); setError(err.message); toast.error('시그널 로드 실패: ' + err.message) })
       .finally(() => setLoading(false))
-  }, [market, days, refreshKey])
+  }, [market, days, refreshKey, toast])
 
   // Daily signal count chart data
   const dailyCounts = {}

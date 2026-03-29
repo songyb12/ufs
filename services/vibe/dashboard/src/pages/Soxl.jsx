@@ -53,7 +53,7 @@ export default function Soxl({ onNavigate, refreshKey }) {
       .finally(() => setLoading(false))
   }, [toast])
 
-  useEffect(() => { fetchData(days) }, [refreshKey, days])
+  useEffect(() => { fetchData(days) }, [refreshKey, days, fetchData])
 
   if (loading) return <LoadingSkeleton />
   if (!data) return (
@@ -283,8 +283,8 @@ function QuickKpiStrip({ performance, technicals }) {
 }
 
 /* ── Overview Tab ── */
-function OverviewTab({ data, levels, onNavigate, signals }) {
-  const { prices, performance, strategy, technicals } = data
+function OverviewTab({ data, levels, signals }) {
+  const { prices, performance, strategy } = data
   const p = performance || {}
 
   // Find nearest support/resistance
@@ -350,7 +350,7 @@ function OverviewTab({ data, levels, onNavigate, signals }) {
             {prices.length}일 데이터 | MA5·MA20·MA60
           </span>
         </div>
-        <PriceChart prices={prices} technicals={technicals} levels={levels} />
+        <PriceChart prices={prices} levels={levels} />
       </div>
 
       {/* Two columns: Levels + Strategy */}
@@ -604,7 +604,7 @@ function SignalsTab({ signals }) {
 
 /* ── Chart Components ── */
 
-function PriceChart({ prices, technicals, levels }) {
+function PriceChart({ prices, levels }) {
   // Compute MA series from prices
   const chartData = useMemo(() => {
     return prices.map((p, i) => {
@@ -722,7 +722,7 @@ function RsiChart({ prices }) {
   )
 }
 
-function MacdChart({ prices, technicals }) {
+function MacdChart({ prices }) {
   // Simple MACD calculation from prices
   const data = useMemo(() => {
     const closes = prices.map(p => p.close)
@@ -768,7 +768,7 @@ function MacdChart({ prices, technicals }) {
   )
 }
 
-function BollingerChart({ prices, technicals }) {
+function BollingerChart({ prices }) {
   const data = useMemo(() => {
     return prices.map((p, i) => {
       let bbUpper = null, bbMiddle = null, bbLower = null

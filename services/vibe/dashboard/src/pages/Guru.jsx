@@ -39,7 +39,7 @@ export default function Guru({ onNavigate, refreshKey }) {
       .then(d => { if (mountedRef.current) setData(d) })
       .catch(err => { if (mountedRef.current) toast.error('Load failed: ' + err.message) })
       .finally(() => { if (mountedRef.current) setLoading(false) })
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
 

@@ -6,7 +6,7 @@ import {
   getMonthlyReports, generateMonthlyReport,
   getWeeklyReports, generateWeeklyReport,
   getDataStatus, getLLMSettings, updateLLMSettings,
-  getStoredApiKey, setApiKey,
+  getStoredApiKey,
   getNotificationSchedule, updateNotificationSchedule, testNotificationCheck,
   getRuntimeSettings, updateRuntimeSetting,
   authStatus, authChangePassword, logout,
@@ -114,6 +114,7 @@ export default function System({ onNavigate, refreshKey }) {
       .finally(() => setLoading(false))
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is intentionally excluded; runs on refreshKey change only
   useEffect(() => { refresh() }, [refreshKey])
 
   const showWlMsg = (text, type = 'success') => {
@@ -232,7 +233,7 @@ export default function System({ onNavigate, refreshKey }) {
     try {
       const result = await testNotificationCheck()
       setNotifTest(result)
-    } catch (err) {
+    } catch {
       toast.error('알림 테스트 실패')
     }
   }
@@ -407,7 +408,7 @@ export default function System({ onNavigate, refreshKey }) {
               try {
                 const parsed = typeof r.stages_completed === 'string' ? JSON.parse(r.stages_completed) : r.stages_completed
                 stages = Array.isArray(parsed) ? parsed.length : 0
-              } catch {}
+              } catch { /* parse error — ignore */ }
               return (
                 <tr key={r.run_id}>
                   <td><code style={{ fontSize: '0.7rem' }}>{r.run_id?.slice(0, 8)}</code></td>

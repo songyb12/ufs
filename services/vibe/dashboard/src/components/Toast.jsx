@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, createContext, useContext } 
 
 const ToastContext = createContext(null);
 
+// eslint-disable-next-line react-refresh/only-export-components -- hook and provider intentionally co-located
 export function useToast() {
   return useContext(ToastContext);
 }

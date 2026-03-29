@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { authStatus, authLogin, authRegister, getHealth, getStoredApiKey, setApiKey } from '../api'
+import { authStatus, authLogin, authRegister, getHealth, setApiKey } from '../api'
 
 export default function LoginGate({ children }) {
   const [state, setState] = useState('loading') // loading | setup | login | authenticated | apikey
@@ -24,7 +24,7 @@ export default function LoginGate({ children }) {
       } else {
         setState('login')
       }
-    } catch (err) {
+    } catch {
       // /auth/status not available — try legacy health check
       try {
         const h = await getHealth()

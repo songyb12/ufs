@@ -20,7 +20,7 @@ export default function Strategy({ onNavigate, refreshKey }) {
       .then(d => setData(d))
       .catch(err => toast.error('전략 설정 로드 실패: ' + err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
 

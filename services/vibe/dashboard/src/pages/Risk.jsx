@@ -32,7 +32,7 @@ export default function Risk({ onNavigate, refreshKey }) {
   const [daysAhead, setDaysAhead] = useState(30)
   const [seeding, setSeeding] = useState(false)
   const [selectedSymbol, setSelectedSymbol] = useState(null)
-  const [sectorRisk, setSectorRisk] = useState(null)
+  const [, setSectorRisk] = useState(null)
 
   const loadData = useCallback(() => {
     setLoading(true)
@@ -49,7 +49,7 @@ export default function Risk({ onNavigate, refreshKey }) {
       })
       .catch(err => { console.error(err); setError(err.message); toast.error('리스크 데이터 로드 실패: ' + err.message) })
       .finally(() => setLoading(false))
-  }, [market, eventMarket, daysAhead])
+  }, [market, eventMarket, daysAhead, toast])
 
   useEffect(() => { loadData() }, [loadData, refreshKey])
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../components/Toast'
 import {
   getHealth, getDataStatus, getPipelineRuns,
@@ -45,7 +45,7 @@ export default function DataAdmin({ refreshKey }) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState({}) // { actionId: true/false }
 
-  const loadAll = () => {
+  const loadAll = useCallback(() => {
     setLoading(true)
     Promise.all([
       getHealth().catch(() => null),
@@ -59,9 +59,9 @@ export default function DataAdmin({ refreshKey }) {
       })
       .catch(() => toast.error('데이터 로드 실패'))
       .finally(() => setLoading(false))
-  }
+  }, [toast])
 
-  useEffect(() => { loadAll() }, [refreshKey])
+  useEffect(() => { loadAll() }, [loadAll, refreshKey])
 
   const handleAction = async (action) => {
     setRunning(prev => ({ ...prev, [action.id]: true }))
