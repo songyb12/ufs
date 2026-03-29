@@ -854,8 +854,8 @@ async def add_source(data: SourceCreate):
                 "INSERT INTO jp_source_vocab (source_id, vocab_id) VALUES (?, ?)",
                 (source_id, vid),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to link vocab %d to source %d: %s", vid, source_id, e)
 
     await db.commit()
     cursor = await db.execute(
@@ -878,7 +878,8 @@ async def link_vocab_to_source(source_id: int, vocab_id: int, line_number: int =
             (source_id, vocab_id, line_number, context_ja),
         )
         await db.commit()
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to link vocab %d to source %d: %s", vocab_id, source_id, e)
         raise HTTPException(status_code=409, detail="Already linked")
     return {"status": "linked", "source_id": source_id, "vocab_id": vocab_id}
 
