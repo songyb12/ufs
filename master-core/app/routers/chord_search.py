@@ -141,9 +141,15 @@ async def search_chords(req: ChordSearchRequest):
             tool_choice={"type": "tool", "name": "return_chord_progression"},
             messages=[{"role": "user", "content": prompt}],
         )
-    except Exception as e:
-        logger.error("LLM call failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
+    except anthropic.APIConnectionError as e:
+        logger.error("LLM connection failed: %s", e)
+        raise HTTPException(status_code=502, detail="LLM 서버 연결 실패")
+    except anthropic.RateLimitError as e:
+        logger.warning("LLM rate limited: %s", e)
+        raise HTTPException(status_code=429, detail="LLM API 요청 한도 초과")
+    except anthropic.APIStatusError as e:
+        logger.error("LLM API error (status %d): %s", e.status_code, e)
+        raise HTTPException(status_code=502, detail=f"LLM API 오류 ({e.status_code})")
 
     # Extract tool_use block
     tool_input = None
