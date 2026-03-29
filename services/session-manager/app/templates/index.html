@@ -1329,8 +1329,12 @@ body {
 
             <!-- 요약 -->
             <div id="pipelineSummary" style="display:none;padding:12px 16px;background:var(--bg-secondary);border-top:1px solid var(--border)">
-                <div style="font-size:12px;color:var(--green);font-weight:600;margin-bottom:4px">&#10003; 완료 요약</div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                    <div style="font-size:12px;color:var(--green);font-weight:600">&#10003; 완료 요약</div>
+                    <button id="cycleSummariesBtn" class="btn btn-small" onclick="toggleCycleSummaries()" style="display:none;font-size:11px">&#128196; 사이클 반성 보기</button>
+                </div>
                 <div id="pipelineSummaryText" style="font-size:13px;line-height:1.5"></div>
+                <div id="cycleSummariesPanel" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px"></div>
             </div>
         </div>
     </div>
@@ -3088,6 +3092,33 @@ async function saveCurrentConfig() {
     } catch (e) { alert('저장 실패: ' + e.message); }
 }
 
+async function toggleCycleSummaries() {
+    const panel = document.getElementById('cycleSummariesPanel');
+    if (!panel) return;
+    if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+    if (panel.dataset.loaded === '1') { panel.style.display = ''; return; }
+
+    panel.style.display = '';
+    panel.innerHTML = '<div style="color:var(--text-dim);font-size:12px">로딩 중...</div>';
+    try {
+        const data = await api('GET', `/pipelines/${activePipelineId}/cycle-summaries`);
+        const summaries = data.cycle_summaries || [];
+        if (summaries.length === 0) { panel.innerHTML = '<div style="color:var(--text-dim);font-size:12px">반성 요약 없음</div>'; return; }
+        let html = '';
+        for (const s of summaries) {
+            html += `<details style="margin:6px 0;border-left:3px solid var(--accent);border-radius:4px;background:var(--bg)">
+                <summary style="padding:6px 10px;cursor:pointer;font-size:12px;font-weight:500;color:var(--accent);list-style:none">
+                    사이클 ${s.cycle} [${escHtml(s.phase)}] → ${escHtml(s.next_phase)}
+                    <span style="color:var(--text-dim);font-size:10px;margin-left:6px">${s.timestamp ? s.timestamp.substring(0,16) : ''}</span>
+                </summary>
+                <div style="padding:8px 12px;font-size:12px;white-space:pre-wrap;color:var(--text);max-height:250px;overflow-y:auto;border-top:1px solid var(--border)">${escapeHtml(s.reflection)}</div>
+            </details>`;
+        }
+        panel.innerHTML = html;
+        panel.dataset.loaded = '1';
+    } catch (e) { panel.innerHTML = `<div style="color:var(--red);font-size:12px">로드 실패: ${e.message}</div>`; }
+}
+
 async function confirmCycleCheckpoint() {
     if (!activePipelineId) return;
     const btn = document.getElementById('pipelineCycleConfirmBtn');
@@ -3187,7 +3218,7 @@ async function loadPipelinesForSession() {
             document.getElementById('pipelineStatusBar').style.display = '';
             pollPipeline();
             const ap = mine.find(p => p.id === activePipelineId);
-            if (ap && ap.status === 'running') {
+            if (ap && (ap.status === 'running' || ap.status === 'paused')) {
                 document.getElementById('pipelineStartBtn').style.display = 'none';
                 document.getElementById('pipelineStopBtn').style.display = '';
                 startPipelinePolling();
@@ -3204,10 +3235,12 @@ function selectPipeline(id) {
     document.getElementById('pipelineStopBtn').style.display = 'none';
     document.getElementById('pipelineSummary').style.display = 'none';
     document.getElementById('pipelineStatusBar').style.display = '';
+    const csp = document.getElementById('cycleSummariesPanel');
+    if (csp) { csp.style.display = 'none'; csp.dataset.loaded = ''; csp.innerHTML = ''; }
     pollPipeline();
-    // running이면 폴링 재개
+    // running 또는 paused이면 폴링 재개
     api('GET', `/pipelines/${id}`).then(data => {
-        if (data.status === 'running') {
+        if (data.status === 'running' || data.status === 'paused') {
             document.getElementById('pipelineStartBtn').style.display = 'none';
             document.getElementById('pipelineStopBtn').style.display = '';
             startPipelinePolling();
@@ -3327,6 +3360,15 @@ async function pollPipeline() {
                 document.getElementById('pipelineSummary').style.display = '';
                 document.getElementById('pipelineSummaryText').textContent = data.summary;
             }
+            // cycle 반성이 있으면 요약 버튼 표시
+            const csBtn = document.getElementById('cycleSummariesBtn');
+            if (csBtn) {
+                csBtn.style.display = data.cycle_summaries_count > 0 ? '' : 'none';
+                csBtn.textContent = `📄 사이클 반성 (${data.cycle_summaries_count})`;
+                if (data.cycle_summaries_count > 0) {
+                    document.getElementById('pipelineSummary').style.display = '';
+                }
+            }
 
             // running → 종료 상태 전환 시 1회 알림
             if (_prevPipelineStatus === 'running') {
@@ -3351,11 +3393,22 @@ function renderPipelineHistory(history) {
     const el = document.getElementById('pipelineHistory');
     let html = '';
     let currentIter = 0;
+    let cycleDisplay = 1;  // 표시용 사이클 번호
 
     for (const h of history) {
+        // 사이클 경계: iteration이 뒤로 리셋되면 새 사이클 시작
+        if (h.iteration > 0 && h.iteration < currentIter) {
+            cycleDisplay++;
+            currentIter = 0;
+            html += `<div style="margin:16px 0 8px;display:flex;align-items:center;gap:8px">
+                <div style="flex:1;height:1px;background:var(--border)"></div>
+                <span style="font-size:11px;font-weight:700;color:var(--accent);white-space:nowrap;padding:2px 10px;border:1px solid var(--accent);border-radius:10px">CYCLE ${cycleDisplay}</span>
+                <div style="flex:1;height:1px;background:var(--border)"></div>
+            </div>`;
+        }
         if (h.iteration > currentIter) {
             currentIter = h.iteration;
-            html += `<div style="font-size:11px;color:var(--accent);font-weight:600;margin:12px 0 6px;padding-top:8px;border-top:1px solid var(--border)">Iteration ${currentIter}</div>`;
+            html += `<div style="font-size:11px;color:var(--text-dim);font-weight:600;margin:10px 0 4px;padding-top:6px;border-top:1px dashed var(--border)">Iter ${currentIter}</div>`;
         }
 
         const time = `<span style="color:var(--text-dim);font-size:11px;margin-right:6px">${escHtml(h.timestamp)}</span>`;
