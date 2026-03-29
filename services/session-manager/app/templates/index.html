@@ -1240,6 +1240,15 @@ body {
         <div class="pipeline-container" id="pipelineView" style="display:none;flex-direction:column;height:100%;overflow:hidden">
             <!-- 설정 영역 -->
             <div style="padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
+                <!-- 프리셋 / AI 추천 -->
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+                    <label style="font-size:12px;color:var(--text-dim);white-space:nowrap">프리셋</label>
+                    <select id="pipelinePreset" onchange="applyPreset(this.value)" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:12px">
+                        <option value="">— 선택 —</option>
+                    </select>
+                    <button class="btn btn-small" onclick="recommendConfig()" id="recommendBtn" style="background:var(--purple,#8b5cf6);color:white;white-space:nowrap" title="목표 텍스트 기반 AI 설정 추천">&#129302; AI 추천</button>
+                    <button class="btn btn-small" onclick="saveCurrentConfig()" title="현재 설정을 템플릿으로 저장" style="white-space:nowrap">&#128190; 저장</button>
+                </div>
                 <div style="margin-bottom:8px">
                     <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">목표 (Goal)</label>
                     <textarea id="pipelineGoal" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:13px;resize:vertical;font-family:inherit" placeholder="예: UFS 전체 서비스 테스트 실행하고 결과 정리해줘"></textarea>
@@ -1267,6 +1276,17 @@ body {
                     <div style="width:100px">
                         <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px" title="사이클 반복 횟수 (20×100=최대2000회)">사이클 수</label>
                         <input type="number" id="pipelineMaxCycles" value="100" min="1" max="200" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:12px">
+                    </div>
+                    <div style="min-width:120px">
+                        <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">사이클 옵션</label>
+                        <div style="display:flex;gap:10px;align-items:center">
+                            <label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;cursor:pointer" title="사이클 종료 후 LLM 반성 요약 생성">
+                                <input type="checkbox" id="pipelineCycleReflection" checked> 반성
+                            </label>
+                            <label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;cursor:pointer" title="사이클 경계마다 인간 승인 대기">
+                                <input type="checkbox" id="pipelineCycleCheckpoint"> 체크포인트
+                            </label>
+                        </div>
                     </div>
                     <div id="pipelineApiKeyGroup" style="flex:1;min-width:180px;display:none">
                         <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">API Key</label>
@@ -2522,6 +2542,7 @@ function switchTab(tab) {
         loadLogs();
     } else if (tab === 'pipeline') {
         document.getElementById('pipelineView').style.display = 'flex';
+        loadPipelineConfigs();
         loadPipelinesForSession();
     }
 }
@@ -2966,6 +2987,94 @@ refreshSessions().then(() => {
 });
 window._refreshSessionsTimer = setInterval(refreshSessions, 5000);
 
+// ─── Pipeline Config (Presets + Recommendation) ────────────────────
+
+let _pipelineConfigsCache = null;
+
+async function loadPipelineConfigs() {
+    try {
+        const data = await api('GET', '/pipeline-configs');
+        _pipelineConfigsCache = data.configs || [];
+        const sel = document.getElementById('pipelinePreset');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— 선택 —</option>';
+        for (const cfg of _pipelineConfigsCache) {
+            const opt = document.createElement('option');
+            opt.value = cfg.name;
+            opt.textContent = (cfg.builtin ? '★ ' : '') + cfg.label + (cfg.description ? ` — ${cfg.description}` : '');
+            sel.appendChild(opt);
+        }
+    } catch (e) { console.warn('loadPipelineConfigs error:', e); }
+}
+
+function applyPreset(name) {
+    if (!name || !_pipelineConfigsCache) return;
+    const entry = _pipelineConfigsCache.find(c => c.name === name);
+    if (!entry) return;
+    const cfg = entry.config || {};
+    if (cfg.mode) document.getElementById('pipelineMode').value = cfg.mode;
+    if (cfg.supervisor_model) document.getElementById('pipelineSupervisorModel').value = cfg.supervisor_model;
+    if (cfg.max_iterations != null) document.getElementById('pipelineMaxIter').value = cfg.max_iterations;
+    if (cfg.max_cycles != null) document.getElementById('pipelineMaxCycles').value = cfg.max_cycles;
+    if (cfg.cycle_reflection != null) document.getElementById('pipelineCycleReflection').checked = cfg.cycle_reflection;
+    if (cfg.cycle_checkpoint != null) document.getElementById('pipelineCycleCheckpoint').checked = cfg.cycle_checkpoint;
+    onPipelineModeChange();
+}
+
+async function recommendConfig() {
+    const goal = document.getElementById('pipelineGoal').value.trim();
+    if (!goal) { alert('먼저 목표를 입력하세요'); return; }
+    const btn = document.getElementById('recommendBtn');
+    btn.disabled = true;
+    btn.textContent = '...';
+    try {
+        const mode = document.getElementById('pipelineMode').value;
+        const result = await api('POST', '/pipelines/recommend-config', { goal, mode });
+        if (result.error) { alert('추천 실패: ' + result.error); return; }
+        const cfg = result.config || {};
+        if (cfg.mode) document.getElementById('pipelineMode').value = cfg.mode;
+        if (cfg.supervisor_model) document.getElementById('pipelineSupervisorModel').value = cfg.supervisor_model;
+        if (cfg.max_iterations != null) document.getElementById('pipelineMaxIter').value = cfg.max_iterations;
+        if (cfg.max_cycles != null) document.getElementById('pipelineMaxCycles').value = cfg.max_cycles;
+        if (cfg.cycle_reflection != null) document.getElementById('pipelineCycleReflection').checked = cfg.cycle_reflection;
+        if (cfg.cycle_checkpoint != null) document.getElementById('pipelineCycleCheckpoint').checked = cfg.cycle_checkpoint;
+        onPipelineModeChange();
+        // 추천 이유 간단히 표시
+        const reason = result.reasoning || result.reason || '';
+        if (reason) {
+            const hist = document.getElementById('pipelineHistory');
+            const msg = document.createElement('div');
+            msg.style.cssText = 'padding:8px 12px;background:var(--bg-secondary);border-radius:6px;font-size:12px;color:var(--text-dim);border-left:3px solid var(--purple,#8b5cf6);margin-bottom:8px';
+            msg.textContent = '&#129302; AI 추천 이유: ' + reason;
+            hist.prepend(msg);
+        }
+    } catch (e) { alert('추천 요청 실패: ' + e.message); }
+    finally { btn.disabled = false; btn.innerHTML = '&#129302; AI 추천'; }
+}
+
+async function saveCurrentConfig() {
+    const name = prompt('설정 이름 (영문/숫자/한글, 공백 없이):\n예: my_long_run');
+    if (!name) return;
+    const label = prompt('표시 레이블 (최대 40자):\n예: 야간 장시간 실행');
+    if (!label) return;
+    const description = prompt('설명 (선택사항, 최대 200자):') || '';
+    const config = {
+        mode: document.getElementById('pipelineMode').value,
+        supervisor_model: document.getElementById('pipelineSupervisorModel').value,
+        max_iterations: parseInt(document.getElementById('pipelineMaxIter').value) || 20,
+        max_cycles: parseInt(document.getElementById('pipelineMaxCycles').value) || 100,
+        cycle_reflection: document.getElementById('pipelineCycleReflection').checked,
+        cycle_checkpoint: document.getElementById('pipelineCycleCheckpoint').checked,
+    };
+    try {
+        await api('POST', '/pipeline-configs', { name, label, description, config });
+        _pipelineConfigsCache = null;  // 캐시 무효화
+        await loadPipelineConfigs();
+        document.getElementById('pipelinePreset').value = name;
+        alert('저장 완료: ' + label);
+    } catch (e) { alert('저장 실패: ' + e.message); }
+}
+
 // ─── Pipeline ──────────────────────────────────────────────────────
 // 세션별 파이프라인 관리
 let activePipelineId = null;
@@ -3089,6 +3198,8 @@ async function startPipeline() {
         supervisor_model: document.getElementById('pipelineSupervisorModel').value,
         max_iterations: parseInt(document.getElementById('pipelineMaxIter').value) || 20,
         max_cycles: parseInt(document.getElementById('pipelineMaxCycles').value) || 100,
+        cycle_reflection: document.getElementById('pipelineCycleReflection').checked,
+        cycle_checkpoint: document.getElementById('pipelineCycleCheckpoint').checked,
     };
 
     try {
