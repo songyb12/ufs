@@ -54,6 +54,7 @@ function useSoxlLive(enabled) {
   const esRef = useRef(null)
   const pollRef = useRef(null)
 
+  /* eslint-disable react-hooks/set-state-in-effect -- SSE connection lifecycle requires sync setState */
   useEffect(() => {
     if (!enabled) {
       // Disconnect but keep last quote
@@ -123,6 +124,7 @@ function useSoxlLive(enabled) {
       }
     }
   }, [enabled])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return { quote, connected, lastReceivedAt }
 }
@@ -1586,6 +1588,7 @@ export default function SoxlLive({ onNavigate }) {
     } catch { /* silent */ }
   }, [resolution])
 
+  /* eslint-disable react-hooks/set-state-in-effect -- async fetch handlers; setState only after await */
   // Initial load + periodic refresh
   useEffect(() => {
     fetchData()
@@ -1604,6 +1607,7 @@ export default function SoxlLive({ onNavigate }) {
 
   // Refetch intraday when resolution changes
   useEffect(() => { fetchIntraday() }, [resolution, fetchIntraday])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const tabs = [
     { id: 'chart', label: '📊 실시간 차트' },

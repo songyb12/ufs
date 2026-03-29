@@ -77,6 +77,7 @@ export default function Macro({ onNavigate, refreshKey }) {
       .finally(() => setLoading(false))
   }, [toast])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- setLoading inside loadData; standard data-fetch pattern
   useEffect(() => { loadData() }, [loadData, refreshKey])
 
   // Fetch trends separately so changing trendDays doesn't reload all 12 other APIs

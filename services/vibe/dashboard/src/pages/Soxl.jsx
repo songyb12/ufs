@@ -53,6 +53,7 @@ export default function Soxl({ onNavigate, refreshKey }) {
       .finally(() => setLoading(false))
   }, [toast])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- setLoading inside fetchData; standard data-fetch pattern
   useEffect(() => { fetchData(days) }, [refreshKey, days, fetchData])
 
   if (loading) return <LoadingSkeleton />

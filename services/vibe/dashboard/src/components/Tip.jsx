@@ -103,9 +103,11 @@ export default function Tip({ text, children, indicator = false, placement = 'to
     setShow(false)
   }
 
+  /* eslint-disable react-hooks/set-state-in-effect -- position sync on show prop */
   useEffect(() => {
     if (show) computePosition()
   }, [show, computePosition])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     return () => clearTimeout(timerRef.current)

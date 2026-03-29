@@ -4,7 +4,7 @@
  * Guides are dismissed per-page and remembered in localStorage.
  * Reset all: localStorage.removeItem('vibe_dismissed_guides')
  */
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 const STORAGE_KEY = 'vibe_dismissed_guides'
 
@@ -17,12 +17,7 @@ function getDismissed() {
 }
 
 export default function PageGuide({ pageId, title, steps, color = 'var(--accent)' }) {
-  const [dismissed, setDismissed] = useState(true)
-
-  useEffect(() => {
-    const d = getDismissed()
-    setDismissed(!!d[pageId])
-  }, [pageId])
+  const [dismissed, setDismissed] = useState(() => !!getDismissed()[pageId])
 
   const handleDismiss = () => {
     const d = getDismissed()

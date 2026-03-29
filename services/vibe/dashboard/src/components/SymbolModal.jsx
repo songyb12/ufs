@@ -13,18 +13,21 @@ export default function SymbolModal({ symbol, market, onClose }) {
 
   useEffect(() => {
     if (!symbol) return
-    setLoading(true)
+    let cancelled = false
+    setLoading(true)  // eslint-disable-line react-hooks/set-state-in-effect -- loading indicator before async fetch
     Promise.all([
       getPriceChart(symbol, market, days),
       getSignalHistory(market, 90, symbol),
     ])
       .then(([priceRes, sigRes]) => {
+        if (cancelled) return
         setPriceData(priceRes.data || [])
         setSignals(sigRes.signals || [])
         setError(null)
       })
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false))
+      .catch(err => { if (!cancelled) setError(err.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [symbol, market, days])
 
   // ESC key handler

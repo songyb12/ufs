@@ -19,6 +19,7 @@ export default function Signals({ onNavigate, refreshKey }) {
   const [selectedSymbol, setSelectedSymbol] = useState(null)
   const [signalLimit, setSignalLimit] = useState(50)
 
+  /* eslint-disable react-hooks/set-state-in-effect -- loading + reset before async fetch */
   useEffect(() => {
     setLoading(true)
     setSignalLimit(50)
@@ -30,6 +31,7 @@ export default function Signals({ onNavigate, refreshKey }) {
       .catch(err => { console.error(err); setError(err.message); toast.error('시그널 로드 실패: ' + err.message) })
       .finally(() => setLoading(false))
   }, [market, days, refreshKey, toast])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Daily signal count chart data
   const dailyCounts = {}

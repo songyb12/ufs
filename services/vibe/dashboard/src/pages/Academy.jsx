@@ -34,6 +34,7 @@ export default function Academy({ onNavigate, refreshKey }) {
       .finally(() => setLoading(false))
   }, [toast])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- setLoading inside loadData; standard data-fetch pattern
   useEffect(() => { loadData() }, [loadData, refreshKey])
 
   const openConcept = async (id) => {

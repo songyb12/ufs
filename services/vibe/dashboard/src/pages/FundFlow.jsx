@@ -69,6 +69,7 @@ export default function FundFlow({ onNavigate, refreshKey }) {
       .finally(() => setLoading(false))
   }, [days, toast])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- setLoading inside loadData; standard data-fetch pattern
   useEffect(() => { loadData() }, [loadData, refreshKey])
 
   if (loading) return <div className="loading"><span className="spinner" /> 로딩 중...</div>

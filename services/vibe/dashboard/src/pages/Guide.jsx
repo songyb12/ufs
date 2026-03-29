@@ -627,11 +627,13 @@ export default function Guide({ onNavigate, initialSection }) {
     initialSection && sections.find(s => s.id === initialSection) ? initialSection : 'quickstart'
   )
 
+  /* eslint-disable react-hooks/set-state-in-effect -- intentional prop-to-state sync */
   useEffect(() => {
     if (initialSection && sections.find(s => s.id === initialSection)) {
       setActiveSection(initialSection)
     }
   }, [initialSection])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const active = sections.find(s => s.id === activeSection) || sections[0]
 
