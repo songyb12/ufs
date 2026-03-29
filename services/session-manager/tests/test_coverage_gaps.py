@@ -1292,6 +1292,8 @@ class TestMonitorAPI:
 
     def test_monitor_latest_no_screenshot(self):
         """최신 스크린샷 없으면 None 반환"""
+        import app.routes_api as routes_api_module
+        routes_api_module.screen_monitor._latest_path = None  # 이전 테스트 캡처 상태 초기화
         r = client.get("/api/monitor/latest")
         assert r.status_code == 200
         assert r.json()["path"] is None
