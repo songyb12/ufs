@@ -900,10 +900,12 @@ function VocabTab() {
     try {
       const res = await api<{ xp?: { total_xp: number }; new_achievements?: { name: string }[] }>(`/japanese/review/${card.id}`, {
         method: 'POST',
+        // eslint-disable-next-line react-hooks/purity -- Date.now() called in async event handler, not during render
         body: JSON.stringify({ quality, time_ms: Date.now() - startTime.current }),
       })
       setLastResult({ xp: res.xp?.total_xp, achievements: res.new_achievements?.map(a => a.name) })
       if (currentIdx < dueCards.length - 1) {
+        // eslint-disable-next-line react-hooks/purity -- Date.now() called in async event handler, not during render
         setCurrentIdx(i => i + 1); setShowAnswer(false); startTime.current = Date.now()
       } else {
         setMode('home')
@@ -1214,7 +1216,7 @@ function KanjiTab() {
             <div key={k.id} className="rounded-lg bg-ufs-800 border border-ufs-600/30 p-3 text-center hover:border-violet-500/30 transition-colors group" title={`${k.onyomi} / ${k.kunyomi}`}>
               <div className="flex items-center justify-center gap-0.5">
                 <span className="text-2xl font-bold text-white group-hover:text-violet-300 transition-colors">{k.character}</span>
-                <SpeakBtn text={k.kunyomi?.split('、')[0]?.replace(/[.\-]/g, '') || k.character} />
+                <SpeakBtn text={k.kunyomi?.split('、')[0]?.replace(/[-.]/g, '') || k.character} />
               </div>
               <div className="text-[10px] text-ufs-400 mt-1 truncate">{k.meaning_ko}</div>
               <div className="text-[9px] text-ufs-500 mt-0.5 truncate">{k.onyomi}</div>
@@ -1347,16 +1349,17 @@ function WritingTab() {
   const [result, setResult] = useState<{ is_correct: boolean; correct_answer: string; feedback?: string } | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const loadExercise = async () => {
+  const loadExercise = useCallback(async () => {
     setLoading(true); setResult(null); setAnswer('')
     try {
       const ex = await api<{ exercise_id: number; id?: number; prompt?: string; prompt_ko?: string; prompt_jp?: string; hint?: string; question?: string; sentence?: string }>(`/japanese/writing/${exType}`)
       setExercise({ id: ex.exercise_id || ex.id || 0, prompt: ex.prompt_ko || ex.prompt || ex.question || ex.sentence || '', hint: ex.hint || ex.prompt_jp })
     } catch { /* ignore */ }
     setLoading(false)
-  }
+  }, [exType])
 
-  useEffect(() => { loadExercise() }, [exType])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- loadExercise sets loading synchronously before first await; unavoidable for UX
+  useEffect(() => { void loadExercise() }, [loadExercise])
 
   const submit = async () => {
     if (!exercise || !answer.trim()) return
@@ -1676,8 +1679,8 @@ interface FinAsset { id: number; name: string; asset_type: string; institution?:
 interface FinAlert { id: number; name: string; severity: string; days_inactive: number; price: number; icon?: string }
 interface FinDash { monthly_spend: number; monthly_budget: number; budget_remaining: number; subscription_total: number; subscription_count: number; free_bundled_savings: number; net_worth: number; unused_alerts: FinAlert[]; top_categories: { category: string; total: number; count: number }[]; card_spend: { id: number; name: string; color: string; total: number }[] }
 
-const FIN_VIEWS = ['overview', 'subscriptions', 'cards', 'expenses', 'assets'] as const
-const FIN_VIEW_META: { id: typeof FIN_VIEWS[number]; label: string; icon: string }[] = [
+type FinView = 'overview' | 'subscriptions' | 'cards' | 'expenses' | 'assets'
+const FIN_VIEW_META: { id: FinView; label: string; icon: string }[] = [
   { id: 'overview', label: '총괄', icon: '📊' },
   { id: 'subscriptions', label: '구독', icon: '🔄' },
   { id: 'cards', label: '카드', icon: '💳' },
@@ -1708,7 +1711,7 @@ function formatKRW(n: number | null | undefined): string {
 }
 
 function FinanceTab() {
-  const [view, setView] = useState<typeof FIN_VIEWS[number]>('overview')
+  const [view, setView] = useState<FinView>('overview')
   const [dash, setDash] = useState<FinDash | null>(null)
   const [subs, setSubs] = useState<FinSub[]>([])
   const [cards, setCards] = useState<FinCard[]>([])

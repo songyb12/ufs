@@ -47,11 +47,11 @@ export function ShellLayout() {
   if (platform === 'mobile' || platform === 'tablet') {
     return (
       <div className="min-h-screen flex flex-col bg-ufs-900">
-        <ShellHeader sidebarOpen={false} onToggleSidebar={() => {}} onSearch={openSearch} />
+        <ShellHeader sidebarOpen={false} onSearch={openSearch} />
         <main className="flex-1 p-4 pb-20 overflow-auto">
           <Outlet />
         </main>
-        <MobileNav />
+        <MobileNav onSearch={openSearch} />
         <SearchOverlay open={searchOpen} onClose={closeSearch} />
       </div>
     )

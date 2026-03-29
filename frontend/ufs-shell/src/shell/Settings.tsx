@@ -15,21 +15,19 @@ interface SystemInfo {
 
 export default function Settings() {
   const { platform, enterTvMode } = usePlatform()
-  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
+  const [systemInfo] = useState<SystemInfo>(() => ({
+    userAgent: navigator.userAgent,
+    language: navigator.language,
+    platform: navigator.platform,
+    screenRes: `${screen.width}x${screen.height}`,
+    colorDepth: screen.colorDepth,
+    memory: (navigator as unknown as Record<string, unknown>).deviceMemory as number | undefined,
+    cores: navigator.hardwareConcurrency,
+    online: navigator.onLine,
+  }))
   const [gatewayHealth, setGatewayHealth] = useState<Record<string, unknown> | null>(null)
 
   useEffect(() => {
-    setSystemInfo({
-      userAgent: navigator.userAgent,
-      language: navigator.language,
-      platform: navigator.platform,
-      screenRes: `${screen.width}x${screen.height}`,
-      colorDepth: screen.colorDepth,
-      memory: (navigator as unknown as Record<string, unknown>).deviceMemory as number | undefined,
-      cores: navigator.hardwareConcurrency,
-      online: navigator.onLine,
-    })
-
     fetch('/api/health')
       .then((r) => r.ok ? r.json() : null)
       .then(setGatewayHealth)
@@ -122,26 +120,24 @@ export default function Settings() {
       </section>
 
       {/* System Info */}
-      {systemInfo && (
-        <section className="rounded-xl border border-ufs-600/30 bg-ufs-800 p-5 mb-4">
-          <h3 className="text-sm font-semibold text-white mb-3">System Information</h3>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            {[
-              { label: 'Language', value: systemInfo.language },
-              { label: 'Screen', value: systemInfo.screenRes },
-              { label: 'Color Depth', value: `${systemInfo.colorDepth}bit` },
-              { label: 'CPU Cores', value: systemInfo.cores?.toString() ?? '—' },
-              { label: 'Memory', value: systemInfo.memory ? `${systemInfo.memory}GB` : '—' },
-              { label: 'Network', value: systemInfo.online ? 'Online' : 'Offline' },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between py-1">
-                <span className="text-ufs-400">{item.label}</span>
-                <span className="text-ufs-300 font-mono">{item.value}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      <section className="rounded-xl border border-ufs-600/30 bg-ufs-800 p-5 mb-4">
+        <h3 className="text-sm font-semibold text-white mb-3">System Information</h3>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          {[
+            { label: 'Language', value: systemInfo.language },
+            { label: 'Screen', value: systemInfo.screenRes },
+            { label: 'Color Depth', value: `${systemInfo.colorDepth}bit` },
+            { label: 'CPU Cores', value: systemInfo.cores?.toString() ?? '—' },
+            { label: 'Memory', value: systemInfo.memory ? `${systemInfo.memory}GB` : '—' },
+            { label: 'Network', value: systemInfo.online ? 'Online' : 'Offline' },
+          ].map((item) => (
+            <div key={item.label} className="flex items-center justify-between py-1">
+              <span className="text-ufs-400">{item.label}</span>
+              <span className="text-ufs-300 font-mono">{item.value}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* Gateway Info */}
       {gatewayHealth && (

@@ -29,16 +29,24 @@ export default function VibeApp() {
     return () => clearInterval(interval)
   }, [])
 
-  // Iframe lifecycle management
+  // Cleanup timeout on unmount
   useEffect(() => {
-    if (viewMode === 'dashboard') {
-      setIframeState('loading')
-      timeoutRef.current = setTimeout(() => {
-        setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
-      }, 15000)
-    }
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }
-  }, [viewMode])
+  }, [])
+
+  const openDashboard = useCallback(() => {
+    setIframeState('loading')
+    setViewMode('dashboard')
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
+    }, 15000)
+  }, [])
+
+  const closeDashboard = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    setViewMode('overview')
+  }, [])
 
   const handleIframeLoad = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
@@ -52,6 +60,7 @@ export default function VibeApp() {
 
   const handleRetry = useCallback(() => {
     setIframeState('loading')
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => {
       setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
     }, 15000)
@@ -76,7 +85,7 @@ export default function VibeApp() {
   // ── Dashboard (iframe) mode ──
   if (viewMode === 'dashboard') {
     return (
-      <div className="flex flex-col -m-6" style={{ height: 'calc(100vh - 3.5rem)' }}>
+      <div className="flex flex-col -m-4 lg:-m-6 pb-14 lg:pb-0" style={{ height: 'calc(100dvh - 3rem - env(safe-area-inset-bottom, 0px))' }}>
         <div className="flex items-center justify-between px-4 py-2 bg-ufs-800 border-b border-ufs-600/50 shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-sm text-white font-medium">VIBE Dashboard</span>
@@ -103,7 +112,7 @@ export default function VibeApp() {
             >
               ↗
             </button>
-            <button onClick={() => setViewMode('overview')} className="text-xs text-ufs-400 hover:text-white px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors">
+            <button onClick={closeDashboard} className="text-xs text-ufs-400 hover:text-white px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors">
               Back to Overview
             </button>
           </div>
@@ -130,7 +139,7 @@ export default function VibeApp() {
                 <button onClick={handleRetry} className="text-xs px-3 py-1.5 rounded bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors border border-blue-500/30">
                   다시 시도
                 </button>
-                <button onClick={() => setViewMode('overview')} className="text-xs px-3 py-1.5 rounded bg-ufs-700 text-ufs-400 hover:bg-ufs-600 hover:text-white transition-colors">
+                <button onClick={closeDashboard} className="text-xs px-3 py-1.5 rounded bg-ufs-700 text-ufs-400 hover:bg-ufs-600 hover:text-white transition-colors">
                   Overview로 돌아가기
                 </button>
               </div>
@@ -164,7 +173,7 @@ export default function VibeApp() {
       {/* Actions + Status */}
       <div className="flex items-center gap-3 mb-6 flex-wrap">
         <button
-          onClick={() => setViewMode('dashboard')}
+          onClick={openDashboard}
           className="px-4 py-2.5 rounded-lg bg-blue-500/20 text-blue-300 text-sm hover:bg-blue-500/30 transition-all border border-blue-500/30 hover:border-blue-400/50 hover:shadow-lg hover:shadow-blue-500/10 active:scale-[0.98]"
         >
           Open Dashboard

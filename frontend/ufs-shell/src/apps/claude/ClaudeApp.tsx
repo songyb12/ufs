@@ -12,6 +12,9 @@ export default function ClaudeApp() {
   const [viewMode, setViewMode] = useState<'overview' | 'manager'>('overview')
   const [health, setHealth] = useState<SessionManagerHealth | null>(null)
   const [healthLoading, setHealthLoading] = useState(true)
+  // Derive display values — when disabled, treat as no health / not loading
+  const displayHealth = enabled ? health : null
+  const displayHealthLoading = enabled && healthLoading
   const [iframeState, setIframeState] = useState<'loading' | 'loaded' | 'error'>('loading')
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -26,7 +29,7 @@ export default function ClaudeApp() {
   }, [])
 
   useEffect(() => {
-    if (!enabled) { setHealth(null); setHealthLoading(false); return }
+    if (!enabled) return
     const checkHealth = () => {
       fetch('/api/claude/health')
         .then((r) => r.ok ? r.json() : null)
@@ -38,15 +41,24 @@ export default function ClaudeApp() {
     return () => clearInterval(interval)
   }, [enabled])
 
+  // Cleanup timeout on unmount
   useEffect(() => {
-    if (viewMode === 'manager') {
-      setIframeState('loading')
-      timeoutRef.current = setTimeout(() => {
-        setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
-      }, 15000)
-    }
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }
-  }, [viewMode])
+  }, [])
+
+  const openManager = useCallback(() => {
+    setIframeState('loading')
+    setViewMode('manager')
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
+    }, 15000)
+  }, [])
+
+  const closeManager = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    setViewMode('overview')
+  }, [])
 
   const handleIframeLoad = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
@@ -60,6 +72,7 @@ export default function ClaudeApp() {
 
   const handleRetry = useCallback(() => {
     setIframeState('loading')
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => {
       setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
     }, 15000)
@@ -78,7 +91,7 @@ export default function ClaudeApp() {
 
   if (viewMode === 'manager') {
     return (
-      <div className="flex flex-col -m-4 lg:-m-6 -mb-20 lg:-mb-6" style={{ height: 'calc(100dvh - 3.5rem - env(safe-area-inset-bottom, 0px))' }}>
+      <div className="flex flex-col -m-4 lg:-m-6 pb-14 lg:pb-0" style={{ height: 'calc(100dvh - 3rem - env(safe-area-inset-bottom, 0px))' }}>
         <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-ufs-800 border-b border-ufs-600/50 shrink-0 gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs sm:text-sm text-white font-medium truncate">Session Manager</span>
@@ -104,7 +117,7 @@ export default function ClaudeApp() {
             >
               ↗
             </a>
-            <button onClick={() => setViewMode('overview')} className="text-xs text-ufs-400 hover:text-white px-1.5 sm:px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors">
+            <button onClick={closeManager} className="text-xs text-ufs-400 hover:text-white px-1.5 sm:px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors">
               <span className="hidden sm:inline">Back to Overview</span>
               <span className="sm:hidden">←</span>
             </button>
@@ -129,7 +142,7 @@ export default function ClaudeApp() {
               <p className="text-xs text-ufs-500 mb-4">서비스 확인 (port 8006)</p>
               <div className="flex gap-2">
                 <button onClick={handleRetry} className="text-xs px-3 py-1.5 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors border border-amber-500/30">다시 시도</button>
-                <button onClick={() => setViewMode('overview')} className="text-xs px-3 py-1.5 rounded bg-ufs-700 text-ufs-400 hover:bg-ufs-600 hover:text-white transition-colors">Overview로 돌아가기</button>
+                <button onClick={closeManager} className="text-xs px-3 py-1.5 rounded bg-ufs-700 text-ufs-400 hover:bg-ufs-600 hover:text-white transition-colors">Overview로 돌아가기</button>
               </div>
             </div>
           )}
@@ -211,7 +224,7 @@ export default function ClaudeApp() {
         <>
           <div className="flex items-center gap-3 mb-6 flex-wrap">
             <button
-              onClick={() => setViewMode('manager')}
+              onClick={openManager}
               className="px-4 py-2.5 rounded-lg bg-amber-500/20 text-amber-300 text-sm hover:bg-amber-500/30 transition-all border border-amber-500/30 hover:border-amber-400/50 active:scale-[0.98]"
             >
               Open Manager
@@ -220,11 +233,11 @@ export default function ClaudeApp() {
               className="px-3 py-2.5 rounded-lg bg-amber-500/10 text-amber-400 text-sm hover:bg-amber-500/20 transition-all border border-amber-500/20 hover:border-amber-400/40">
               ↗ 새 탭에서 열기
             </a>
-            {healthLoading ? (
+            {displayHealthLoading ? (
               <span className="text-xs px-2 py-1 rounded-full bg-ufs-600 text-ufs-400 animate-pulse">checking...</span>
-            ) : health ? (
+            ) : displayHealth ? (
               <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400">
-                healthy{health.sessions != null ? ` (${health.sessions} sessions)` : ''}
+                healthy{displayHealth.sessions != null ? ` (${displayHealth.sessions} sessions)` : ''}
               </span>
             ) : (
               <span className="text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-400">Backend unreachable</span>

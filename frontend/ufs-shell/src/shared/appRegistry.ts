@@ -24,7 +24,7 @@ export const APP_REGISTRY: AppInfo[] = [
     status: 'active',
     apiBase: '/api/bocchi',
     shortcut: 'b',
-    port: 3001,
+    port: 8002,       // lab-studio API backend; frontend (iframe) served at :3001 via /svc/bocchi
     tags: ['music', 'guitar', 'bass', 'practice', 'metronome', 'fretboard'],
     features: ['Fretboard SVG', 'Metronome', 'MIDI', 'Chord Progressions', 'Quiz'],
   },

@@ -5,7 +5,7 @@ import { useOnlineStatus } from '../shared/usePlatform.ts'
 
 interface ShellHeaderProps {
   sidebarOpen: boolean
-  onToggleSidebar: () => void
+  onToggleSidebar?: () => void
   onSearch?: () => void
 }
 
@@ -30,21 +30,23 @@ export function ShellHeader({ sidebarOpen, onToggleSidebar, onSearch }: ShellHea
   return (
     <header className="h-12 flex items-center justify-between px-4 bg-ufs-800 border-b border-ufs-600/50 shrink-0 no-print">
       <div className="flex items-center gap-3">
-        {/* Sidebar toggle */}
-        <button
-          onClick={onToggleSidebar}
-          className="p-1.5 rounded-lg hover:bg-ufs-700 text-ufs-400 hover:text-white transition-colors"
-          aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
-          title={`${sidebarOpen ? 'Close' : 'Open'} sidebar (Ctrl+B)`}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            {sidebarOpen ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            )}
-          </svg>
-        </button>
+        {/* Sidebar toggle — only rendered on platforms where sidebar exists */}
+        {onToggleSidebar && (
+          <button
+            onClick={onToggleSidebar}
+            className="p-1.5 rounded-lg hover:bg-ufs-700 text-ufs-400 hover:text-white transition-colors"
+            aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+            title={`${sidebarOpen ? 'Close' : 'Open'} sidebar (Ctrl+B)`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              {sidebarOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
+        )}
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1.5 text-sm" aria-label="Breadcrumb">
@@ -79,6 +81,7 @@ export function ShellHeader({ sidebarOpen, onToggleSidebar, onSearch }: ShellHea
           <button
             onClick={onSearch}
             className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-ufs-700 hover:bg-ufs-600 text-ufs-400 hover:text-white transition-colors text-xs"
+            aria-label="Search (Ctrl+K)"
             title="Search (Ctrl+K)"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

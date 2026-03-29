@@ -22,16 +22,24 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
   const [query, setQuery] = useState('')
   const [selectedIdx, setSelectedIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
-  // Focus input when opened
+  // Reset state and focus input when opened
   useEffect(() => {
-    if (open) {
-      setQuery('')
-      setSelectedIdx(0)
-      const timer = setTimeout(() => inputRef.current?.focus(), 50)
-      return () => clearTimeout(timer)
-    }
+    if (!open) return
+    // Defer state resets to a microtask to avoid synchronous setState-in-effect
+    queueMicrotask(() => { setQuery(''); setSelectedIdx(0) })
+    const timer = setTimeout(() => inputRef.current?.focus(), 50)
+    return () => clearTimeout(timer)
+  }, [open])
+
+  // Body scroll lock while open
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
   }, [open])
 
   // Close on Escape
@@ -83,6 +91,22 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
 
   const results = getResults()
 
+  // Focus trap: keep Tab/Shift+Tab within the overlay
+  const handleFocusTrap = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab') return
+    const focusable = contentRef.current?.querySelectorAll<HTMLElement>(
+      'input:not([disabled]), button:not([disabled]), a[href]'
+    )
+    if (!focusable || focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus() }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+  }, [])
+
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -112,8 +136,10 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
       onClick={onClose}
     >
       <div
+        ref={contentRef}
         className="w-full max-w-lg mx-4 rounded-xl border border-ufs-600/50 bg-ufs-800 shadow-2xl overflow-hidden search-overlay-content"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleFocusTrap}
       >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-ufs-600/30">

@@ -26,15 +26,24 @@ export default function BocchiApp() {
     return () => clearInterval(interval)
   }, [])
 
+  // Cleanup timeout on unmount
   useEffect(() => {
-    if (viewMode === 'studio') {
-      setIframeState('loading')
-      timeoutRef.current = setTimeout(() => {
-        setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
-      }, 15000)
-    }
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }
-  }, [viewMode])
+  }, [])
+
+  const openStudio = useCallback(() => {
+    setIframeState('loading')
+    setViewMode('studio')
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
+    }, 15000)
+  }, [])
+
+  const closeStudio = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    setViewMode('overview')
+  }, [])
 
   const handleIframeLoad = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
@@ -48,6 +57,7 @@ export default function BocchiApp() {
 
   const handleRetry = useCallback(() => {
     setIframeState('loading')
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => {
       setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
     }, 15000)
@@ -69,10 +79,11 @@ export default function BocchiApp() {
 
   if (viewMode === 'studio') {
     return (
-      <div className="flex flex-col -m-6" style={{ height: 'calc(100vh - 3.5rem)' }}>
+      <div className="flex flex-col -m-4 lg:-m-6 pb-14 lg:pb-0" style={{ height: 'calc(100dvh - 3rem - env(safe-area-inset-bottom, 0px))' }}>
         <div className="flex items-center justify-between px-4 py-2 bg-ufs-800 border-b border-ufs-600/50 shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-sm text-white font-medium">Bocchi-master Studio</span>
+
             {iframeState === 'loaded' && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">Connected</span>
             )}
@@ -96,7 +107,7 @@ export default function BocchiApp() {
             >
               ↗
             </button>
-            <button onClick={() => setViewMode('overview')} className="text-xs text-ufs-400 hover:text-white px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors">
+            <button onClick={closeStudio} className="text-xs text-ufs-400 hover:text-white px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors">
               Back to Overview
             </button>
           </div>
@@ -123,7 +134,7 @@ export default function BocchiApp() {
                 <button onClick={handleRetry} className="text-xs px-3 py-1.5 rounded bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 transition-colors border border-orange-500/30">
                   다시 시도
                 </button>
-                <button onClick={() => setViewMode('overview')} className="text-xs px-3 py-1.5 rounded bg-ufs-700 text-ufs-400 hover:bg-ufs-600 hover:text-white transition-colors">
+                <button onClick={closeStudio} className="text-xs px-3 py-1.5 rounded bg-ufs-700 text-ufs-400 hover:bg-ufs-600 hover:text-white transition-colors">
                   Overview로 돌아가기
                 </button>
               </div>
@@ -163,7 +174,7 @@ export default function BocchiApp() {
 
       <div className="flex items-center gap-3 mb-6 flex-wrap">
         <button
-          onClick={() => setViewMode('studio')}
+          onClick={openStudio}
           className="px-4 py-2.5 rounded-lg bg-orange-500/20 text-orange-300 text-sm hover:bg-orange-500/30 transition-all border border-orange-500/30 hover:border-orange-400/50 active:scale-[0.98]"
         >
           Open Studio
