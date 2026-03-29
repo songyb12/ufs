@@ -514,7 +514,8 @@ async def compare_models(body: CompareRequest, request: Request):
 @router.get("/logs")
 async def list_logs():
     logs = []
-    for f in sorted(LOGS_DIR.glob("*.log"), key=lambda x: x.stat().st_mtime, reverse=True):
+    all_files = list(LOGS_DIR.glob("*.log")) + list(LOGS_DIR.glob("*.txt"))
+    for f in sorted(all_files, key=lambda x: x.stat().st_mtime, reverse=True):
         stat = f.stat()
         logs.append({
             "filename": f.name,

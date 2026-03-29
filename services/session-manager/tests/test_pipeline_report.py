@@ -18,6 +18,7 @@ import asyncio
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,7 +26,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main_module
 from app.main import sessions, pipelines
-from app.models import PipelineStopRequest
+from app.models import PipelineStopRequest, LOGS_DIR
 from app.pipeline import PipelineRunner
 from app.session import ClaudeSession
 
@@ -995,3 +996,80 @@ class TestResumeEndpoint:
             resp = client.post(f"/api/pipelines/{pid}/resume")
         assert resp.json()["resumed_from_step"] == 2
         assert len(pipelines[pid]._step_log) == 2
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 리포트 로그 파일 저장 (_save_report_log / GET /logs)
+# ════════════════════════════════════════════════════════════════════════════════
+
+class TestSaveReportLog:
+    def test_save_creates_txt_file(self, tmp_path):
+        r, _ = _make_runner()
+        r.status = "completed"
+        r.started_at = datetime.now().isoformat()
+        r.ended_at = datetime.now().isoformat()
+        with patch("app.pipeline.LOGS_DIR", tmp_path):
+            r._save_report_log("## 테스트 리포트\n내용입니다.")
+        files = list(tmp_path.glob("pipeline_*.txt"))
+        assert len(files) == 1
+
+    def test_save_filename_format(self, tmp_path):
+        r, _ = _make_runner()
+        r.status = "completed"
+        with patch("app.pipeline.LOGS_DIR", tmp_path):
+            r._save_report_log("content")
+        f = next(tmp_path.glob("pipeline_*.txt"))
+        assert f.name.startswith(f"pipeline_{r.id}_")
+        assert f.name.endswith(".txt")
+
+    def test_save_file_content(self, tmp_path):
+        r, _ = _make_runner()
+        r.status = "completed"
+        expected = "## 리포트\n- 항목 1\n- 항목 2"
+        with patch("app.pipeline.LOGS_DIR", tmp_path):
+            r._save_report_log(expected)
+        f = next(tmp_path.glob("pipeline_*.txt"))
+        assert f.read_text(encoding="utf-8") == expected
+
+    def test_save_creates_logs_dir_if_missing(self, tmp_path):
+        r, _ = _make_runner()
+        missing_dir = tmp_path / "new_logs"
+        assert not missing_dir.exists()
+        with patch("app.pipeline.LOGS_DIR", missing_dir):
+            r._save_report_log("test")
+        assert missing_dir.exists()
+
+    def test_save_error_does_not_raise(self, tmp_path):
+        r, _ = _make_runner()
+        # 저장 실패 시 예외가 전파되지 않아야 함
+        with patch("app.pipeline.LOGS_DIR", Path("/nonexistent/readonly/path")):
+            r._save_report_log("content")  # no exception
+
+    def test_generate_report_triggers_save(self, tmp_path):
+        r, _ = _make_runner()
+        r.status = "completed"
+        r.started_at = datetime.now().isoformat()
+        r.ended_at = datetime.now().isoformat()
+        with patch("app.pipeline.LOGS_DIR", tmp_path):
+            r._generate_report()
+        assert len(list(tmp_path.glob("pipeline_*.txt"))) == 1
+
+
+class TestLogsEndpointIncludesTxt:
+    def test_list_logs_includes_txt_files(self, tmp_path):
+        (tmp_path / "pipeline_abc_20260329_120000.txt").write_text("report", encoding="utf-8")
+        (tmp_path / "session.log").write_text("log", encoding="utf-8")
+        with patch("app.routes_api.LOGS_DIR", tmp_path):
+            resp = client.get("/api/logs")
+        assert resp.status_code == 200
+        names = [e["filename"] for e in resp.json()]
+        assert "pipeline_abc_20260329_120000.txt" in names
+        assert "session.log" in names
+
+    def test_get_log_serves_txt_file(self, tmp_path):
+        content = "# Pipeline 리포트\n**목표:** 테스트"
+        (tmp_path / "pipeline_abc_20260329_120000.txt").write_text(content, encoding="utf-8")
+        with patch("app.routes_api.LOGS_DIR", tmp_path):
+            resp = client.get("/api/logs/pipeline_abc_20260329_120000.txt")
+        assert resp.status_code == 200
+        assert resp.json()["content"] == content

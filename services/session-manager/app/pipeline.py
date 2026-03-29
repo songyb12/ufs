@@ -14,7 +14,7 @@ from typing import Optional
 
 import app.state as _state
 from app.session import ClaudeSession
-from app.models import TASK_TIMEOUTS
+from app.models import TASK_TIMEOUTS, LOGS_DIR
 from app.pipeline_store import (
     create_run, update_stage, save_checkpoint,
     mark_complete, mark_failed,
@@ -532,6 +532,17 @@ class PipelineRunner:
             "severity": severity,
         })
 
+    def _save_report_log(self, text_summary: str) -> None:
+        """text_summary를 data/logs/pipeline_{id}_{timestamp}.txt 파일로 저장."""
+        try:
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"pipeline_{self.id}_{ts}.txt"
+            (LOGS_DIR / filename).write_text(text_summary, encoding="utf-8")
+            logger.info("Pipeline report saved: %s", filename)
+        except Exception as e:
+            logger.warning("Failed to save pipeline report log: %s", e)
+
     def _generate_report(self) -> dict:
         """파이프라인 최종 리포트 생성 (완료/실패/중단 시 호출)."""
         steps = list(self._step_log)
@@ -549,6 +560,8 @@ class PipelineRunner:
             duration = 0.0
 
         clean_errors = [e for e in errors if e]
+        text_summary = self._generate_text_summary(steps, duration, clean_errors)
+        self._save_report_log(text_summary)
         return {
             "pipeline_id": self.id,
             "session_id": self.session.id if self.session else None,
@@ -583,7 +596,7 @@ class PipelineRunner:
                 "resumed_from_step": self._resumed_from_step,
             } if self._resume_count > 0 else None,
             "summary": self.summary,
-            "text_summary": self._generate_text_summary(steps, duration, clean_errors),
+            "text_summary": text_summary,
         }
 
     def _generate_text_summary(self, steps: list, duration: float,
