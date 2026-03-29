@@ -53,6 +53,20 @@ CMP_SESSION_TTL_SECONDS = 600       # cmp-* sessions: 10 min TTL after completio
 MAX_SESSIONS_PER_CLIENT = int(os.environ.get("MAX_SESSIONS_PER_CLIENT", "10"))
 MAX_SESSION_CREATES_PER_MINUTE = 10
 
+# ─── Task timeout config (seconds) ────────────────────────────────────────────
+# 세션 idle_timeout 기본값. SendCommandRequest.task_type으로 오버라이드 가능.
+TASK_TIMEOUTS: dict[str, int] = {
+    "default":   int(os.environ.get("TASK_TIMEOUT_DEFAULT",   "300")),   # 5분
+    "long_task": int(os.environ.get("TASK_TIMEOUT_LONG",      "900")),   # 15분
+    "image_gen": int(os.environ.get("TASK_TIMEOUT_IMAGE_GEN", "1800")),  # 30분
+}
+HEARTBEAT_INTERVAL = 60  # heartbeat 주기 (초) — idle 상태 메시지 업데이트
+
+# ─── Media signed-token config ────────────────────────────────────────────────
+# ADMIN_API_KEY 설정 시 /uploads, /screenshots 는 signed token 필수.
+# 토큰 없으면 /api/media/... 로 403 반환. 미설정 시 StaticFiles 직접 서빙(개발 모드).
+MEDIA_TOKEN_TTL = int(os.environ.get("MEDIA_TOKEN_TTL", "3600"))  # 1시간
+
 # ─── Utility functions ────────────────────────────────────────────────────────
 
 
@@ -125,6 +139,7 @@ class CreateSessionRequest(BaseModel):
 class SendCommandRequest(BaseModel):
     command: str = Field(..., min_length=1, description="Prompt to execute")
     attachments: list[str] = Field(default=[], description="Attached file paths")
+    task_type: str = Field(default="default", description="작업 유형: default|long_task|image_gen")
 
 
 class GitExecRequest(BaseModel):

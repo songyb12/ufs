@@ -146,7 +146,11 @@ async def websocket_output(
                         "tokens": {
                             "input": session.total_input_tokens,
                             "output": session.total_output_tokens,
+                            "cache_read": session.total_cache_read_tokens,
+                            "cache_creation": session.total_cache_creation_tokens,
                         },
+                        "pipeline_role": session.pipeline_role,
+                        "pipeline_id": session.pipeline_id,
                     }
                     if session.pending_question:
                         msg["pending_question"] = session.pending_question

@@ -24,6 +24,7 @@ from app.models import (
     APP_DIR, LOGS_DIR, SESSIONS_DIR,
     SESSION_TTL_SECONDS, CLEANUP_INTERVAL, CMP_SESSION_TTL_SECONDS,
     MAX_SESSION_CREATES_PER_MINUTE, MAX_SESSIONS_PER_CLIENT,
+    TASK_TIMEOUTS, HEARTBEAT_INTERVAL,
 )
 from app.pipeline_store import (
     create_run, update_stage, save_checkpoint,
@@ -39,7 +40,7 @@ async def _cleanup_dead_sessions():
         await asyncio.sleep(CLEANUP_INTERVAL)
         now = datetime.now()
         to_remove = []
-        for sid, session in _state.sessions.items():
+        for sid, session in list(_state.sessions.items()):
             # supervisor 세션이 sessions dict에 남아있으면 즉시 정리 (TTL 무시)
             if session.pipeline_role == "supervisor":
                 to_remove.append(sid)
@@ -173,6 +174,9 @@ class ClaudeSession:
         self.pending_question: Optional[dict] = None  # AskUserQuestion 대기 중
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cache_read_tokens = 0
+        self.total_cache_creation_tokens = 0
+        self.idle_timeout: int = TASK_TIMEOUTS["default"]  # 세션별 CLI idle 타임아웃
         self.pipeline_id: Optional[str] = None       # 바인딩된 파이프라인 ID
         self.pipeline_role: Optional[str] = None      # None | "worker" | "supervisor"
         self._output_event: asyncio.Event = asyncio.Event()  # WS 이벤트 기반 wake-up
@@ -199,6 +203,9 @@ class ClaudeSession:
                 "output_lines": self.output_lines[-500:],  # 최근 500줄만 저장
                 "total_input_tokens": self.total_input_tokens,
                 "total_output_tokens": self.total_output_tokens,
+                "total_cache_read_tokens": self.total_cache_read_tokens,
+                "total_cache_creation_tokens": self.total_cache_creation_tokens,
+                "idle_timeout": self.idle_timeout,
                 "pipeline_id": self.pipeline_id,
                 "pipeline_role": self.pipeline_role,
             }
@@ -224,6 +231,9 @@ class ClaudeSession:
         session.created_at = data.get("created_at", session.created_at)
         session.total_input_tokens = data.get("total_input_tokens", 0)
         session.total_output_tokens = data.get("total_output_tokens", 0)
+        session.total_cache_read_tokens = data.get("total_cache_read_tokens", 0)
+        session.total_cache_creation_tokens = data.get("total_cache_creation_tokens", 0)
+        session.idle_timeout = data.get("idle_timeout", TASK_TIMEOUTS["default"])
         session.pipeline_id = data.get("pipeline_id")
         session.pipeline_role = data.get("pipeline_role")
         session._output_version = len(session.output_lines)
@@ -260,6 +270,9 @@ class ClaudeSession:
                 # busy 상태가 절대 stuck 되지 않도록 보장
                 self.busy = False
                 self.process = None
+                # busy→false 전환을 WS에 즉시 알림 (pending_question 패널 표시 트리거)
+                self._output_version += 1
+                self._output_event.set()
 
     async def _run_claude(self, prompt: str, _retry_without_model: bool = False, _uuid_reset: bool = False):
         """Claude CLI를 print 모드로 실행하여 결과 스트리밍
@@ -333,19 +346,36 @@ class ClaudeSession:
             # stderr를 별도 태스크로 동시 읽기 시작
             stderr_task = asyncio.create_task(_drain_stderr())
 
-            # stdout에서 stream-json 읽기 (타임아웃 적용)
-            idle_timeout = 600  # 10분 무응답이면 포기
+            # stdout에서 stream-json 읽기 (타임아웃 + heartbeat)
+            # HEARTBEAT_INTERVAL마다 "진행 중" 메시지 갱신, idle_timeout 초과 시 종료
+            idle_timeout = self.idle_timeout
+            _idle_elapsed = 0
             while True:
                 try:
                     line = await asyncio.wait_for(
                         self.process.stdout.readline(),
-                        timeout=idle_timeout
+                        timeout=HEARTBEAT_INTERVAL
                     )
+                    _idle_elapsed = 0  # 출력이 있으면 idle 카운터 리셋
                 except asyncio.TimeoutError:
-                    self._append_output("error",
-                        f"Claude CLI가 {idle_timeout}초 동안 응답이 없어 중단합니다.")
-                    await self._force_kill_process()
-                    break
+                    _idle_elapsed += HEARTBEAT_INTERVAL
+                    if _idle_elapsed >= idle_timeout:
+                        self._append_output("error",
+                            f"Claude CLI가 {idle_timeout}초 동안 응답이 없어 중단합니다.")
+                        await self._force_kill_process()
+                        break
+                    # heartbeat — 마지막 줄이 heartbeat면 갱신, 아니면 추가
+                    hb_text = f"⏳ 작업 진행 중... ({_idle_elapsed}s 경과, 최대 {idle_timeout}s)"
+                    if (self.output_lines and
+                            self.output_lines[-1].get("type") == "system" and
+                            "작업 진행 중" in self.output_lines[-1].get("text", "")):
+                        self.output_lines[-1]["text"] = hb_text
+                        self.output_lines[-1]["time"] = datetime.now().strftime("%H:%M:%S")
+                    else:
+                        self._append_output("system", hb_text)
+                    self._output_version += 1
+                    self._output_event.set()
+                    continue
 
                 if not line:
                     break
@@ -506,7 +536,9 @@ class ClaudeSession:
                 if text:
                     # 마지막 라인이 스트리밍 중이면 이어붙이기
                     if self.output_lines and self.output_lines[-1].get("streaming"):
-                        self.output_lines[-1]["text"] += text
+                        # 단일 스트리밍 블록 500KB 상한 (무제한 성장 방지)
+                        if len(self.output_lines[-1]["text"]) < 500_000:
+                            self.output_lines[-1]["text"] += text
                         self._output_version += 1
                         self._output_event.set()  # WebSocket 즉시 전달
                     else:
@@ -532,6 +564,8 @@ class ClaudeSession:
             if usage:
                 self.total_input_tokens += usage.get("input_tokens", 0)
                 self.total_output_tokens += usage.get("output_tokens", 0)
+                self.total_cache_read_tokens += usage.get("cache_read_input_tokens", 0)
+                self.total_cache_creation_tokens += usage.get("cache_creation_input_tokens", 0)
             if result_text and not any(l["text"] == result_text for l in self.output_lines[-5:]):
                 self._append_output("result", result_text)
             self._append_output("system", "--- Done ---")
@@ -642,6 +676,7 @@ class ClaudeSession:
             "skip_permissions": self.skip_permissions,
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
+            "idle_timeout": self.idle_timeout,
             "pipeline_id": self.pipeline_id,
             "pipeline_role": self.pipeline_role,
             "ephemeral": self.ephemeral,

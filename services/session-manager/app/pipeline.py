@@ -14,6 +14,7 @@ from typing import Optional
 
 import app.state as _state
 from app.session import ClaudeSession
+from app.models import TASK_TIMEOUTS
 from app.pipeline_store import (
     create_run, update_stage, save_checkpoint,
     mark_complete, mark_failed,
@@ -60,6 +61,20 @@ _SUPERVISOR_SYSTEM = """당신은 텍스트 생성기입니다. 도구를 사용
 - 사이클이 마지막({cycle}/{max_cycles})이 아닌 이상 절대 PIPELINE_DONE을 출력하지 마세요
 - 진행 중인 작업이 없더라도 목표를 더 완성도 있게 다듬는 다음 프롬프트를 계속 생성하세요
 - 목표가 완전히 달성되었고 마지막 사이클이면: PIPELINE_DONE: [완료 요약]
+
+## AskUserQuestion 자동 처리 (중요)
+작업자 CLI 출력 끝에 아래와 같은 블록이 나타나면, 작업자가 당신의 답변을 기다리고 있는 것입니다:
+
+  ══ AskUserQuestion 대기 중 ══
+  Q: [질문 내용]
+  옵션: A) ... / B) ... / ...
+  ══════════════════════════════
+
+이 경우 당신의 응답은 반드시 해당 질문에 대한 직접 답변이어야 합니다.
+- 목표와 계획에 가장 부합하는 옵션의 레이블을 선택하거나, 직접 답변 텍스트를 작성하세요
+- 다음 작업 지시가 아닌, 질문에 대한 답변만 출력하세요
+- 여러 질문이 있으면 각 질문에 대해 한 줄씩 답변하세요
+- 예시: "A" 또는 "옵션1" 또는 "네, 진행하세요"
 
 ## 현재 상태
 - 사이클: {cycle}/{max_cycles}
@@ -245,7 +260,7 @@ class PipelineRunner:
         })
 
     async def _wait_for_session(self, session: ClaudeSession,
-                                 timeout: int = 600) -> str:
+                                 timeout: int = TASK_TIMEOUTS["default"]) -> str:
         """특정 CLI 세션이 busy=False가 될 때까지 대기
 
         _output_version 기반으로 새 출력이 나오고 + busy가 끝날 때까지 대기.
@@ -264,18 +279,42 @@ class PipelineRunner:
                 break
             await asyncio.sleep(0.5)
 
-        # Phase 2: busy=False가 될 때까지 대기
+        # Phase 2: busy=False가 될 때까지 대기 (30초마다 heartbeat 로그)
+        _last_hb = time.time()
         while session.busy:
             if self._stop_flag:
                 return "[파이프라인 중단됨]"
             if not session.alive:
                 return "[세션 종료]"
-            if time.time() - start > timeout:
+            elapsed = time.time() - start
+            if elapsed > timeout:
                 self._add_history("system", f"세션 실행 시간 초과 ({timeout}초)")
                 return "[시간 초과]"
+            if time.time() - _last_hb >= 30:
+                _last_hb = time.time()
+                self._add_history("system", f"⏳ 작업 진행 중... ({int(elapsed)}s / {timeout}s)")
             await asyncio.sleep(1)
 
-        return session.get_formatted_output(100)
+        output = session.get_formatted_output(100)
+
+        # pending_question이 있으면 감독자가 인식할 수 있도록 구조화된 블록 추가
+        pq = session.pending_question
+        if pq and pq.get("questions"):
+            lines = ["\n\n══ AskUserQuestion 대기 중 ══"]
+            for q in pq["questions"]:
+                lines.append(f"Q: {q.get('question', '')}")
+                opts = q.get("options", [])
+                if opts:
+                    opt_str = " / ".join(
+                        f"{chr(65+i)}) {o.get('label','')}: {o.get('description','')}"
+                        for i, o in enumerate(opts)
+                    )
+                    lines.append(f"옵션: {opt_str}")
+            lines.append("══════════════════════════════")
+            lines.append("※ 위 질문에 직접 답변하세요. 다음 작업 지시가 아닙니다.")
+            output += "\n".join(lines)
+
+        return output
 
     # ─── 메인 루프 ─────────────────────────────────────
 
@@ -435,14 +474,25 @@ class PipelineRunner:
             work_dir=self.session.work_dir,
         )
 
+        # pending_question 여부 확인 (출력 내 AskUserQuestion 블록 감지)
+        _has_question = (
+            self.session.pending_question is not None
+            and bool(self.session.pending_question.get("questions"))
+        )
+        _task_hint = (
+            "⚠️ 작업자가 질문에 대한 답변을 기다리고 있습니다. "
+            "출력 끝의 AskUserQuestion 블록을 읽고 직접 답변하세요. 다음 작업 지시가 아닌 답변만 출력하세요."
+            if _has_question else
+            "위 결과를 분석하고, 다음에 작업자 CLI에 보낼 프롬프트를 생성하세요. 프롬프트 본문만 출력하세요."
+        )
+
         if last_output:
             prompt = (
                 f"{system_context}\n\n"
                 f"---\n[사이클 {self.current_cycle}/{self.max_cycles} | 반복 {self.iteration}/{self.max_iterations}]\n"
                 f"작업자 CLI 실행 결과 (최근):\n"
                 f"{_tail_lines(last_output)}\n\n"
-                f"위 결과를 분석하고, 다음에 작업자 CLI에 보낼 프롬프트를 생성하세요. "
-                f"프롬프트 본문만 출력하세요."
+                f"{_task_hint}"
             )
         else:
             prompt = (
@@ -518,8 +568,21 @@ class PipelineRunner:
             elif h["role"] == "cli_result":
                 messages.append({"role": "user", "content": h["content"]})
 
+        _has_question = (
+            self.session.pending_question is not None
+            and bool(self.session.pending_question.get("questions"))
+        )
+        _question_hint = (
+            "\n\n⚠️ 작업자가 질문에 대한 답변을 기다리고 있습니다. "
+            "출력 끝의 AskUserQuestion 블록을 읽고 직접 답변하세요."
+            if _has_question else ""
+        )
+
         if last_output:
-            user_msg = f"[사이클 {self.current_cycle}/{self.max_cycles} | 반복 {self.iteration}/{self.max_iterations}]\nCLI 실행 결과:\n{_tail_lines(last_output)}"
+            user_msg = (
+                f"[사이클 {self.current_cycle}/{self.max_cycles} | 반복 {self.iteration}/{self.max_iterations}]\n"
+                f"CLI 실행 결과:\n{_tail_lines(last_output)}{_question_hint}"
+            )
         else:
             user_msg = f"[사이클 {self.current_cycle}/{self.max_cycles} | 반복 {self.iteration}/{self.max_iterations}]\n목표를 달성하기 위한 첫 번째 프롬프트를 생성하세요."
         messages.append({"role": "user", "content": user_msg})
