@@ -50,6 +50,11 @@ services/*/dashboard/dist/
 
 # Session Manager runtime data
 services/session-manager/data/sessions/
+services/session-manager/data/logs/
+services/session-manager/start-silent.bat
+
+# Local launcher scripts
+launcher.bat
 
 # Test & coverage artifacts
 .coverage
