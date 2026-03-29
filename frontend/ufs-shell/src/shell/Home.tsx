@@ -103,7 +103,7 @@ const INITIAL_SERVICES: ServiceStatus[] = [
   { label: 'Lab-Studio', port: 8002, id: 'lab-studio', status: 'checking' },
   { label: 'Eng-Ops', port: 8003, id: 'engineering-ops', status: 'checking' },
   { label: 'Life-Master', port: 8004, id: 'life-master', status: 'checking' },
-  { label: 'MCP Server', port: 8005, id: 'mcp-server', status: 'checking' },
+  // mcp-server omitted: no /health endpoint (SSE-only), not in SERVICE_REGISTRY
 ]
 
 const STATUS_COLORS: Record<ServiceStatus['status'], string> = {
@@ -145,7 +145,6 @@ export default function Home() {
               version: data.version,
             }
           }
-          if (svc.id === 'mcp-server') return svc
           const svcStatus = data.services?.[svc.id]
           if (svcStatus) {
             return {

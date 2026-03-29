@@ -39,9 +39,11 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/claude/, ''),
       },
       // Catch-all: must be LAST among /api/* rules
+      // Rewrite strips the /api prefix so master-core sees /health, not /api/health
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
       },
       // Frontend service proxies (iframe targets)
       '/svc/bocchi': {
