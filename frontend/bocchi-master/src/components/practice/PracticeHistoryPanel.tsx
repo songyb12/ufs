@@ -102,45 +102,8 @@ export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
     return () => clearInterval(interval)
   }, [])
 
-  if (sessions.length === 0) {
-    return (
-      <div className="bg-slate-800 rounded-lg p-4">
-        <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">
-          📊 Practice History
-        </h2>
-        <p className="text-xs text-slate-500">
-          No practice sessions recorded yet. Start a practice session to begin tracking.
-        </p>
-      </div>
-    )
-  }
-
-  // Streak calculation
+  // Streak calculation — hook must be declared before any early return
   const streak = useMemo(() => calculateStreak(sessions), [sessions])
-
-  // Aggregate stats
-  const totalSessions = sessions.length
-  const totalTime = sessions.reduce((sum, s) => sum + s.durationSeconds, 0)
-  const totalAttempts = sessions.reduce((sum, s) => sum + s.totalAttempts, 0)
-  const totalCorrect = sessions.reduce((sum, s) => sum + s.correctAttempts, 0)
-  const overallAccuracy = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0
-
-  // Recent 7-day trend
-  const now = new Date()
-  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-  const recentSessions = sessions.filter((s) => new Date(s.date) >= weekAgo)
-  const recentAttempts = recentSessions.reduce((sum, s) => sum + s.totalAttempts, 0)
-  const recentCorrect = recentSessions.reduce((sum, s) => sum + s.correctAttempts, 0)
-  const recentAccuracy = recentAttempts > 0 ? Math.round((recentCorrect / recentAttempts) * 100) : 0
-
-  const formatDuration = (seconds: number): string => {
-    if (seconds < 60) return `${seconds}s`
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    if (mins < 60) return `${mins}m ${secs}s`
-    const hours = Math.floor(mins / 60)
-    return `${hours}h ${mins % 60}m`
-  }
 
   const updateSession = useCallback((idx: number, patch: Partial<PracticeSession>) => {
     setSessions((prev) => {
@@ -149,11 +112,6 @@ export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
       return updated
     })
   }, [])
-
-  const handleClear = () => {
-    clearPracticeHistory()
-    setSessions([])
-  }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importStatus, setImportStatus] = useState<string | null>(null)
@@ -185,6 +143,48 @@ export const PracticeHistoryPanel = memo(function PracticeHistoryPanel() {
     // Reset input for re-import
     e.target.value = ''
   }, [])
+
+  if (sessions.length === 0) {
+    return (
+      <div className="bg-slate-800 rounded-lg p-4">
+        <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">
+          📊 Practice History
+        </h2>
+        <p className="text-xs text-slate-500">
+          No practice sessions recorded yet. Start a practice session to begin tracking.
+        </p>
+      </div>
+    )
+  }
+
+  // Aggregate stats
+  const totalSessions = sessions.length
+  const totalTime = sessions.reduce((sum, s) => sum + s.durationSeconds, 0)
+  const totalAttempts = sessions.reduce((sum, s) => sum + s.totalAttempts, 0)
+  const totalCorrect = sessions.reduce((sum, s) => sum + s.correctAttempts, 0)
+  const overallAccuracy = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0
+
+  // Recent 7-day trend
+  const now = new Date()
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const recentSessions = sessions.filter((s) => new Date(s.date) >= weekAgo)
+  const recentAttempts = recentSessions.reduce((sum, s) => sum + s.totalAttempts, 0)
+  const recentCorrect = recentSessions.reduce((sum, s) => sum + s.correctAttempts, 0)
+  const recentAccuracy = recentAttempts > 0 ? Math.round((recentCorrect / recentAttempts) * 100) : 0
+
+  const formatDuration = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    if (mins < 60) return `${mins}m ${secs}s`
+    const hours = Math.floor(mins / 60)
+    return `${hours}h ${mins % 60}m`
+  }
+
+  const handleClear = () => {
+    clearPracticeHistory()
+    setSessions([])
+  }
 
   return (
     <div className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3">

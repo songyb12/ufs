@@ -45,7 +45,6 @@ const EMPTY_STATS: DrillStats = { total: 0, correct: 0, perTone: {} }
 
 export function ChordToneDrillPanel({
   chordRoot,
-  chordQuality: _chordQuality,
   chordName,
   chordNotes,
   chordIntervals,

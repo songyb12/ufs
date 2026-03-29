@@ -179,7 +179,7 @@ export default function App() {
   useEffect(() => {
     if (initialSettings.bpm !== 120) metronome.setBpm(initialSettings.bpm)
     if (initialSettings.beatsPerMeasure !== 4) metronome.setBeatsPerMeasure(initialSettings.beatsPerMeasure)
-  // eslint-disable-next-line react-hooks/exhaustive-deps — mount-only: restores persisted settings once; metronome setters are stable but change identity on each render
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: restores persisted settings once; metronome setters are stable but change identity on each render
   }, [])
 
   // ── Chord Progression (extracted hook) ──

@@ -85,7 +85,7 @@ export function LiveMode({ song, onExit }: LiveModeProps) {
   useEffect(() => {
     const ts = song.timeSignature
     if (ts) metronome.setBeatsPerMeasure(ts[0])
-  }, [song.timeSignature]) // eslint-disable-line react-hooks/exhaustive-deps — setBeatsPerMeasure is stable
+  }, [song.timeSignature]) // eslint-disable-line react-hooks/exhaustive-deps -- setBeatsPerMeasure is stable
 
   // Track global beat from metronome beat changes
   const prevBeatRef = useRef(-1)
