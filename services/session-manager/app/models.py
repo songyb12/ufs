@@ -160,7 +160,7 @@ class ProjectRequest(BaseModel):
 class PipelineStartRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
     goal: str = Field(..., min_length=1)
-    supervisor_model: str = "sonnet"
+    supervisor_model: str = "opus"
     max_iterations: int = Field(default=20, ge=1, le=100)
     max_cycles: int = Field(default=100, ge=1, le=200)
     mode: str = Field(default="cli", pattern="^(api|cli)$")
@@ -220,7 +220,7 @@ class PlanPhaseStartRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
     goal: str = Field(..., min_length=1)
     mode: str = Field(default="cli", pattern="^(api|cli)$")
-    supervisor_model: str = "sonnet"
+    supervisor_model: str = "opus"
 
 
 class PlanPhaseAnswerRequest(BaseModel):

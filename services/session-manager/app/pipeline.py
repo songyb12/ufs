@@ -187,7 +187,7 @@ async def _recommend_via_api(goal: str, api_key: str) -> dict:
 
     client = anthropic.AsyncAnthropic(api_key=api_key)
     response = await client.messages.create(
-        model="claude-haiku-4-5-20251001",   # 추천은 haiku로 빠르게
+        model="claude-opus-4-6",   # 추천 분석
         max_tokens=512,
         system=_RECOMMEND_CONFIG_SYSTEM,
         messages=[{"role": "user", "content": f"목표: {goal}"}],
@@ -246,7 +246,7 @@ def _recommend_via_rules(goal: str) -> dict:
         "cycle_reflection": reflection,
         "cycle_checkpoint": needs_check,
         "cycle_phases": phases,
-        "supervisor_model": "sonnet",
+        "supervisor_model": "opus",
         "preset_label": label,
         "reasoning": (
             f"목표 분석 결과 '{label}' 유형으로 판단했습니다. "
@@ -263,7 +263,7 @@ def _validate_recommended(d: dict) -> None:
     d.setdefault("cycle_reflection", True)
     d.setdefault("cycle_checkpoint", False)
     d.setdefault("cycle_phases", ["탐색/분석", "구현", "테스트/검증", "정리/마무리"])
-    d.setdefault("supervisor_model", "sonnet")
+    d.setdefault("supervisor_model", "opus")
     d.setdefault("preset_label", "자동 추천")
     d.setdefault("reasoning", "")
     d["max_iterations"] = max(1, min(100, int(d["max_iterations"])))
@@ -1471,7 +1471,7 @@ class PlanPhase:
     """
 
     def __init__(self, source_session: ClaudeSession, goal: str,
-                 mode: str = "cli", supervisor_model: str = "sonnet"):
+                 mode: str = "cli", supervisor_model: str = "opus"):
         self.id = f"plan-{str(uuid.uuid4())[:8]}"
         self._source_session = source_session
         self.goal = goal
