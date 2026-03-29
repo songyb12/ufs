@@ -96,17 +96,24 @@ async def health_aggregated():
     for name, url in SERVICE_REGISTRY.items():
         try:
             resp = await client.get(f"{url}/health", timeout=5.0)
+            svc_data: dict = {}
+            try:
+                svc_data = resp.json()
+            except Exception:
+                pass
             results[name] = {
                 "status": "healthy" if resp.status_code == 200 else "unhealthy",
                 "code": resp.status_code,
+                "version": svc_data.get("version"),
             }
         except httpx.RequestError:
-            results[name] = {"status": "unreachable", "code": None}
+            results[name] = {"status": "unreachable", "code": None, "version": None}
 
     all_healthy = all(s["status"] == "healthy" for s in results.values())
 
     return {
         "gateway": "healthy",
+        "version": settings.VERSION,
         "services": results,
         "overall": "healthy" if all_healthy else "degraded",
         "timestamp": datetime.now(timezone.utc).isoformat(),
