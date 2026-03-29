@@ -12,11 +12,18 @@ export default function LoginGate({ children }) {
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [apiKeyInput, setApiKeyInput] = useState('')
 
-  useEffect(() => { checkAuth() }, [])
+  useEffect(() => {
+    // Fallback: if checkAuth hangs (e.g. fetch stall), show login after 6s
+    const fallback = setTimeout(() => setState('login'), 6000)
+    checkAuth().finally(() => clearTimeout(fallback))
+  }, [])
 
   const checkAuth = async () => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
     try {
-      const s = await authStatus()
+      const s = await authStatus(controller.signal)
+      clearTimeout(timeout)
       if (s.authenticated) {
         setState('authenticated')
       } else if (s.needs_setup) {
@@ -25,7 +32,8 @@ export default function LoginGate({ children }) {
         setState('login')
       }
     } catch {
-      // /auth/status not available — try legacy health check
+      clearTimeout(timeout)
+      // /auth/status not available or timed out — try legacy health check
       try {
         const h = await getHealth()
         if (h && h.status) {

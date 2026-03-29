@@ -97,9 +97,9 @@ async function fetchJSON(path) {
 
 // ── Auth API ──
 
-export async function authStatus() {
+export async function authStatus(signal) {
   const token = getAuthToken()
-  const opts = token ? { headers: { 'Authorization': `Bearer ${token}` } } : {}
+  const opts = { ...(token ? { headers: { 'Authorization': `Bearer ${token}` } } : {}), ...(signal ? { signal } : {}) }
   const res = await fetch(`${BASE}/auth/status`, opts)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
