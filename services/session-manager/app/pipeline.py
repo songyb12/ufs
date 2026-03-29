@@ -44,6 +44,27 @@ _SUGGESTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 자동 결정 감지 패턴 (supervisor 출력에서 추출)
+# 형식: "[결정] 설명 → 선택" 또는 "결정: 설명" 등
+_AUTO_DECISION_RE = re.compile(
+    r"^(?:\[(?:결정|선택|자동선택|decision|auto)\]\s*"
+    r"|결정\s*[:\-]\s*|선택\s*[:\-]\s*|자동\s*선택\s*[:\-]\s*"
+    r"|Decision\s*[:\-]\s*|자동으로\s+)(.+)",
+    re.IGNORECASE,
+)
+
+# 사용자 확인 요청 감지 패턴 (worker / supervisor 출력에서 추출)
+# AskUserQuestion 도구 외의 자유 형식 텍스트 패턴
+_QUESTION_RE = re.compile(
+    r"^(?:확인\s*(?:필요|해\s*주세요|바랍니다)\s*[:\-]?\s*"
+    r"|선택해?\s*(?:주세요|주십시오|주시기\s*바랍니다)\s*[:\-]?\s*"
+    r"|어떻게\s*하시겠습니까\??\s*"
+    r"|어떤\s*(?:것|방법|방안|옵션)을?\s*원하시나요\??\s*"
+    r"|\[(?:질문|확인|confirm|question)\]\s*"
+    r"|Please\s+(?:confirm|choose|select|decide)\s*[:\-]?\s*)(.+)",
+    re.IGNORECASE,
+)
+
 
 def _fmt_duration(secs: float) -> str:
     """소요 시간을 사람이 읽기 쉬운 문자열로 변환."""
@@ -297,6 +318,56 @@ class PipelineRunner:
             if self.session:
                 await self.session.interrupt()
 
+    def resume(self):
+        """soft_stop으로 중단된 파이프라인을 이어서 실행.
+
+        재개 조건:
+        - status == "stopped" AND _soft_stop_flag == True (soft stop으로 중단)
+        - session이 여전히 alive
+
+        _step_log, pending_items, current_cycle, iteration은 보존하여 이어서 기록.
+        ended_at, report, stop_type은 재실행 후 새로 생성.
+        세션 바인딩(pipeline_id/pipeline_role)은 soft_stop 시 이미 유지되어 있음.
+        """
+        if self.status != "stopped":
+            raise RuntimeError(
+                f"재개 불가: status={self.status!r} — stopped 상태여야 합니다")
+        if not self._soft_stop_flag:
+            raise RuntimeError(
+                "hard stop으로 중단된 파이프라인은 재개할 수 없습니다 (soft_stop만 재개 가능)")
+        if not self.session or not self.session.alive:
+            raise RuntimeError(
+                "worker 세션이 종료되어 재개할 수 없습니다")
+
+        # 플래그 리셋
+        self._stop_flag = False
+        self._soft_stop_flag = False
+        self.stop_type = None
+        self.status = "running"
+        self.ended_at = None
+        self.report = None
+
+        # 세션 바인딩 재확인 (soft stop 시 유지되었어야 하나 방어적으로 재설정)
+        self.session.pipeline_id = self.id
+        self.session.pipeline_role = "worker"
+        self.session.save_state()
+
+        # CLI 모드: 감독자 세션 재생성 (이전 감독자는 stop() 시 kill됨)
+        if self.mode == "cli":
+            try:
+                self._create_supervisor_session()
+            except Exception:
+                # 롤백: resumable 상태로 복원
+                self.status = "stopped"
+                self._soft_stop_flag = True
+                raise
+
+        self._add_history(
+            "system",
+            f"▶ 재개: 사이클 {self.current_cycle}, "
+            f"반복 {self.iteration + 1}부터 이어서 실행합니다.")
+        self._task = asyncio.create_task(self._run_loop())
+
     def _add_history(self, role: str, content: str):
         self.history.append({
             "role": role,
@@ -366,6 +437,79 @@ class PipelineRunner:
                         "content": content[:300],
                         "priority": "low",
                         "source": source,
+                    })
+
+    def _parse_auto_decisions_from_output(self, step_idx: int, text: str):
+        """supervisor 출력에서 자동 결정 패턴을 감지하여 auto_decisions에 추가.
+
+        형식 예시:
+          [결정] A 방안 선택 → 파일 덮어쓰기
+          결정: 기존 파일 삭제 후 재생성
+          자동으로 최신 버전 사용
+        """
+        if not text:
+            return
+        seen = {(d["description"], d["choice"]) for d in self.pending_items["auto_decisions"]}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            m = _AUTO_DECISION_RE.match(line)
+            if m:
+                content = m.group(1).strip()
+                if len(content) <= 5:
+                    continue
+                # "설명 → 선택" 형식 파싱
+                if " → " in content or " -> " in content:
+                    sep = " → " if " → " in content else " -> "
+                    desc, choice = content.split(sep, 1)
+                    desc, choice = desc.strip(), choice.strip()
+                else:
+                    desc, choice = content, ""
+                if (desc, choice) not in seen:
+                    seen.add((desc, choice))
+                    self.pending_items["auto_decisions"].append({
+                        "step": step_idx,
+                        "cycle": self.current_cycle,
+                        "iteration": self.iteration,
+                        "description": desc[:200],
+                        "choice": choice[:200],
+                        "alternatives": [],
+                        "severity": "medium",
+                        "source": "text_pattern",
+                    })
+
+    def _parse_questions_from_output(self, step_idx: int, text: str,
+                                      source: str = "worker"):
+        """worker/supervisor 출력에서 사용자 확인 요청 패턴을 감지하여 questions에 추가.
+
+        AskUserQuestion 도구 이외의 자유 형식 텍스트 패턴 감지.
+        형식 예시:
+          확인 필요: 기존 파일을 삭제할까요?
+          선택해 주세요: A 또는 B
+          [질문] 어떤 방식으로 진행할까요?
+        """
+        if not text:
+            return
+        seen = {q["content"] for q in self.pending_items["questions"]}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            m = _QUESTION_RE.match(line)
+            if m:
+                content = m.group(1).strip()
+                if len(content) > 5 and content not in seen:
+                    seen.add(content)
+                    self.pending_items["questions"].append({
+                        "step": step_idx,
+                        "cycle": self.current_cycle,
+                        "iteration": self.iteration,
+                        "content": content[:300],
+                        "options": [],
+                        "severity": "medium",
+                        "note": f"{source} 출력 텍스트에서 감지",
+                        "source": "text_pattern",
                     })
 
     def _record_auto_decision(self, step_idx: int, description: str,
@@ -679,9 +823,12 @@ class PipelineRunner:
 
                 # pending_question 수집 (감독자가 다음 단계에서 자동 답변할 예정)
                 self._collect_pending_question(_step)
-                # supervisor/worker 출력에서 개선 제안 패턴 감지
+                # supervisor 출력 파싱: 개선 제안, 자동 결정
                 self._parse_suggestions_from_output(_step, supervisor_response, source="supervisor")
+                self._parse_auto_decisions_from_output(_step, supervisor_response)
+                # worker 출력 파싱: 개선 제안, 사용자 질문 (텍스트 패턴)
                 self._parse_suggestions_from_output(_step, last_output, source="worker")
+                self._parse_questions_from_output(_step, last_output, source="worker")
 
                 self._add_history("cli_result", last_output)
                 save_checkpoint(self.id, _step, {

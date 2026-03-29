@@ -678,3 +678,320 @@ class TestReportScenarios:
         assert len(r.report["pending_items"]["questions"]) == 1
         assert "후속 조치" in r.report["text_summary"]
         assert "어떤 파일을 삭제할까요?" in r.report["text_summary"]
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# _parse_auto_decisions_from_output
+# ════════════════════════════════════════════════════════════════════════════════
+
+class TestParseAutoDecisions:
+    def test_bracket_format_detected(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_auto_decisions_from_output(1, "[결정] A 방안 사용 → 파일 덮어쓰기")
+        assert len(r.pending_items["auto_decisions"]) == 1
+        d = r.pending_items["auto_decisions"][0]
+        assert d["description"] == "A 방안 사용"
+        assert d["choice"] == "파일 덮어쓰기"
+        assert d["source"] == "text_pattern"
+
+    def test_prefix_format_detected(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_auto_decisions_from_output(1, "결정: 기존 파일 삭제 후 재생성")
+        assert len(r.pending_items["auto_decisions"]) == 1
+        d = r.pending_items["auto_decisions"][0]
+        assert "기존 파일 삭제 후 재생성" in d["description"]
+        assert d["choice"] == ""
+
+    def test_auto_selection_format(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_auto_decisions_from_output(1, "자동 선택: 최신 버전 사용")
+        assert len(r.pending_items["auto_decisions"]) == 1
+
+    def test_english_decision_format(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_auto_decisions_from_output(1, "Decision: use approach B → skip validation")
+        assert len(r.pending_items["auto_decisions"]) == 1
+        d = r.pending_items["auto_decisions"][0]
+        assert "approach B" in d["description"]
+        assert "skip validation" in d["choice"]
+
+    def test_no_match_normal_text(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_auto_decisions_from_output(1, "일반적인 텍스트입니다. 아무 패턴도 없어요.")
+        assert len(r.pending_items["auto_decisions"]) == 0
+
+    def test_too_short_content_ignored(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_auto_decisions_from_output(1, "결정: AB")
+        assert len(r.pending_items["auto_decisions"]) == 0
+
+    def test_duplicate_not_added_twice(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        text = "[결정] 파일 삭제 → 덮어쓰기"
+        r._parse_auto_decisions_from_output(1, text)
+        r._parse_auto_decisions_from_output(1, text)
+        assert len(r.pending_items["auto_decisions"]) == 1
+
+    def test_multiline_text_all_parsed(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        text = "결정: 방안 A 선택\n일반 텍스트\n[결정] 버전 업그레이드 → v2.0 사용"
+        r._parse_auto_decisions_from_output(1, text)
+        assert len(r.pending_items["auto_decisions"]) == 2
+
+    def test_empty_text_noop(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_auto_decisions_from_output(1, "")
+        assert len(r.pending_items["auto_decisions"]) == 0
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# _parse_questions_from_output
+# ════════════════════════════════════════════════════════════════════════════════
+
+class TestParseQuestionsFromOutput:
+    def test_confirm_needed_pattern(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_questions_from_output(1, "확인 필요: 기존 파일을 삭제할까요?")
+        assert len(r.pending_items["questions"]) == 1
+        q = r.pending_items["questions"][0]
+        assert "기존 파일을 삭제할까요?" in q["content"]
+        assert q["source"] == "text_pattern"
+
+    def test_select_pattern(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_questions_from_output(1, "선택해 주세요: A 또는 B")
+        assert len(r.pending_items["questions"]) == 1
+
+    def test_bracket_question_format(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_questions_from_output(1, "[질문] 어떤 방식으로 진행할까요?")
+        assert len(r.pending_items["questions"]) == 1
+
+    def test_english_confirm_pattern(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_questions_from_output(1, "Please confirm: delete the old files?")
+        assert len(r.pending_items["questions"]) == 1
+
+    def test_no_match_normal_text(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_questions_from_output(1, "파일을 처리했습니다. 결과가 출력됩니다.")
+        assert len(r.pending_items["questions"]) == 0
+
+    def test_duplicate_not_added_twice(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        text = "확인 필요: 덮어쓸까요?"
+        r._parse_questions_from_output(1, text)
+        r._parse_questions_from_output(1, text)
+        assert len(r.pending_items["questions"]) == 1
+
+    def test_source_stored_in_note(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_questions_from_output(1, "확인 필요: 삭제할까요?", source="worker")
+        assert r.pending_items["questions"][0]["source"] == "text_pattern"
+        assert "worker" in r.pending_items["questions"][0]["note"]
+
+    def test_empty_text_noop(self):
+        r, _ = _make_runner()
+        r.current_cycle = 1
+        r.iteration = 1
+        r._parse_questions_from_output(1, "")
+        assert len(r.pending_items["questions"]) == 0
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# resume()
+# ════════════════════════════════════════════════════════════════════════════════
+
+class TestResume:
+    def _make_soft_stopped(self) -> tuple:
+        r, s = _make_runner()
+        r.status = "stopped"
+        r._soft_stop_flag = True
+        r.stop_type = "soft"
+        r.started_at = "2026-01-01T10:00:00"
+        r.ended_at = "2026-01-01T10:05:00"
+        r.current_cycle = 1
+        r.iteration = 2
+        r._log_step(1, "completed", "step 1", start=time.time() - 5)
+        r._log_step(2, "completed", "step 2", start=time.time() - 2)
+        r.report = r._generate_report()
+        return r, s
+
+    def test_resume_resets_flags(self):
+        r, _ = self._make_soft_stopped()
+        with patch("asyncio.create_task"):
+            r.resume()
+        assert r._stop_flag is False
+        assert r._soft_stop_flag is False
+        assert r.stop_type is None
+
+    def test_resume_sets_running(self):
+        r, _ = self._make_soft_stopped()
+        with patch("asyncio.create_task"):
+            r.resume()
+        assert r.status == "running"
+
+    def test_resume_clears_ended_at_and_report(self):
+        r, _ = self._make_soft_stopped()
+        with patch("asyncio.create_task"):
+            r.resume()
+        assert r.ended_at is None
+        assert r.report is None
+
+    def test_resume_preserves_step_log(self):
+        r, _ = self._make_soft_stopped()
+        steps_before = len(r._step_log)
+        with patch("asyncio.create_task"):
+            r.resume()
+        assert len(r._step_log) == steps_before
+
+    def test_resume_preserves_cycle_and_iteration(self):
+        r, _ = self._make_soft_stopped()
+        with patch("asyncio.create_task"):
+            r.resume()
+        assert r.current_cycle == 1
+        assert r.iteration == 2
+
+    def test_resume_adds_history_message(self):
+        r, _ = self._make_soft_stopped()
+        history_before = len(r.history)
+        with patch("asyncio.create_task"):
+            r.resume()
+        assert len(r.history) > history_before
+        assert "재개" in r.history[-1]["content"]
+
+    def test_resume_spawns_asyncio_task(self):
+        r, _ = self._make_soft_stopped()
+        with patch("asyncio.create_task") as mock_task:
+            r.resume()
+        mock_task.assert_called_once()
+
+    def test_resume_fails_if_not_stopped(self):
+        r, _ = _make_runner()
+        r.status = "running"
+        r._soft_stop_flag = True
+        with pytest.raises(RuntimeError, match="stopped 상태"):
+            r.resume()
+
+    def test_resume_fails_if_hard_stop(self):
+        r, _ = _make_runner()
+        r.status = "stopped"
+        r._soft_stop_flag = False
+        with pytest.raises(RuntimeError, match="hard stop"):
+            r.resume()
+
+    def test_resume_fails_if_session_dead(self):
+        r, s = self._make_soft_stopped()
+        s.alive = False
+        with pytest.raises(RuntimeError, match="세션이 종료"):
+            r.resume()
+
+    def test_resume_rollback_on_supervisor_failure(self):
+        r, _ = self._make_soft_stopped()
+        r.mode = "cli"
+        with patch.object(r, "_create_supervisor_session",
+                          side_effect=RuntimeError("sv fail")):
+            with pytest.raises(RuntimeError, match="sv fail"):
+                r.resume()
+        assert r.status == "stopped"
+        assert r._soft_stop_flag is True
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# HTTP: POST /pipelines/{id}/resume
+# ════════════════════════════════════════════════════════════════════════════════
+
+class TestResumeEndpoint:
+    def _register_soft_stopped(self, pid="p-resume") -> PipelineRunner:
+        s = _make_session(f"sess-{pid}")
+        sessions[s.id] = s
+        r = PipelineRunner(s, "goal", "sonnet", 5)
+        r.status = "stopped"
+        r._soft_stop_flag = True
+        r.stop_type = "soft"
+        r.current_cycle = 1
+        r.iteration = 2
+        pipelines[pid] = r
+        return r
+
+    def test_resume_success(self):
+        r = self._register_soft_stopped()
+        pid = list(pipelines.keys())[-1]
+        with patch("asyncio.create_task"):
+            resp = client.post(f"/api/pipelines/{pid}/resume")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "running"
+        assert data["pipeline_id"] == pid
+        assert "current_cycle" in data
+        assert "resumed_from_step" in data
+
+    def test_resume_404_unknown_pipeline(self):
+        resp = client.post("/api/pipelines/unknown/resume")
+        assert resp.status_code == 404
+
+    def test_resume_400_if_running(self):
+        r = self._register_soft_stopped()
+        pid = list(pipelines.keys())[-1]
+        r.status = "running"
+        resp = client.post(f"/api/pipelines/{pid}/resume")
+        assert resp.status_code == 400
+        assert "stopped" in resp.json()["detail"]
+
+    def test_resume_400_if_hard_stopped(self):
+        r = self._register_soft_stopped()
+        pid = list(pipelines.keys())[-1]
+        r._soft_stop_flag = False
+        resp = client.post(f"/api/pipelines/{pid}/resume")
+        assert resp.status_code == 400
+        assert "hard stop" in resp.json()["detail"]
+
+    def test_resume_400_if_session_dead(self):
+        r = self._register_soft_stopped()
+        pid = list(pipelines.keys())[-1]
+        r.session.alive = False
+        resp = client.post(f"/api/pipelines/{pid}/resume")
+        assert resp.status_code == 400
+        assert "세션" in resp.json()["detail"]
+
+    def test_resume_step_log_preserved_in_response(self):
+        r = self._register_soft_stopped()
+        pid = list(pipelines.keys())[-1]
+        r._log_step(1, "completed", "step 1", start=time.time())
+        r._log_step(2, "completed", "step 2", start=time.time())
+        with patch("asyncio.create_task"):
+            resp = client.post(f"/api/pipelines/{pid}/resume")
+        assert resp.json()["resumed_from_step"] == 2
+        assert len(pipelines[pid]._step_log) == 2

@@ -1136,6 +1136,44 @@ async def get_pipeline_report(pipeline_id: str):
     }
 
 
+@router.post("/pipelines/{pipeline_id}/resume")
+async def resume_pipeline(pipeline_id: str):
+    """soft_stop으로 중단된 파이프라인을 재개.
+
+    재개 조건:
+    - status == "stopped" AND soft_stop으로 중단된 것
+    - worker 세션이 여전히 alive (세션 바인딩 보존 중)
+
+    재개 시 _step_log / pending_items / current_cycle / iteration을 유지하여 이어서 실행.
+    """
+    if pipeline_id not in pipelines:
+        raise HTTPException(status_code=404, detail="파이프라인 없음")
+    p = pipelines[pipeline_id]
+    if p.status != "stopped":
+        raise HTTPException(
+            status_code=400,
+            detail=f"재개 불가: status={p.status!r} — stopped 상태여야 합니다")
+    if not p._soft_stop_flag:
+        raise HTTPException(
+            status_code=400,
+            detail="hard stop으로 중단된 파이프라인은 재개할 수 없습니다")
+    if not p.session or not p.session.alive:
+        raise HTTPException(
+            status_code=400,
+            detail="worker 세션이 종료되어 재개할 수 없습니다")
+    try:
+        p.resume()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "status": "running",
+        "pipeline_id": pipeline_id,
+        "current_cycle": p.current_cycle,
+        "iteration": p.iteration,
+        "resumed_from_step": len(p._step_log),
+    }
+
+
 @router.post("/pipelines/{pipeline_id}/stop")
 async def stop_pipeline(pipeline_id: str, body: PipelineStopRequest = None):
     """파이프라인 중단.
