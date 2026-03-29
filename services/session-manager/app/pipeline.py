@@ -197,8 +197,21 @@ class PipelineRunner:
         self.history: list[dict] = []
         self.summary = ""
         self.created_at = datetime.now().isoformat()
+        self.started_at: str = ""
+        self.ended_at: Optional[str] = None
         self._task: Optional[asyncio.Task] = None
         self._stop_flag = False
+        self._soft_stop_flag = False    # soft stop: 현재 단계 완료 후 중단
+        self.stop_type: Optional[str] = None  # "hard" | "soft"
+        # 단계별 실행 로그
+        self._step_log: list[dict] = []
+        # 후속 조치 항목 수집
+        self.pending_items: dict = {
+            "questions": [],       # 사용자 확인이 필요한 질문
+            "auto_decisions": [],  # 시스템이 자동으로 선택한 항목
+            "suggestions": [],     # 개선 제안
+        }
+        self.report: Optional[dict] = None   # 완료/중단 후 생성되는 최종 리포트
         # CLI 감독자 전용
         self._supervisor_session: Optional[ClaudeSession] = None
         self._supervisor_retries = 0
@@ -206,6 +219,7 @@ class PipelineRunner:
 
     def start(self):
         self.status = "running"
+        self.started_at = datetime.now().isoformat()
         # 선택한 세션에 파이프라인 바인딩 (별도 worker 생성 안함)
         self.session.pipeline_id = self.id
         self.session.pipeline_role = "worker"
@@ -241,15 +255,27 @@ class PipelineRunner:
         self._supervisor_session = sv
         self._add_history("system", f"감독자 CLI 세션 생성: {sid} (no-tools)")
 
-    async def stop(self):
-        self._stop_flag = True
-        self.status = "stopped"
-        self._add_history("system", "파이프라인이 사용자에 의해 중단되었습니다.")
-        # 감독자/worker 세션 실행 중단 (finally에서 완전 정리됨)
-        if self._supervisor_session:
-            await self._supervisor_session.kill()
-        if self.session:
-            await self.session.interrupt()
+    async def stop(self, stop_type: str = "hard"):
+        """파이프라인 중단.
+
+        stop_type="hard": 즉시 중단 — 진행 중인 단계 취소, 리포트 생성.
+        stop_type="soft": 현재 단계 완료 후 중단 — resumable 상태 보존, 리포트 생성.
+        """
+        self.stop_type = stop_type
+        if stop_type == "soft":
+            self._soft_stop_flag = True
+            self._add_history("system",
+                "⏸ Soft stop 요청: 현재 단계 완료 후 중단합니다. "
+                "리포트 생성 후 세션은 resumable 상태로 보존됩니다.")
+        else:
+            self._stop_flag = True
+            self.status = "stopped"
+            self._add_history("system", "🛑 Hard stop: 즉시 중단합니다.")
+            # 감독자/worker 세션 실행 중단 (finally에서 완전 정리됨)
+            if self._supervisor_session:
+                await self._supervisor_session.kill()
+            if self.session:
+                await self.session.interrupt()
 
     def _add_history(self, role: str, content: str):
         self.history.append({
@@ -258,6 +284,180 @@ class PipelineRunner:
             "iteration": self.iteration,
             "timestamp": datetime.now().strftime("%H:%M:%S"),
         })
+
+    # ─── 리포트 보조 메서드 ─────────────────────────────
+
+    def _log_step(self, step_idx: int, status: str, output: str, *,
+                  start: float, error: Optional[str] = None):
+        """단계별 실행 결과 기록."""
+        elapsed = time.time() - start
+        preview = output[:200].replace("\n", " ").strip() if output else ""
+        self._step_log.append({
+            "step_idx": step_idx,
+            "cycle": self.current_cycle,
+            "iteration": self.iteration,
+            "started_at": datetime.fromtimestamp(start).isoformat(),
+            "ended_at": datetime.now().isoformat(),
+            "duration_seconds": round(elapsed, 1),
+            "status": status,           # completed | failed | aborted
+            "output_preview": preview,
+            "error": error,
+        })
+
+    def _collect_pending_question(self, step_idx: int):
+        """세션의 pending_question을 pending_items.questions에 수집."""
+        pq = self.session.pending_question if self.session else None
+        if not pq or not pq.get("questions"):
+            return
+        for q in pq["questions"]:
+            self.pending_items["questions"].append({
+                "step": step_idx,
+                "cycle": self.current_cycle,
+                "iteration": self.iteration,
+                "content": q.get("question", ""),
+                "options": q.get("options", []),
+                "severity": "medium",
+                "note": "감독자(supervisor)가 다음 단계에서 자동 답변 예정",
+            })
+
+    def _record_auto_decision(self, step_idx: int, description: str,
+                               choice: str, alternatives: Optional[list] = None,
+                               severity: str = "low"):
+        """시스템이 자동으로 내린 결정을 pending_items.auto_decisions에 기록."""
+        self.pending_items["auto_decisions"].append({
+            "step": step_idx,
+            "cycle": self.current_cycle,
+            "iteration": self.iteration,
+            "description": description,
+            "choice": choice,
+            "alternatives": alternatives or [],
+            "severity": severity,
+        })
+
+    def _generate_report(self) -> dict:
+        """파이프라인 최종 리포트 생성 (완료/실패/중단 시 호출)."""
+        steps = list(self._step_log)
+        completed = [s for s in steps if s["status"] == "completed"]
+        failed = [s for s in steps if s["status"] == "failed"]
+        aborted = [s for s in steps if s["status"] == "aborted"]
+        errors = [s["error"] for s in steps if s.get("error")]
+
+        try:
+            duration = round(
+                (datetime.fromisoformat(self.ended_at) -
+                 datetime.fromisoformat(self.started_at)).total_seconds(), 1
+            ) if self.ended_at and self.started_at else 0.0
+        except Exception:
+            duration = 0.0
+
+        return {
+            "pipeline_id": self.id,
+            "session_id": self.session.id if self.session else None,
+            "goal": self.goal,
+            "status": self.status,
+            "stop_type": self.stop_type,
+            "started_at": self.started_at,
+            "ended_at": self.ended_at,
+            "duration_seconds": duration,
+            "steps": steps,
+            "total_steps": len(steps),
+            "completed_steps": len(completed),
+            "failed_steps": len(failed),
+            "aborted_steps": len(aborted),
+            "errors": [e for e in errors if e],
+            "pending_items": self.pending_items,
+            "summary": self.summary,
+            "text_summary": self._generate_text_summary(steps, duration,
+                                                         [e for e in errors if e]),
+        }
+
+    def _generate_text_summary(self, steps: list, duration: float,
+                                errors: list) -> str:
+        """사람이 읽기 쉬운 리포트 텍스트 생성."""
+        status_icon = {
+            "completed": "✅", "failed": "❌", "stopped": "⏹", "running": "⏳",
+        }.get(self.status, "?")
+        stop_note = f" ({self.stop_type} stop)" if self.stop_type else ""
+
+        lines = [
+            f"# Pipeline {self.id} 최종 리포트 {status_icon}",
+            "",
+            f"**목표:** {self.goal[:120]}{'...' if len(self.goal) > 120 else ''}",
+            f"**상태:** {self.status}{stop_note}",
+            f"**세션:** {self.session.id if self.session else '-'}",
+            f"**시작:** {self.started_at or '-'}",
+            f"**종료:** {self.ended_at or '-'}",
+            f"**소요:** {duration}초",
+            "",
+        ]
+
+        if self.summary:
+            lines += [f"**요약:** {self.summary}", ""]
+
+        n_ok = len([s for s in steps if s["status"] == "completed"])
+        n_fail = len([s for s in steps if s["status"] == "failed"])
+        n_abort = len([s for s in steps if s["status"] == "aborted"])
+
+        lines += [
+            "## 실행 결과",
+            f"| 구분 | 수 |",
+            f"|------|---|",
+            f"| ✅ 완료 | {n_ok} |",
+            f"| ❌ 실패 | {n_fail} |",
+            f"| ⏹ 중단 | {n_abort} |",
+            f"| 합계 | {len(steps)} |",
+            "",
+        ]
+
+        if steps:
+            lines += ["## 단계별 상세", ""]
+            for s in steps:
+                icon = {"completed": "✅", "failed": "❌", "aborted": "⏹"}.get(s["status"], "?")
+                ci = f"C{s['cycle']}-I{s['iteration']}"
+                dur = f"{s.get('duration_seconds', 0):.1f}s"
+                preview = s.get("output_preview", "")[:80]
+                err_note = f" [{s['error']}]" if s.get("error") else ""
+                lines.append(f"- {icon} Step {s['step_idx']} ({ci}, {dur}){err_note}: {preview}")
+            lines.append("")
+
+        if errors:
+            lines += ["## 오류 목록", ""]
+            for e in errors[:10]:
+                lines.append(f"- {e[:200]}")
+            lines.append("")
+
+        questions = self.pending_items.get("questions", [])
+        auto_decs = self.pending_items.get("auto_decisions", [])
+        suggestions = self.pending_items.get("suggestions", [])
+
+        if questions or auto_decs or suggestions:
+            lines += ["## 후속 조치 항목", ""]
+            if questions:
+                lines.append("### ❓ 질문/확인 사항")
+                for q in questions:
+                    sev = q.get("severity", "medium").upper()
+                    lines.append(
+                        f"- [{sev}] Step {q.get('step', '?')}: {q.get('content', '')[:120]}")
+                    if q.get("options"):
+                        opts = ", ".join(o.get("label", "") for o in q["options"])
+                        lines.append(f"  옵션: {opts}")
+                lines.append("")
+            if auto_decs:
+                lines.append("### 🔧 자동 결정 사항")
+                for d in auto_decs:
+                    sev = d.get("severity", "low").upper()
+                    lines.append(
+                        f"- [{sev}] Step {d.get('step', '?')}: "
+                        f"{d.get('description', '')} → {d.get('choice', '')}")
+                lines.append("")
+            if suggestions:
+                lines.append("### 💡 개선 제안")
+                for sg in suggestions:
+                    pri = sg.get("priority", "low").upper()
+                    lines.append(f"- [{pri}] {sg.get('content', '')[:120]}")
+                lines.append("")
+
+        return "\n".join(lines)
 
     async def _wait_for_session(self, session: ClaudeSession,
                                  timeout: int = TASK_TIMEOUTS["default"]) -> str:
@@ -322,16 +522,24 @@ class PipelineRunner:
         """메인 파이프라인 루프 — mode에 따라 감독자 방식 분기, 자동 사이클"""
         last_output = ""
         _step = 0  # 전역 누적 스텝 (DB checkpoint 키)
+        _step_start: float = 0.0
         try:
             while not self._stop_flag:
                 # 사이클 내 max_iterations 도달 → 자동 사이클 전환
                 if self.iteration >= self.max_iterations:
                     if self.current_cycle < self.max_cycles:
+                        old_cycle = self.current_cycle
                         self.current_cycle += 1
                         self.iteration = 0
                         self._supervisor_retries = 0
                         self._add_history("system",
                             f"=== 사이클 {self.current_cycle}/{self.max_cycles} 시작 ===")
+                        self._record_auto_decision(
+                            _step,
+                            f"사이클 {old_cycle} 최대 반복({self.max_iterations}) 도달",
+                            f"사이클 {self.current_cycle} 자동 시작",
+                            severity="low",
+                        )
                         continue
                     else:
                         total = (self.current_cycle - 1) * self.max_iterations + self.iteration
@@ -344,6 +552,7 @@ class PipelineRunner:
                 self.iteration += 1
                 _step = (self.current_cycle - 1) * self.max_iterations + self.iteration
                 update_stage(self.id, _step, "running")
+                _step_start = time.time()
 
                 # 1. 감독자 호출
                 try:
@@ -354,8 +563,15 @@ class PipelineRunner:
                         self._supervisor_retries += 1
                         self._add_history("system",
                             f"감독자 CLI 오류 → 복구 시도 ({self._supervisor_retries}/{self._max_supervisor_retries}): {str(e)}")
+                        self._record_auto_decision(
+                            _step,
+                            f"감독자 CLI 오류: {str(e)[:80]}",
+                            "감독자 세션 재생성",
+                            severity="medium",
+                        )
                         await self._recover_supervisor()
                         continue  # 같은 iteration 재시도
+                    self._log_step(_step, "failed", "", start=_step_start, error=f"감독자 호출 실패: {str(e)}")
                     self._add_history("error", f"감독자 호출 실패: {str(e)}")
                     self.status = "failed"
                     mark_failed(self.id, _step, str(e))
@@ -381,18 +597,39 @@ class PipelineRunner:
 
                 # 4. 작업자 CLI 완료 대기
                 last_output = await self._wait_for_session(self.session)
-                # worker 세션이 비정상 종료된 경우 파이프라인 실패 처리
+
+                # 단계 상태 판정 및 로깅
                 if last_output == "[세션 종료]":
+                    self._log_step(_step, "failed", last_output, start=_step_start,
+                                   error="worker 세션 비정상 종료")
                     self.status = "failed"
                     self._add_history("error", "worker 세션(pw-*)이 예기치 않게 종료되었습니다.")
                     mark_failed(self.id, _step, "worker 세션 비정상 종료")
                     return
+                elif last_output == "[파이프라인 중단됨]":
+                    self._log_step(_step, "aborted", last_output, start=_step_start)
+                elif last_output == "[시간 초과]":
+                    self._log_step(_step, "failed", last_output, start=_step_start, error="시간 초과")
+                else:
+                    self._log_step(_step, "completed", last_output, start=_step_start)
+
+                # pending_question 수집 (감독자가 다음 단계에서 자동 답변할 예정)
+                self._collect_pending_question(_step)
+
                 self._add_history("cli_result", last_output)
                 save_checkpoint(self.id, _step, {
                     "output": last_output,
                     "cycle": self.current_cycle,
                     "iteration": self.iteration,
                 })
+
+                # soft stop: 현재 단계 완료 후 중단
+                if self._soft_stop_flag:
+                    self.status = "stopped"
+                    self._add_history("system",
+                        "⏸ Soft stop: 현재 단계 완료 후 중단되었습니다. "
+                        "세션은 resumable 상태로 보존됩니다.")
+                    return
 
         except asyncio.CancelledError:
             # 외부 태스크 취소(서버 shutdown 등) — finally 정리 후 재전파
@@ -405,15 +642,20 @@ class PipelineRunner:
                 mark_failed(self.id, _step, str(e))
             self._add_history("error", f"파이프라인 오류: {str(e)}")
         finally:
+            # 종료 시각 기록 + 최종 리포트 생성
+            self.ended_at = datetime.now().isoformat()
+            self.report = self._generate_report()
+
             # 감독자 CLI 세션 정리 (kill + 디스크에서 삭제)
             if self._supervisor_session:
                 await self._supervisor_session.kill()
                 self._supervisor_session.delete_state()
 
-            # 세션의 파이프라인 바인딩 해제 (세션 자체는 유지)
+            # soft stop: 세션 바인딩 유지 (resumable), hard stop/complete/fail: 해제
             if self.session:
-                self.session.pipeline_id = None
-                self.session.pipeline_role = None
+                if not self._soft_stop_flag:
+                    self.session.pipeline_id = None
+                    self.session.pipeline_role = None
                 self.session.save_state()
 
     # ─── 감독자 호출 (모드별 분기) ─────────────────────
@@ -596,6 +838,7 @@ class PipelineRunner:
             "supervisor_model": self.supervisor_model,
             "mode": self.mode,
             "status": self.status,
+            "stop_type": self.stop_type,
             "iteration": self.iteration,
             "max_iterations": self.max_iterations,
             "current_cycle": self.current_cycle,
@@ -603,8 +846,16 @@ class PipelineRunner:
             "total_iterations": (self.current_cycle - 1) * self.max_iterations + self.iteration,
             "summary": self.summary,
             "created_at": self.created_at,
+            "started_at": self.started_at,
+            "ended_at": self.ended_at,
             "history": self.history[-50:],
             "supervisor_retries": self._supervisor_retries,
+            "pending_items_count": {
+                "questions": len(self.pending_items.get("questions", [])),
+                "auto_decisions": len(self.pending_items.get("auto_decisions", [])),
+                "suggestions": len(self.pending_items.get("suggestions", [])),
+            },
+            "report": self.report,
         }
 
 

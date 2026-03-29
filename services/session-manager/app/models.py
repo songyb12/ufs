@@ -166,6 +166,10 @@ class PipelineStartRequest(BaseModel):
     mode: str = Field(default="cli", pattern="^(api|cli)$")
 
 
+class PipelineStopRequest(BaseModel):
+    stop_type: str = Field(default="hard", pattern="^(hard|soft)$")
+
+
 class ShellCreateRequest(BaseModel):
     shell_type: str = Field(default="cmd", pattern="^(cmd|powershell)$")
     work_dir: str = "."

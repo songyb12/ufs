@@ -30,9 +30,9 @@ from app.models import (
     PROJECTS_FILE, TEMPLATES_FILE, TEMPLATES_DIR,
     load_projects, save_projects, _load_template,
     CreateSessionRequest, SendCommandRequest, GitExecRequest, GitCloneRequest,
-    ProjectRequest, PipelineStartRequest, ShellCreateRequest, RenameSessionRequest,
-    ChangeModelRequest, ForkSessionRequest, PromptTemplate, ClaudeMdRequest,
-    CompareRequest, PlanPhaseStartRequest, PlanPhaseAnswerRequest,
+    ProjectRequest, PipelineStartRequest, PipelineStopRequest, ShellCreateRequest,
+    RenameSessionRequest, ChangeModelRequest, ForkSessionRequest, PromptTemplate,
+    ClaudeMdRequest, CompareRequest, PlanPhaseStartRequest, PlanPhaseAnswerRequest,
     PlanPhaseApproveRequest, PlanPhaseRejectRequest,
     DismissSessionsRequest, CleanupPipelinesRequest,
     MEDIA_TOKEN_TTL, TASK_TIMEOUTS,
@@ -1095,17 +1095,26 @@ async def get_pipeline_compat(pipeline_id: str):
 
 
 @router.post("/pipelines/{pipeline_id}/stop")
-async def stop_pipeline(pipeline_id: str):
+async def stop_pipeline(pipeline_id: str, body: PipelineStopRequest = None):
+    """파이프라인 중단.
+
+    body.stop_type:
+    - "hard" (기본): 즉시 중단, 진행 중인 작업 취소, 리포트 생성 후 세션 종료.
+    - "soft": 현재 단계 완료 후 중단, 리포트 생성, 세션을 resumable 상태로 보존.
+    """
     if pipeline_id not in pipelines:
         raise HTTPException(status_code=404, detail="파이프라인 없음")
-    await pipelines[pipeline_id].stop()
-    return {"status": "stopped"}
+    stop_type = (body.stop_type if body else None) or "hard"
+    await pipelines[pipeline_id].stop(stop_type=stop_type)
+    # soft stop은 현재 단계가 완료될 때까지 status="running" 유지
+    result_status = "stopping" if stop_type == "soft" else "stopped"
+    return {"status": result_status, "stop_type": stop_type}
 
 
 # 하위호환
 @router.post("/pipeline/{pipeline_id}/stop")
-async def stop_pipeline_compat(pipeline_id: str):
-    return await stop_pipeline(pipeline_id)
+async def stop_pipeline_compat(pipeline_id: str, body: PipelineStopRequest = None):
+    return await stop_pipeline(pipeline_id, body)
 
 
 @router.delete("/pipelines/{pipeline_id}")
