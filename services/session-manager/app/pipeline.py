@@ -253,6 +253,8 @@ class PipelineRunner:
             "suggestions": [],     # 개선 제안
         }
         self.report: Optional[dict] = None   # 완료/중단 후 생성되는 최종 리포트
+        self._resume_count: int = 0          # resume() 호출 횟수
+        self._resumed_from_step: int = 0     # 마지막 resume 시점의 step_log 길이
         # CLI 감독자 전용
         self._supervisor_session: Optional[ClaudeSession] = None
         self._supervisor_retries = 0
@@ -346,6 +348,10 @@ class PipelineRunner:
         self.status = "running"
         self.ended_at = None
         self.report = None
+
+        # resume 메타데이터 갱신
+        self._resume_count += 1
+        self._resumed_from_step = len(self._step_log)
 
         # 세션 바인딩 재확인 (soft stop 시 유지되었어야 하나 방어적으로 재설정)
         self.session.pipeline_id = self.id
@@ -572,6 +578,10 @@ class PipelineRunner:
                 "auto_decisions": len(self.pending_items.get("auto_decisions", [])),
                 "suggestions": len(self.pending_items.get("suggestions", [])),
             },
+            "resume_info": {
+                "resume_count": self._resume_count,
+                "resumed_from_step": self._resumed_from_step,
+            } if self._resume_count > 0 else None,
             "summary": self.summary,
             "text_summary": self._generate_text_summary(steps, duration, clean_errors),
         }
@@ -584,8 +594,14 @@ class PipelineRunner:
         }.get(self.status, "?")
         stop_note = f" ({self.stop_type} stop)" if self.stop_type else ""
 
+        resume_note = (
+            f" | 재개된 파이프라인 ({self._resume_count}번 재개, "
+            f"Step {self._resumed_from_step}부터)"
+            if self._resume_count > 0 else ""
+        )
+
         lines = [
-            f"# Pipeline {self.id} 최종 리포트 {status_icon}",
+            f"# Pipeline {self.id} 최종 리포트 {status_icon}{resume_note}",
             "",
             f"**목표:** {self.goal[:120]}{'...' if len(self.goal) > 120 else ''}",
             f"**상태:** {self.status}{stop_note}",
@@ -639,9 +655,10 @@ class PipelineRunner:
         suggestions = self.pending_items.get("suggestions", [])
 
         if questions or auto_decs or suggestions:
-            lines += ["## 후속 조치 항목", ""]
+            total_n = len(questions) + len(auto_decs) + len(suggestions)
+            lines += [f"## 후속 조치 항목 (총 {total_n}건)", ""]
             if questions:
-                lines.append("### ❓ 질문/확인 사항")
+                lines.append(f"### ❓ 질문/확인 사항 ({len(questions)}건)")
                 for q in questions:
                     sev = q.get("severity", "medium").upper()
                     lines.append(
@@ -651,7 +668,7 @@ class PipelineRunner:
                         lines.append(f"  옵션: {opts}")
                 lines.append("")
             if auto_decs:
-                lines.append("### 🔧 자동 결정 사항")
+                lines.append(f"### 🔧 자동 결정 사항 ({len(auto_decs)}건)")
                 for d in auto_decs:
                     sev = d.get("severity", "low").upper()
                     lines.append(
@@ -659,7 +676,7 @@ class PipelineRunner:
                         f"{d.get('description', '')} → {d.get('choice', '')}")
                 lines.append("")
             if suggestions:
-                lines.append("### 💡 개선 제안")
+                lines.append(f"### 💡 개선 제안 ({len(suggestions)}건)")
                 for sg in suggestions:
                     pri = sg.get("priority", "low").upper()
                     lines.append(f"- [{pri}] {sg.get('content', '')[:120]}")

@@ -851,7 +851,7 @@ class TestResume:
 
     def test_resume_resets_flags(self):
         r, _ = self._make_soft_stopped()
-        with patch("asyncio.create_task"):
+        with patch("asyncio.create_task", side_effect=lambda coro: coro.close()):
             r.resume()
         assert r._stop_flag is False
         assert r._soft_stop_flag is False
@@ -859,13 +859,13 @@ class TestResume:
 
     def test_resume_sets_running(self):
         r, _ = self._make_soft_stopped()
-        with patch("asyncio.create_task"):
+        with patch("asyncio.create_task", side_effect=lambda coro: coro.close()):
             r.resume()
         assert r.status == "running"
 
     def test_resume_clears_ended_at_and_report(self):
         r, _ = self._make_soft_stopped()
-        with patch("asyncio.create_task"):
+        with patch("asyncio.create_task", side_effect=lambda coro: coro.close()):
             r.resume()
         assert r.ended_at is None
         assert r.report is None
@@ -873,13 +873,13 @@ class TestResume:
     def test_resume_preserves_step_log(self):
         r, _ = self._make_soft_stopped()
         steps_before = len(r._step_log)
-        with patch("asyncio.create_task"):
+        with patch("asyncio.create_task", side_effect=lambda coro: coro.close()):
             r.resume()
         assert len(r._step_log) == steps_before
 
     def test_resume_preserves_cycle_and_iteration(self):
         r, _ = self._make_soft_stopped()
-        with patch("asyncio.create_task"):
+        with patch("asyncio.create_task", side_effect=lambda coro: coro.close()):
             r.resume()
         assert r.current_cycle == 1
         assert r.iteration == 2
@@ -887,14 +887,14 @@ class TestResume:
     def test_resume_adds_history_message(self):
         r, _ = self._make_soft_stopped()
         history_before = len(r.history)
-        with patch("asyncio.create_task"):
+        with patch("asyncio.create_task", side_effect=lambda coro: coro.close()):
             r.resume()
         assert len(r.history) > history_before
         assert "재개" in r.history[-1]["content"]
 
     def test_resume_spawns_asyncio_task(self):
         r, _ = self._make_soft_stopped()
-        with patch("asyncio.create_task") as mock_task:
+        with patch("asyncio.create_task", side_effect=lambda coro: coro.close()) as mock_task:
             r.resume()
         mock_task.assert_called_once()
 
@@ -949,7 +949,7 @@ class TestResumeEndpoint:
     def test_resume_success(self):
         r = self._register_soft_stopped()
         pid = list(pipelines.keys())[-1]
-        with patch("asyncio.create_task"):
+        with patch("asyncio.create_task", side_effect=lambda coro: coro.close()):
             resp = client.post(f"/api/pipelines/{pid}/resume")
         assert resp.status_code == 200
         data = resp.json()
@@ -991,7 +991,7 @@ class TestResumeEndpoint:
         pid = list(pipelines.keys())[-1]
         r._log_step(1, "completed", "step 1", start=time.time())
         r._log_step(2, "completed", "step 2", start=time.time())
-        with patch("asyncio.create_task"):
+        with patch("asyncio.create_task", side_effect=lambda coro: coro.close()):
             resp = client.post(f"/api/pipelines/{pid}/resume")
         assert resp.json()["resumed_from_step"] == 2
         assert len(pipelines[pid]._step_log) == 2
