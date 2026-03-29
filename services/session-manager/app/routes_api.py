@@ -3,6 +3,8 @@ app/routes_api.py — /api/* REST endpoints.
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -19,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request, Query, UploadFile, File, Depends, Header
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 import app.state as _state
 from app.state import sessions, shell_sessions, pipelines, plan_phases
@@ -33,6 +35,7 @@ from app.models import (
     CompareRequest, PlanPhaseStartRequest, PlanPhaseAnswerRequest,
     PlanPhaseApproveRequest, PlanPhaseRejectRequest,
     DismissSessionsRequest, CleanupPipelinesRequest,
+    MEDIA_TOKEN_TTL, TASK_TIMEOUTS,
 )
 from app.session import ClaudeSession, _check_rate_limit
 from app.shell import ShellSession, HAS_WINPTY
@@ -47,6 +50,29 @@ router = APIRouter(prefix="/api", tags=["api"])
 screen_monitor = ScreenMonitor()
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Media signed-token helpers ───────────────────────────────────────────────
+
+def _media_secret() -> str:
+    return os.environ.get("ADMIN_API_KEY", "")
+
+def _generate_media_token(expires: int) -> str:
+    """HMAC-SHA256(secret, expires_str) — 토큰은 secret 없이는 위조 불가."""
+    secret = _media_secret()
+    if not secret:
+        return ""
+    return hmac.new(secret.encode(), str(expires).encode(), hashlib.sha256).hexdigest()
+
+def _verify_media_token(token: str, expires: int) -> bool:
+    """토큰 서명 + 만료 시간 검증."""
+    if time.time() > expires:
+        return False
+    expected = _generate_media_token(expires)
+    return hmac.compare_digest(expected, token)
+
+def _media_auth_enabled() -> bool:
+    return bool(_media_secret())
 
 @router.get("/stats")
 async def stats():
@@ -176,8 +202,81 @@ async def send_command(session_id: str, body: SendCommandRequest):
     session = sessions[session_id]
     if not session.alive:
         raise HTTPException(status_code=409, detail="세션이 종료된 상태입니다")
+    # task_type에 따라 idle_timeout 적용 (image_gen 등 장시간 작업 지원)
+    from app.models import TASK_TIMEOUTS
+    task_type = body.task_type if body.task_type in TASK_TIMEOUTS else "default"
+    session.idle_timeout = TASK_TIMEOUTS[task_type]
     await session.send_prompt(prompt)
-    return {"status": "queued", "queue_size": session._queue.qsize()}
+    return {"status": "queued", "queue_size": session._queue.qsize(), "idle_timeout": session.idle_timeout}
+
+
+# ─── Media security endpoints ─────────────────────────────────────────────────
+
+@router.get("/media-token")
+async def get_media_token():
+    """단기 미디어 액세스 토큰 발급.
+    ADMIN_API_KEY 미설정 시: 빈 토큰 반환 (인증 불필요 모드).
+    프론트엔드는 이 토큰을 /api/media/... 요청에 ?mkey=... 로 첨부.
+    """
+    if not _media_auth_enabled():
+        return {"token": "", "expires": 0, "auth_required": False}
+    expires = int(time.time()) + MEDIA_TOKEN_TTL
+    token = _generate_media_token(expires)
+    return {"token": f"{token}:{expires}", "expires": expires, "auth_required": True}
+
+
+@router.get("/media/{full_path:path}")
+async def serve_media(request: Request, full_path: str, mkey: Optional[str] = Query(default=None)):
+    """인증된 미디어 파일 서빙.
+    full_path 예: uploads/session_id/file.jpg | screenshots/screen_xxx.jpg
+    인증 활성 시 ?mkey={token}:{expires} 필수. 만료 또는 서명 불일치 → 403.
+    인증 실패/경로 이탈 시도는 WARNING 레벨 로그로 기록.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+
+    if _media_auth_enabled():
+        if not mkey:
+            logger.warning("media auth: 토큰 없음 — ip=%s path=%s", client_ip, full_path)
+            raise HTTPException(status_code=401, detail="미디어 토큰 필요 (mkey)")
+        parts = mkey.split(":", 1)
+        if len(parts) != 2:
+            logger.warning("media auth: 토큰 형식 오류 — ip=%s path=%s", client_ip, full_path)
+            raise HTTPException(status_code=403, detail="토큰 형식 오류")
+        token_sig, expires_str = parts
+        try:
+            expires = int(expires_str)
+        except ValueError:
+            logger.warning("media auth: 만료시간 파싱 실패 — ip=%s path=%s", client_ip, full_path)
+            raise HTTPException(status_code=403, detail="토큰 형식 오류")
+        if not _verify_media_token(token_sig, expires):
+            logger.warning("media auth: 토큰 검증 실패 (만료 또는 서명 불일치) — ip=%s path=%s", client_ip, full_path)
+            raise HTTPException(status_code=403, detail="토큰 만료 또는 서명 불일치")
+
+    # 파일 경로 결정 및 경로 이탈 방지
+    if full_path.startswith("uploads/"):
+        base_dir = UPLOADS_DIR
+        rel = full_path[len("uploads/"):]
+    elif full_path.startswith("screenshots/"):
+        base_dir = SCREENSHOTS_DIR
+        rel = full_path[len("screenshots/"):]
+    else:
+        raise HTTPException(status_code=404, detail="지원하지 않는 미디어 경로")
+
+    try:
+        filepath = (base_dir / rel).resolve()
+        if not filepath.is_relative_to(base_dir.resolve()):
+            logger.warning("media security: 경로 이탈 시도 (path traversal) — ip=%s path=%s", client_ip, full_path)
+            raise HTTPException(status_code=403, detail="경로 이탈 거부")
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning("media security: 경로 처리 오류 — ip=%s path=%s", client_ip, full_path)
+        raise HTTPException(status_code=403, detail="경로 오류")
+
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="파일 없음")
+
+    return FileResponse(filepath)
 
 
 @router.post("/sessions/{session_id}/upload")

@@ -894,6 +894,43 @@ body {
 }
 .admin-badge.warn { background: rgba(210,153,34,0.2); color: var(--orange); }
 .admin-badge.good { background: rgba(63,185,80,0.15); color: var(--green); }
+
+/* ─── 토큰 사용량 시각화 ──────────────────────────────────── */
+.usage-track {
+    height: 7px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 4px 0;
+    display: flex;
+}
+.usage-seg-in  { height: 100%; background: var(--accent); transition: width 0.4s; }
+.usage-seg-out { height: 100%; background: var(--orange); transition: width 0.4s; }
+.usage-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 1px;
+}
+.token-popup-wrap { position: relative; margin-left: auto; }
+.token-popup-wrap #tokenBadge { cursor: pointer; font-size: 10px; color: var(--text-dim); }
+.token-popup-wrap #tokenBadge:hover { color: var(--accent); }
+.token-detail-popup {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    min-width: 200px;
+    z-index: 300;
+    font-size: 11px;
+    color: var(--text-dim);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    white-space: nowrap;
+}
 .btn-restart {
     width: 100%;
     justify-content: center;
@@ -937,6 +974,8 @@ body {
             <h1><span class="icon">&#9654;</span> Claude Session Manager</h1>
         </div>
         <div class="header-actions">
+            <button class="btn" id="notifToggleBtn" onclick="toggleNotif()"
+                title="알림 꺼짐 (클릭: 켜기)" style="font-size:15px;padding:4px 8px">&#128276;</button>
             <button class="btn" onclick="refreshSessions()">&#8635; Refresh</button>
         </div>
     </div>
@@ -965,6 +1004,21 @@ body {
                 &#8635; 안전 재시작
             </button>
             <div class="resumable-list" id="resumableList" style="display:none"></div>
+            <!-- 전체 토큰 사용량 -->
+            <div id="usageSection" style="border-top:1px solid var(--border);padding-top:8px;margin-top:6px;display:none">
+                <div style="font-size:10px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center">
+                    <span>전체 토큰</span>
+                    <span id="usageTotalText" style="font-weight:400;color:var(--text)">-</span>
+                </div>
+                <div class="usage-track">
+                    <div class="usage-seg-in" id="usageBarIn" style="width:0%"></div>
+                    <div class="usage-seg-out" id="usageBarOut" style="width:0%"></div>
+                </div>
+                <div class="usage-row">
+                    <span><span style="color:var(--accent)">●</span> 입력 <span id="usageInText">-</span></span>
+                    <span><span style="color:var(--orange)">●</span> 출력 <span id="usageOutText">-</span></span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -987,7 +1041,22 @@ body {
             <button class="btn btn-small btn-danger" onclick="killSession()">Kill</button>
             <button class="btn btn-small" onclick="removeSession()" style="color:var(--text-dim)" title="Remove">&#128465;</button>
             <span class="status-badge" id="statusBadge">Idle</span>
-            <span id="tokenBadge" style="font-size:10px;color:var(--text-dim);margin-left:auto"></span>
+            <span class="token-popup-wrap">
+                <span id="tokenBadge" onclick="toggleTokenPopup(event)" title="클릭: 토큰 상세"></span>
+                <div id="tokenDetailPopup" class="token-detail-popup" style="display:none">
+                    <div style="font-weight:600;color:var(--text);margin-bottom:6px;font-size:12px">현재 세션 토큰</div>
+                    <div class="usage-track"><div class="usage-seg-in" id="tpBarIn" style="width:0%"></div><div class="usage-seg-out" id="tpBarOut" style="width:0%"></div></div>
+                    <div class="usage-row" style="margin-bottom:4px">
+                        <span><span style="color:var(--accent)">●</span> 입력 <span id="tpIn">-</span></span>
+                        <span><span style="color:var(--orange)">●</span> 출력 <span id="tpOut">-</span></span>
+                    </div>
+                    <div id="tpCacheRow" class="usage-row" style="margin-bottom:6px;display:none">
+                        <span><span style="color:var(--text-dim)">●</span> 캐시읽기 <span id="tpCacheRead">-</span></span>
+                        <span><span style="color:var(--text-dim)">●</span> 캐시쓰기 <span id="tpCacheWrite">-</span></span>
+                    </div>
+                    <div style="border-top:1px solid var(--border);padding-top:6px;text-align:center;color:var(--text)">합계 <span id="tpTotal" style="font-weight:600">-</span></div>
+                </div>
+            </span>
         </div>
 
         <div class="terminal-container" id="terminalView">
@@ -1027,6 +1096,7 @@ body {
                             title="스크린 모니터" style="align-self:flex-end;margin-bottom:2px;font-size:14px;padding:4px 6px">&#128247;</button>
                     <div style="flex:1;display:flex;flex-direction:column;min-width:0">
                         <div id="attachmentPreview" style="display:none;padding:4px 0;gap:4px;flex-wrap:wrap"></div>
+                        <div id="sentFilesPanel" style="display:none;padding:4px 0;gap:4px;flex-wrap:wrap;border-top:1px solid var(--border)"></div>
                         <textarea id="commandInput" rows="1" placeholder="Enter prompt for Claude... (Shift+Enter = 줄바꿈)"
                                   onkeydown="handleInputKeydown(event)"
                                   ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
@@ -1397,7 +1467,42 @@ async function api(method, path, body = null) {
     return data;
 }
 
+// ─── Media Auth (signed token) ────────────────────────────────────────────────
+let _mediaKey = '';           // "{sig}:{expires}" — 빈 문자열이면 인증 불필요(개발 모드)
+let _mediaAuthRequired = false;
+let _mediaAuthTimer = null;   // 타이머 ID — 중복 체인 방지용
+
+async function initMediaAuth() {
+    // 기존 타이머가 있으면 취소 (복수 호출 시 중복 체인 방지)
+    if (_mediaAuthTimer !== null) {
+        clearTimeout(_mediaAuthTimer);
+        _mediaAuthTimer = null;
+    }
+    try {
+        const data = await api('GET', '/media-token');
+        _mediaKey = data.token || '';
+        _mediaAuthRequired = !!data.auth_required;
+        if (data.expires && data.expires > 0) {
+            // 만료 10분 전에 자동 갱신 (최소 1분)
+            const refreshMs = Math.max(60_000, (data.expires - Date.now() / 1000 - 600) * 1000);
+            _mediaAuthTimer = setTimeout(initMediaAuth, refreshMs);
+        }
+        // auth_required=false (개발 모드)이면 갱신 불필요 — 타이머 없음
+    } catch (e) {
+        _mediaKey = '';
+        _mediaAuthRequired = false;
+        // 서버 일시 오류 시 5분 후 재시도 (무한 체인 방지: 타이머 1개만 유지)
+        _mediaAuthTimer = setTimeout(initMediaAuth, 300_000);
+    }
+}
+
 function staticUrl(path) {
+    // 미디어 인증 활성 시 /api/media/{path}?mkey=... 경로로 서빙
+    if (_mediaAuthRequired && (path.startsWith('/uploads') || path.startsWith('/screenshots'))) {
+        const apiBase = window.location.port === '8006' ? '' : '/api/claude';
+        const mkey = _mediaKey ? `?mkey=${encodeURIComponent(_mediaKey)}` : '';
+        return `${apiBase}/api/media${path}${mkey}`;
+    }
     return `${STATIC_BASE}${path}`;
 }
 
@@ -1418,6 +1523,14 @@ async function refreshSessions() {
         el.innerHTML = '<div class="empty-state"><p>No sessions</p></div>';
         return;
     }
+
+    renderUsagePanel(list);
+
+    // 현재 활성 세션명 갱신 (완료 알림에 사용)
+    const activeSess = list.find(s => s.id === activeSessionId);
+    if (activeSess) { _currentSessionName = activeSess.name || activeSess.id; }
+    // WS 세션 전환 시 이전 busy 상태 리셋
+    _wasBusy = activeSess ? !!activeSess.busy : false;
 
     el.innerHTML = list.map(s => {
         let statusClass = s.alive ? (s.busy ? 'busy' : 'alive') : 'dead';
@@ -1441,12 +1554,132 @@ async function refreshSessions() {
     }).join('');
 }
 
+function renderUsagePanel(sessions) {
+    let totalIn = 0, totalOut = 0;
+    for (const s of sessions) {
+        totalIn  += s.total_input_tokens  || 0;
+        totalOut += s.total_output_tokens || 0;
+    }
+    const total = totalIn + totalOut;
+    const section = document.getElementById('usageSection');
+    if (!section) return;
+
+    if (total === 0) { section.style.display = 'none'; return; }
+    section.style.display = '';
+
+    document.getElementById('usageTotalText').textContent = formatTokens(total);
+    document.getElementById('usageInText').textContent   = formatTokens(totalIn);
+    document.getElementById('usageOutText').textContent  = formatTokens(totalOut);
+
+    // 비율 바 (입력 + 출력의 합산 기준)
+    const pIn  = (totalIn  / total * 100).toFixed(1);
+    const pOut = (totalOut / total * 100).toFixed(1);
+    document.getElementById('usageBarIn').style.width  = pIn  + '%';
+    document.getElementById('usageBarOut').style.width = pOut + '%';
+}
+
+// ─── 알림 (Web Notifications) ───────────────────────────────
+let _notifEnabled = false;
+let _wasBusy = false;          // WS busy 이전 상태 추적
+let _currentSessionName = '';  // 현재 활성 세션명
+
+// 페이지 로드 시 저장된 설정 복원
+try { _notifEnabled = localStorage.getItem('sm_notif') === '1'; } catch(e) {}
+// 명시적으로 거부된 경우만 비활성 (iOS PWA는 'default'로 보고될 수 있어 강제 비활성 금지)
+if (_notifEnabled && ('Notification' in window) && Notification.permission === 'denied') {
+    _notifEnabled = false;
+    try { localStorage.removeItem('sm_notif'); } catch(e) {}
+}
+
+function _updateNotifBtn() {
+    const btn = document.getElementById('notifToggleBtn');
+    if (!btn) return;
+    if (_notifEnabled) {
+        btn.title = '알림 켜짐 (클릭: 끄기)';
+        btn.style.color = 'var(--green)';
+        btn.textContent = '🔔';
+    } else {
+        btn.title = '알림 꺼짐 (클릭: 켜기)';
+        btn.style.color = 'var(--text-dim)';
+        btn.textContent = '🔕';
+    }
+}
+
+async function toggleNotif() {
+    if (!('Notification' in window)) {
+        alert('이 브라우저는 알림을 지원하지 않습니다.');
+        return;
+    }
+    if (_notifEnabled) {
+        _notifEnabled = false;
+        try { localStorage.setItem('sm_notif', '0'); } catch(e) {}
+        _updateNotifBtn();
+        return;
+    }
+    // 이미 granted 상태면 재요청 없이 바로 활성 (iOS PWA 포함)
+    if (Notification.permission === 'granted') {
+        _notifEnabled = true;
+        try { localStorage.setItem('sm_notif', '1'); } catch(e) {}
+        _updateNotifBtn();
+        return;
+    }
+    const perm = await Notification.requestPermission();
+    // iOS PWA는 requestPermission 후에도 'default'를 반환하는 경우가 있어 양쪽 모두 허용
+    _notifEnabled = perm === 'granted' || Notification.permission === 'granted';
+    try { localStorage.setItem('sm_notif', _notifEnabled ? '1' : '0'); } catch(e) {}
+    if (!_notifEnabled) alert('브라우저 설정에서 알림을 허용해 주세요.\n(iOS: 홈 화면에 추가(PWA) 후 설정 앱 → Safari → 알림에서 허용)');
+    _updateNotifBtn();
+}
+
+function fireSessionDoneNotif() {
+    if (!_notifEnabled) return;
+    if (!('Notification' in window)) return;
+    if (document.hasFocus()) return;  // 페이지가 포커스 상태면 굳이 알림 불필요
+    const name = _currentSessionName || '세션';
+    try {
+        new Notification(`✅ ${name} 작업 완료`, {
+            body: 'Claude가 응답을 마쳤습니다.',
+            tag: 'sm-session-done',   // 같은 tag면 기존 알림을 교체 (스팸 방지)
+            renotify: true,
+        });
+    } catch(e) {
+        // iOS PWA 등 권한 체크가 불완전한 환경에서 실패 시 무시
+        console.warn('알림 전송 실패:', e);
+    }
+}
+
+// 초기 버튼 상태 적용
+document.addEventListener('DOMContentLoaded', _updateNotifBtn);
+document.addEventListener('DOMContentLoaded', initMediaAuth);
+
+// 현재 세션 토큰 팝업 토글
+let _tokenPopupOpen = false;
+function toggleTokenPopup(e) {
+    e && e.stopPropagation();
+    const popup = document.getElementById('tokenDetailPopup');
+    if (!popup) return;
+    _tokenPopupOpen = !_tokenPopupOpen;
+    popup.style.display = _tokenPopupOpen ? '' : 'none';
+}
+// 팝업 외부 클릭 시 닫기
+document.addEventListener('click', () => {
+    if (_tokenPopupOpen) {
+        const popup = document.getElementById('tokenDetailPopup');
+        if (popup) popup.style.display = 'none';
+        _tokenPopupOpen = false;
+    }
+});
+
 function selectSession(id) {
     activeSessionId = id;
     try { localStorage.setItem('sm_activeSessionId', id); } catch(e) { console.warn('localStorage 저장 실패', e); }
     document.getElementById('sessionActions').style.display = 'flex';
     refreshSessions();
     connectWebSocket(id);
+    // 세션 전환 시 sent files 패널 갱신
+    pendingAttachments = [];
+    renderAttachmentPreview();
+    _renderSentFiles();
     // 세션 전환 시 파이프라인 상태 갱신
     if (pipelinePollTimer) { clearInterval(pipelinePollTimer); pipelinePollTimer = null; }
     activePipelineId = getActivePipelineForSession();
@@ -1522,7 +1755,7 @@ function _doConnect(sessionId) {
 
             if (autoScroll) el.scrollTop = el.scrollHeight;
         }
-        // 상태 배지 업데이트
+        // 상태 배지 업데이트 + 완료 알림
         const badge = document.getElementById('statusBadge');
         if (data.busy) {
             badge.textContent = 'Working...';
@@ -1532,10 +1765,44 @@ function _doConnect(sessionId) {
             badge.textContent = q > 0 ? `${q} queued` : 'Idle';
             badge.className = 'status-badge';
         }
-        // 토큰 표시
+        // busy true→false 전환 시 알림 — pipeline worker 세션은 억제 (pipeline 완료 시 별도 알림)
+        if (_wasBusy && !data.busy && data.alive) {
+            if (!data.pipeline_role) {
+                fireSessionDoneNotif();
+            }
+        }
+        _wasBusy = !!data.busy;
+        // 토큰 표시 + 팝업 갱신
         if (data.tokens) {
+            const tin   = data.tokens.input || 0;
+            const tout  = data.tokens.output || 0;
+            const tcr   = data.tokens.cache_read || 0;
+            const tcc   = data.tokens.cache_creation || 0;
+            const ttotal = tin + tout + tcr + tcc;
             const tb = document.getElementById('tokenBadge');
-            if (tb) tb.textContent = `${formatTokens(data.tokens.input + data.tokens.output)} tokens`;
+            if (tb) tb.textContent = `${formatTokens(ttotal)} tokens`;
+            // 팝업 내용 갱신
+            const el_in  = document.getElementById('tpIn');
+            const el_out = document.getElementById('tpOut');
+            const el_tot = document.getElementById('tpTotal');
+            if (el_in)  el_in.textContent  = formatTokens(tin);
+            if (el_out) el_out.textContent = formatTokens(tout);
+            if (el_tot) el_tot.textContent = formatTokens(ttotal);
+            // 캐시 행 — 캐시 있는 경우만 표시
+            const cacheRow = document.getElementById('tpCacheRow');
+            const el_cr = document.getElementById('tpCacheRead');
+            const el_cc = document.getElementById('tpCacheWrite');
+            if (cacheRow) cacheRow.style.display = (tcr + tcc > 0) ? '' : 'none';
+            if (el_cr) el_cr.textContent = formatTokens(tcr);
+            if (el_cc) el_cc.textContent = formatTokens(tcc);
+            if (ttotal > 0) {
+                const pIn  = (tin  / ttotal * 100).toFixed(1);
+                const pOut = (tout / ttotal * 100).toFixed(1);
+                const bi = document.getElementById('tpBarIn');
+                const bo = document.getElementById('tpBarOut');
+                if (bi) bi.style.width = pIn  + '%';
+                if (bo) bo.style.width = pOut + '%';
+            }
         }
     };
 
@@ -1593,6 +1860,39 @@ async function removeSession() {
 
 // ─── 파일 첨부 ──────────────────────────────────────────────
 let pendingAttachments = [];
+// 세션별 전송 완료 파일 목록 (이미지 뷰어용)
+const _sentFilesBySession = {};
+
+function _getSentFiles() {
+    return _sentFilesBySession[activeSessionId] || [];
+}
+function _addSentFiles(files) {
+    if (!activeSessionId) return;
+    if (!_sentFilesBySession[activeSessionId]) _sentFilesBySession[activeSessionId] = [];
+    _sentFilesBySession[activeSessionId].push(...files);
+    _renderSentFiles();
+}
+function _renderSentFiles() {
+    const panel = document.getElementById('sentFilesPanel');
+    if (!panel) return;
+    const files = _getSentFiles();
+    if (files.length === 0) { panel.style.display = 'none'; return; }
+    const imgExts = ['.png','.jpg','.jpeg','.gif','.webp','.bmp'];
+    panel.style.display = 'flex';
+    panel.innerHTML = files.map((a, i) => {
+        const isImg = imgExts.some(e => a.filename.toLowerCase().endsWith(e));
+        const url = staticUrl(a.url);
+        if (isImg) {
+            return `<img src="${url}" title="${escHtml(a.filename)}"
+                        style="height:36px;border-radius:3px;cursor:pointer;border:1px solid var(--border)"
+                        onclick="window.open('${url}')">`;
+        }
+        return `<span title="${escHtml(a.filename)}"
+                      style="font-size:11px;padding:2px 6px;background:var(--bg-secondary);border-radius:3px;cursor:pointer;border:1px solid var(--border)"
+                      onclick="fetch('${url}').then(r=>r.blob()).then(b=>{const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='${escHtml(a.filename)}';a.click()})">
+                  &#128196; ${escHtml(a.filename)}</span>`;
+    }).join('');
+}
 
 async function handleFileSelect(event) {
     for (const file of event.target.files) await uploadFile(file);
@@ -1674,7 +1974,7 @@ async function captureScreen() {
         const data = await api('GET', '/monitor/capture');
         if (data.url) {
             const img = document.getElementById('monitorImage');
-            img.src = staticUrl(data.url) + '?t=' + Date.now();
+            img.src = staticUrl(data.url) + (staticUrl(data.url).includes('?') ? '&' : '?') + 't=' + Date.now();
             img.style.display = '';
             img._path = data.path;
             document.getElementById('monitorPlaceholder').style.display = 'none';
@@ -1693,7 +1993,7 @@ async function startMonitor() {
         const data = await api('GET', '/monitor/latest');
         if (data.url) {
             const img = document.getElementById('monitorImage');
-            img.src = staticUrl(data.url) + '?t=' + Date.now();
+            img.src = staticUrl(data.url) + (staticUrl(data.url).includes('?') ? '&' : '?') + 't=' + Date.now();
             img.style.display = '';
             document.getElementById('monitorPlaceholder').style.display = 'none';
         }
@@ -1749,52 +2049,137 @@ async function sendCommand() {
         await api('POST', `/sessions/${activeSessionId}/send`, body);
         input.value = '';
         input.style.height = '38px';
-        pendingAttachments = [];
+        if (pendingAttachments.length > 0) {
+            _addSentFiles(pendingAttachments);
+            pendingAttachments = [];
+        }
         renderAttachmentPreview();
     } finally {
         isSending = false;
     }
 }
 
+// 다중 질문 답변 상태 관리
+let _pendingAnswers = {};    // { questionIndex: selectedLabel }
+let _pendingQuestions = [];  // 현재 질문 목록 (원본 데이터)
+
 function renderQuestionPanel(questionData) {
     const panel = document.getElementById('questionPanel');
     const questions = questionData.questions || [];
     if (questions.length === 0) { panel.style.display = 'none'; return; }
 
+    _pendingQuestions = questions;
+    _pendingAnswers = {};
+
     let html = '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:8px">&#10067; Claude가 질문합니다 — 클릭으로 답변하세요</div>';
 
-    for (const q of questions) {
+    for (let qi = 0; qi < questions.length; qi++) {
+        const q = questions[qi];
         html += `<div style="font-size:13px;color:var(--text);margin-bottom:6px;font-weight:500">${escapeHtml(q.question)}</div>`;
-        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+        html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px" data-qi="${qi}">`;
         const opts = q.options || [];
         for (const opt of opts) {
             const label = opt.label || '';
             const desc = opt.description || '';
-            html += `<button onclick="answerQuestion('${escapeHtml(label)}')"
+            html += `<button onclick="selectQuestionOption(${qi}, this, '${escapeHtml(label)}')"
+                class="q-opt-btn" data-qi="${qi}"
                 style="padding:6px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:12px;text-align:left;transition:all 0.15s;max-width:280px"
-                onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
-                onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text)'"
                 title="${escapeHtml(desc)}">
                 <div style="font-weight:500">${escapeHtml(label)}</div>
                 ${desc ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px">${escapeHtml(desc)}</div>` : ''}
             </button>`;
         }
-        // "직접 입력" 버튼
-        html += `<button onclick="document.getElementById('commandInput').focus()"
-            style="padding:6px 12px;background:var(--bg);border:1px dashed var(--border);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:12px"
-            title="직접 답변 입력">
-            <div style="font-weight:500">직접 입력...</div>
-        </button>`;
+        // "직접 입력" 필드
+        html += `<input type="text" data-qi="${qi}" placeholder="직접 입력..."
+            onchange="selectQuestionCustom(${qi}, this.value)"
+            onkeydown="if(event.key==='Enter'){selectQuestionCustom(${qi}, this.value)}"
+            style="padding:6px 12px;background:var(--bg);border:1px dashed var(--border);border-radius:6px;color:var(--text);font-size:12px;width:140px;outline:none"
+        >`;
         html += '</div>';
     }
+
+    // 답변 제출 버튼
+    html += `<div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+        <button id="submitAnswersBtn" onclick="submitAllAnswers()"
+            style="padding:6px 16px;background:var(--accent);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;font-weight:600;opacity:0.4;pointer-events:none;transition:all 0.15s"
+            disabled>
+            답변 제출
+        </button>
+        <span id="answerProgress" style="font-size:11px;color:var(--text-dim)">0 / ${questions.length} 선택됨</span>
+    </div>`;
+
     panel.innerHTML = html;
     panel.style.display = '';
 }
 
-function answerQuestion(answer) {
+function selectQuestionOption(qi, btnEl, label) {
+    // 같은 질문의 이전 선택 해제
+    document.querySelectorAll(`.q-opt-btn[data-qi="${qi}"]`).forEach(b => {
+        b.style.borderColor = 'var(--border)';
+        b.style.color = 'var(--text)';
+        b.style.background = 'var(--bg-secondary)';
+    });
+    // 현재 선택 하이라이트
+    btnEl.style.borderColor = 'var(--accent)';
+    btnEl.style.color = 'var(--accent)';
+    btnEl.style.background = 'rgba(88,166,255,0.1)';
+    // 같은 질문의 직접 입력 필드 초기화
+    const customInput = document.querySelector(`input[data-qi="${qi}"]`);
+    if (customInput) customInput.value = '';
+
+    _pendingAnswers[qi] = label;
+    updateAnswerProgress();
+}
+
+function selectQuestionCustom(qi, value) {
+    if (!value.trim()) return;
+    // 같은 질문의 버튼 선택 해제
+    document.querySelectorAll(`.q-opt-btn[data-qi="${qi}"]`).forEach(b => {
+        b.style.borderColor = 'var(--border)';
+        b.style.color = 'var(--text)';
+        b.style.background = 'var(--bg-secondary)';
+    });
+    _pendingAnswers[qi] = value.trim();
+    updateAnswerProgress();
+}
+
+function updateAnswerProgress() {
+    const total = _pendingQuestions.length;
+    const answered = Object.keys(_pendingAnswers).length;
+    const progress = document.getElementById('answerProgress');
+    const btn = document.getElementById('submitAnswersBtn');
+    if (progress) progress.textContent = `${answered} / ${total} 선택됨`;
+    if (btn) {
+        const ready = answered >= total;
+        btn.disabled = !ready;
+        btn.style.opacity = ready ? '1' : '0.4';
+        btn.style.pointerEvents = ready ? 'auto' : 'none';
+    }
+}
+
+function submitAllAnswers() {
     if (!activeSessionId) return;
-    api('POST', `/sessions/${activeSessionId}/send`, { command: answer });
+    const total = _pendingQuestions.length;
+    const answered = Object.keys(_pendingAnswers).length;
+    if (answered < total) return;
+
+    // 답변을 구조화된 형식으로 조립
+    let answerText;
+    if (total === 1) {
+        answerText = _pendingAnswers[0];
+    } else {
+        const parts = [];
+        for (let i = 0; i < total; i++) {
+            const q = _pendingQuestions[i].question || `질문 ${i+1}`;
+            parts.push(`${q}\n→ ${_pendingAnswers[i]}`);
+        }
+        answerText = parts.join('\n\n');
+    }
+
+    api('POST', `/sessions/${activeSessionId}/send`, { command: answerText });
     document.getElementById('questionPanel').style.display = 'none';
+    _pendingAnswers = {};
+    _pendingQuestions = [];
 }
 
 async function interruptSession() {
@@ -2585,6 +2970,7 @@ window._refreshSessionsTimer = setInterval(refreshSessions, 5000);
 // 세션별 파이프라인 관리
 let activePipelineId = null;
 let pipelinePollTimer = null;
+let _prevPipelineStatus = null;  // 파이프라인 완료 알림 중복 방지
 const sessionPipelineMap = (() => { try { return JSON.parse(localStorage.getItem('sm_sessionPipelineMap') || '{}'); } catch(e) { return {}; } })();
 
 function getActivePipelineForSession() {
@@ -2731,6 +3117,7 @@ async function stopPipeline() {
 
 function startPipelinePolling() {
     if (pipelinePollTimer) clearInterval(pipelinePollTimer);
+    _prevPipelineStatus = null;  // 이전 파이프라인 상태 리셋
     pipelinePollTimer = setInterval(pollPipeline, 1500);
     pollPipeline();
 }
@@ -2768,7 +3155,7 @@ async function pollPipeline() {
         // 히스토리 렌더
         renderPipelineHistory(data.history);
 
-        // 완료/실패/중단 시 폴링 중지
+        // 완료/실패/중단 시 폴링 중지 + 알림 (running → 종료 전환 시 1회만)
         if (data.status !== 'running') {
             clearInterval(pipelinePollTimer);
             pipelinePollTimer = null;
@@ -2779,7 +3166,23 @@ async function pollPipeline() {
                 document.getElementById('pipelineSummary').style.display = '';
                 document.getElementById('pipelineSummaryText').textContent = data.summary;
             }
+
+            // running → 종료 상태 전환 시 1회 알림
+            if (_prevPipelineStatus === 'running') {
+                const labels = { completed: '완료', failed: '실패', stopped: '중단됨' };
+                const label = labels[data.status] || data.status;
+                if (_notifEnabled && ('Notification' in window) && Notification.permission === 'granted') {
+                    if (!document.hasFocus()) {
+                        new Notification(`🔁 파이프라인 ${label}`, {
+                            body: data.summary || '파이프라인 실행이 종료되었습니다.',
+                            tag: 'sm-pipeline-done',
+                            renotify: true,
+                        });
+                    }
+                }
+            }
         }
+        _prevPipelineStatus = data.status;
     } catch (e) { console.error('Pipeline poll error:', e); }
 }
 

@@ -202,8 +202,12 @@ async def add_security_headers(request: Request, call_next):
 
 
 # 정적 파일 서빙 (업로드, 스크린샷)
-app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
-app.mount("/screenshots", StaticFiles(directory=str(SCREENSHOTS_DIR)), name="screenshots")
+# ADMIN_API_KEY 미설정(개발 모드): StaticFiles 직접 서빙
+# ADMIN_API_KEY 설정(보안 모드): /api/media/{path}?mkey=... 엔드포인트를 통해 인증 후 서빙
+import os as _os
+if not _os.environ.get("ADMIN_API_KEY"):
+    app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+    app.mount("/screenshots", StaticFiles(directory=str(SCREENSHOTS_DIR)), name="screenshots")
 
 
 
