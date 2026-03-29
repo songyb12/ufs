@@ -57,6 +57,12 @@ services:
     networks:
       - ufs-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/sse', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # ============================================
   # Level 1: Sub-Projects
@@ -202,7 +208,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - JWT_SECRET=${VIBE2_JWT_SECRET:-vibe2-dev-secret}
     volumes:
-      - vibe2-data:/app
+      - vibe2-data:/app/data
     networks:
       - ufs-network
     restart: unless-stopped
