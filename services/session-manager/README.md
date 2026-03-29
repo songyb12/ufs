@@ -49,6 +49,10 @@ docker build -t session-manager .
 docker run -p 8006:8006 \
   -v $(pwd)/data:/app/data \
   -e ADMIN_API_KEY=your-secret-key \
+  # -e TASK_TIMEOUT_DEFAULT=300 \
+  # -e TASK_TIMEOUT_LONG=900 \
+  # -e TASK_TIMEOUT_IMAGE_GEN=1800 \
+  # -e MEDIA_TOKEN_TTL=3600 \
   session-manager
 ```
 
@@ -67,8 +71,60 @@ The `data/` volume persists sessions, logs, pipeline checkpoints, projects, and 
 | `LLM_API_KEY` | Alias for `ANTHROPIC_API_KEY` (checked as fallback) | — | For API mode pipelines |
 | `MAX_SESSIONS_PER_CLIENT` | Maximum concurrent active sessions per client IP | `10` | No |
 | `ALLOW_GIT_WRITE` | Allow write git subcommands (`push`, `commit`, etc.) via `/api/git/exec` | `true` | No |
+| `TASK_TIMEOUT_DEFAULT` | Idle timeout (seconds) for `task_type=default` send commands | `300` | No |
+| `TASK_TIMEOUT_LONG` | Idle timeout (seconds) for `task_type=long_task` send commands | `900` | No |
+| `TASK_TIMEOUT_IMAGE_GEN` | Idle timeout (seconds) for `task_type=image_gen` send commands | `1800` | No |
+| `MEDIA_TOKEN_TTL` | Signed media token lifetime (seconds) for `/uploads` and `/screenshots` | `3600` | No |
 
 > **Internal / not user-configurable**: `CLAUDECODE` (stripped from subprocess env to prevent nested sessions), `COMSPEC` (used to locate `cmd.exe`), `APPDATA` / `LOCALAPPDATA` (Claude CLI discovery on Windows).
+
+---
+
+## Task Timeout Configuration
+
+Send commands accept a `task_type` parameter that selects the idle timeout for that operation:
+
+| `task_type` | Env Variable | Default | Use Case |
+|-------------|--------------|---------|----------|
+| `default` | `TASK_TIMEOUT_DEFAULT` | 300s (5 min) | Normal prompts |
+| `long_task` | `TASK_TIMEOUT_LONG` | 900s (15 min) | Long-running analysis |
+| `image_gen` | `TASK_TIMEOUT_IMAGE_GEN` | 1800s (30 min) | Image generation |
+
+The CLI process is killed and an error message is appended if no output is received within the timeout. A heartbeat system message is updated every 60 seconds to indicate progress.
+
+**API usage:**
+
+```http
+POST /api/sessions/{id}/send
+Content-Type: application/json
+
+{"command": "Generate 10 images", "task_type": "image_gen"}
+```
+
+Response includes `idle_timeout` confirming which value was applied.
+
+---
+
+## Media Security
+
+When `ADMIN_API_KEY` is set, `/uploads` and `/screenshots` are **not** served as public `StaticFiles`. Instead, access requires a time-limited signed token obtained from `/api/media-token`.
+
+**Flow:**
+
+1. Client calls `GET /api/media-token` → receives `{"token": "<sig>:<expires>", "expires": <unix_ts>, "auth_required": true}`
+2. Token is refreshed automatically 10 minutes before expiry (default TTL: 1 hour)
+3. Media URLs are rewritten: `/uploads/foo.png` → `/api/media/uploads/foo.png?mkey=<token>`
+
+**Endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/media-token` | Get HMAC-SHA256 signed token (empty token when auth disabled) |
+| GET | `/api/media/{path}` | Serve upload or screenshot with optional `?mkey=` token |
+
+Authentication failures (`401`/`403`) are logged at WARNING level with client IP and path. Path traversal attempts (`../../`) are blocked both by Starlette URL normalization and by `Path.is_relative_to()` filesystem validation.
+
+When `ADMIN_API_KEY` is **not** set (development mode), `/uploads` and `/screenshots` are served directly as public `StaticFiles` with no token required.
 
 ---
 
@@ -182,6 +238,8 @@ Tests are split into:
 | POST | `/api/compare` | Multi-model comparison | — |
 | GET | `/api/logs` | List log files | — |
 | GET | `/api/logs/{filename}` | Read log file | — |
+| GET | `/api/media-token` | Get signed media token (empty when auth disabled) | — |
+| GET | `/api/media/{path}` | Serve upload or screenshot with token auth (`?mkey=`) | — |
 
 ### Screen Monitor
 
