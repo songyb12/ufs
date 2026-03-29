@@ -37,6 +37,26 @@ def _tail_lines(text: str, max_chars: int = 3000) -> str:
     return tail
 
 
+# 개선 제안 감지 패턴 (supervisor / worker 출력에서 추출)
+_SUGGESTION_RE = re.compile(
+    r"^(?:💡\s*|제안\s*[:\-]\s*|Suggestion\s*[:\-]\s*|권장\s*[:\-]\s*"
+    r"|개선\s*제안\s*[:\-]\s*|Note\s*[:\-]\s*|참고\s*[:\-]\s*|추천\s*[:\-]\s*)(.+)",
+    re.IGNORECASE,
+)
+
+
+def _fmt_duration(secs: float) -> str:
+    """소요 시간을 사람이 읽기 쉬운 문자열로 변환."""
+    if secs < 60:
+        return f"{secs:.0f}초"
+    m, s = divmod(int(secs), 60)
+    if m < 60:
+        return (f"{m}분 {s}초" if s else f"{m}분") + f" ({secs:.0f}초)"
+    h, rem_m = divmod(m, 60)
+    base = f"{h}시간 {rem_m}분" if rem_m else f"{h}시간"
+    return base + f" ({secs:.0f}초)"
+
+
 # ─── 파이프라인 엔진 (LLM API / CLI → CLI 루프) ──────────────────────────────────
 
 
@@ -320,6 +340,34 @@ class PipelineRunner:
                 "note": "감독자(supervisor)가 다음 단계에서 자동 답변 예정",
             })
 
+    def _parse_suggestions_from_output(self, step_idx: int, text: str,
+                                        source: str = "worker"):
+        """supervisor/worker 출력에서 개선 제안 패턴을 감지하여 suggestions에 추가.
+
+        source: "supervisor" | "worker" — 어느 쪽 출력에서 감지됐는지 기록.
+        이미 수집된 content와 중복이면 건너뜀.
+        """
+        if not text:
+            return
+        seen = {s["content"] for s in self.pending_items["suggestions"]}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            m = _SUGGESTION_RE.match(line)
+            if m:
+                content = m.group(1).strip()
+                if len(content) > 8 and content not in seen:
+                    seen.add(content)
+                    self.pending_items["suggestions"].append({
+                        "step": step_idx,
+                        "cycle": self.current_cycle,
+                        "iteration": self.iteration,
+                        "content": content[:300],
+                        "priority": "low",
+                        "source": source,
+                    })
+
     def _record_auto_decision(self, step_idx: int, description: str,
                                choice: str, alternatives: Optional[list] = None,
                                severity: str = "low"):
@@ -350,6 +398,7 @@ class PipelineRunner:
         except Exception:
             duration = 0.0
 
+        clean_errors = [e for e in errors if e]
         return {
             "pipeline_id": self.id,
             "session_id": self.session.id if self.session else None,
@@ -359,16 +408,28 @@ class PipelineRunner:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "duration_seconds": duration,
+            "pipeline_config": {
+                "supervisor_model": self.supervisor_model,
+                "mode": self.mode,
+                "max_iterations": self.max_iterations,
+                "max_cycles": self.max_cycles,
+                "reached_cycle": self.current_cycle,
+                "reached_iteration": self.iteration,
+            },
             "steps": steps,
             "total_steps": len(steps),
             "completed_steps": len(completed),
             "failed_steps": len(failed),
             "aborted_steps": len(aborted),
-            "errors": [e for e in errors if e],
+            "errors": clean_errors,
             "pending_items": self.pending_items,
+            "pending_items_count": {
+                "questions": len(self.pending_items.get("questions", [])),
+                "auto_decisions": len(self.pending_items.get("auto_decisions", [])),
+                "suggestions": len(self.pending_items.get("suggestions", [])),
+            },
             "summary": self.summary,
-            "text_summary": self._generate_text_summary(steps, duration,
-                                                         [e for e in errors if e]),
+            "text_summary": self._generate_text_summary(steps, duration, clean_errors),
         }
 
     def _generate_text_summary(self, steps: list, duration: float,
@@ -387,7 +448,10 @@ class PipelineRunner:
             f"**세션:** {self.session.id if self.session else '-'}",
             f"**시작:** {self.started_at or '-'}",
             f"**종료:** {self.ended_at or '-'}",
-            f"**소요:** {duration}초",
+            f"**소요:** {_fmt_duration(duration)}",
+            f"**설정:** {self.supervisor_model} / {self.mode} 모드 / "
+            f"최대 {self.max_iterations}회×{self.max_cycles}사이클 "
+            f"(실행: 사이클 {self.current_cycle}, 반복 {self.iteration})",
             "",
         ]
 
@@ -615,6 +679,9 @@ class PipelineRunner:
 
                 # pending_question 수집 (감독자가 다음 단계에서 자동 답변할 예정)
                 self._collect_pending_question(_step)
+                # supervisor/worker 출력에서 개선 제안 패턴 감지
+                self._parse_suggestions_from_output(_step, supervisor_response, source="supervisor")
+                self._parse_suggestions_from_output(_step, last_output, source="worker")
 
                 self._add_history("cli_result", last_output)
                 save_checkpoint(self.id, _step, {

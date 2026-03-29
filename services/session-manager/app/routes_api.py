@@ -1094,6 +1094,48 @@ async def get_pipeline_compat(pipeline_id: str):
     return await get_pipeline(pipeline_id)
 
 
+@router.get("/pipelines/{pipeline_id}/report")
+async def get_pipeline_report(pipeline_id: str):
+    """파이프라인 최종 리포트 조회.
+
+    완료/실패/중단 후 생성된 report + pending_items를 반환.
+    실행 중이거나 시작 전이면 report=null + 현재 pending_items 반환.
+
+    응답 필드:
+    - pipeline_id, status, stop_type
+    - report: 완료 후 생성된 구조화 리포트 (null이면 아직 실행 중)
+      - pipeline_config: supervisor_model, mode, max_iterations, max_cycles 등
+      - steps: [{step_idx, cycle, iteration, status, duration_seconds, output_preview, error}]
+      - total/completed/failed/aborted_steps 카운트
+      - errors: 오류 메시지 목록
+      - text_summary: 사람이 읽기 쉬운 마크다운 리포트
+    - pending_items: {questions, auto_decisions, suggestions} (실행 중에도 조회 가능)
+    - pending_items_count: 항목별 개수
+    """
+    if pipeline_id not in pipelines:
+        raise HTTPException(status_code=404, detail="파이프라인 없음")
+    p = pipelines[pipeline_id]
+    counts = {
+        "questions": len(p.pending_items.get("questions", [])),
+        "auto_decisions": len(p.pending_items.get("auto_decisions", [])),
+        "suggestions": len(p.pending_items.get("suggestions", [])),
+    }
+    return {
+        "pipeline_id": pipeline_id,
+        "status": p.status,
+        "stop_type": p.stop_type,
+        "started_at": p.started_at,
+        "ended_at": p.ended_at,
+        "report": p.report,
+        "pending_items": p.pending_items,
+        "pending_items_count": counts,
+        "message": (
+            None if p.report
+            else "파이프라인이 실행 중입니다. 완료/중단 후 report가 생성됩니다."
+        ),
+    }
+
+
 @router.post("/pipelines/{pipeline_id}/stop")
 async def stop_pipeline(pipeline_id: str, body: PipelineStopRequest = None):
     """파이프라인 중단.

@@ -382,7 +382,7 @@ class TestGenerateTextSummary:
         assert r.id in text
         assert "completed" in text
         assert "테스트 목표" in text
-        assert "120.0" in text
+        assert "120" in text  # duration in seconds always present in _fmt_duration output
 
     def test_text_summary_stopped_with_stop_type(self):
         r, _ = _make_runner()
