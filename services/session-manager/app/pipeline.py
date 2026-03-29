@@ -638,10 +638,11 @@ class PipelineRunner:
             for s in steps:
                 icon = {"completed": "✅", "failed": "❌", "aborted": "⏹"}.get(s["status"], "?")
                 ci = f"C{s['cycle']}-I{s['iteration']}"
-                dur = f"{s.get('duration_seconds', 0):.1f}s"
+                dur = f"{s.get('duration_seconds', 0):.1f}초"
                 preview = s.get("output_preview", "")[:80]
-                err_note = f" [{s['error']}]" if s.get("error") else ""
-                lines.append(f"- {icon} Step {s['step_idx']} ({ci}, {dur}){err_note}: {preview}")
+                lines.append(f"- {icon} Step {s['step_idx']} ({ci}, {dur}): {preview}")
+                if s.get("error"):
+                    lines.append(f"  ⚠ {s['error'][:150]}")
             lines.append("")
 
         if errors:
@@ -679,7 +680,8 @@ class PipelineRunner:
                 lines.append(f"### 💡 개선 제안 ({len(suggestions)}건)")
                 for sg in suggestions:
                     pri = sg.get("priority", "low").upper()
-                    lines.append(f"- [{pri}] {sg.get('content', '')[:120]}")
+                    step_ref = f"Step {sg['step']}: " if sg.get("step") else ""
+                    lines.append(f"- [{pri}] {step_ref}{sg.get('content', '')[:120]}")
                 lines.append("")
 
         return "\n".join(lines)
