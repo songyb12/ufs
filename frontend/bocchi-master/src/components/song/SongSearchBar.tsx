@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { Song, SongSearchResult } from '../../types/song'
 import { searchSongs, getSongById, saveSong, getAllSongs } from '../../data/songStore'
 
-const API_BASE = 'http://localhost:8000/api/chord-search'
+const API_BASE = `http://${window.location.hostname}:8000/api/chord-search`
 
 interface SongSearchBarProps {
   onSelect: (song: Song) => void
