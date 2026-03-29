@@ -54,6 +54,8 @@ client = TestClient(app=main_module.app, raise_server_exceptions=True)
 @pytest.fixture(autouse=True)
 def reset_global_state():
     """각 테스트 전후 전역 상태 초기화"""
+    from app.models import SESSIONS_DIR
+    existing_session_files = set(SESSIONS_DIR.glob("*.json"))
     main_module._session_create_log.clear()
     main_module.sessions.clear()
     main_module.pipelines.clear()
@@ -65,6 +67,10 @@ def reset_global_state():
     main_module.pipelines.clear()
     main_module.plan_phases.clear()
     main_module.shell_sessions.clear()
+    # 테스트 중 생성된 세션 파일 정리 (디스크 오염 방지)
+    for f in SESSIONS_DIR.glob("*.json"):
+        if f not in existing_session_files:
+            f.unlink(missing_ok=True)
 
 
 def _make_session(sid="test01", work_dir=".", model="sonnet") -> ClaudeSession:
