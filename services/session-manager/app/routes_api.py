@@ -40,11 +40,13 @@ from app.models import (
 from app.session import ClaudeSession, _check_rate_limit
 from app.shell import ShellSession, HAS_WINPTY
 from app.screen import ScreenMonitor
-from app.pipeline import PipelineRunner, PlanPhase
+from app.pipeline import PipelineRunner, PlanPhase, recommend_pipeline_config
 from app.auth import verify_admin_key, _is_browse_allowed, _ALLOWED_BROWSE_ROOTS
 from app.pipeline_store import (
     get_resumable_runs, cleanup_old_runs, cleanup_interrupted_runs,
 )
+from app.pipeline_configs import list_all_configs, get_config, save_user_config, delete_user_config
+from app.models import PipelineRecommendRequest, PipelineConfigSaveRequest
 
 router = APIRouter(prefix="/api", tags=["api"])
 screen_monitor = ScreenMonitor()
@@ -1472,3 +1474,48 @@ async def kill_shell(shell_id: str):
 @router.delete("/shell/{shell_id}")
 async def kill_shell_compat(shell_id: str):
     return await kill_shell(shell_id)
+
+
+# ─── Pipeline Config API ───────────────────────────────────────────────────────
+
+@router.post("/pipelines/recommend-config")
+async def recommend_config(body: PipelineRecommendRequest):
+    """목표 텍스트 → LLM(또는 규칙 기반) 파이프라인 설정 추천."""
+    result = await recommend_pipeline_config(body.goal, body.mode)
+    return result
+
+
+@router.get("/pipeline-configs")
+async def list_pipeline_configs():
+    """Builtin + 사용자 저장 설정 전체 목록."""
+    return {"configs": list_all_configs()}
+
+
+@router.get("/pipeline-configs/{name}")
+async def get_pipeline_config(name: str):
+    cfg = get_config(name)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"설정 '{name}' 없음")
+    return cfg
+
+
+@router.post("/pipeline-configs")
+async def save_pipeline_config(body: PipelineConfigSaveRequest):
+    """사용자 설정 저장 (신규/덮어쓰기)."""
+    try:
+        entry = save_user_config(body.name, body.label, body.description, body.config)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return entry
+
+
+@router.delete("/pipeline-configs/{name}")
+async def delete_pipeline_config(name: str):
+    """사용자 설정 삭제 (builtin 불가)."""
+    try:
+        deleted = delete_user_config(name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"설정 '{name}' 없음")
+    return {"status": "deleted", "name": name}

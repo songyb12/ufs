@@ -132,6 +132,144 @@ _SUPERVISOR_SYSTEM = """당신은 텍스트 생성기입니다. 도구를 사용
 - 작업자 CLI 작업 디렉토리: {work_dir}"""
 
 
+# ─── 파이프라인 설정 추천 프롬프트 ───────────────────────────────────────────────────
+
+_RECOMMEND_CONFIG_SYSTEM = """당신은 파이프라인 설정 전문가입니다. 오직 JSON만 출력하세요.
+
+사용자의 목표를 분석하여 최적의 파이프라인 설정을 추천하세요.
+
+## 분석 기준
+- **태스크 규모**: 키워드("빠르게", "간단히" → 소규모 / "장시간", "꼼꼼히", "전체" → 대규모)
+- **감독 필요성**: "확인", "검토", "승인", "단계별" → cycle_checkpoint: true
+- **도메인별 페이즈**:
+  - 코드 구현/버그 → ["탐색/분석", "구현", "테스트/검증", "정리/마무리"]
+  - 이미지/생성형 → ["레퍼런스 수집", "초안 생성", "품질 개선", "최종 검수"]
+  - 분석/조사 → ["데이터 수집", "분석", "인사이트 도출", "리포트 작성"]
+  - 배포/운영 → ["환경 준비", "배포", "검증", "모니터링"]
+- **비용 민감도**: 기본 reflection: true. "빠르게"/"간단히" → false
+- **supervisor_model**: 복잡한 아키텍처 판단 필요 시 "opus", 일반은 "sonnet"
+
+## 출력 형식 (JSON만, 설명 없이)
+{
+  "max_iterations": <int, 5~20>,
+  "max_cycles": <int, 2~30>,
+  "cycle_reflection": <bool>,
+  "cycle_checkpoint": <bool>,
+  "cycle_phases": <list[str], 3~5개 한국어>,
+  "supervisor_model": <"sonnet"|"opus"|"haiku">,
+  "preset_label": <string, 5~15자 한국어 요약>,
+  "reasoning": <string, 2~3문장 한국어 추천 이유>
+}"""
+
+
+async def recommend_pipeline_config(goal: str, mode: str = "cli") -> dict:
+    """goal 텍스트를 LLM으로 분석해 최적 파이프라인 파라미터를 추천.
+
+    API key 없거나 호출 실패 시 규칙 기반 폴백으로 추천.
+    Returns dict with keys: max_iterations, max_cycles, cycle_reflection,
+    cycle_checkpoint, cycle_phases, supervisor_model, preset_label, reasoning
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("LLM_API_KEY", "")
+    if api_key:
+        try:
+            return await _recommend_via_api(goal, api_key)
+        except Exception as e:
+            logger.warning("LLM 추천 실패, 규칙 기반 폴백: %s", e)
+    return _recommend_via_rules(goal)
+
+
+async def _recommend_via_api(goal: str, api_key: str) -> dict:
+    """Anthropic API로 설정 추천."""
+    try:
+        import anthropic
+    except ImportError:
+        raise RuntimeError("anthropic 패키지 미설치")
+
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    response = await client.messages.create(
+        model="claude-haiku-4-5-20251001",   # 추천은 haiku로 빠르게
+        max_tokens=512,
+        system=_RECOMMEND_CONFIG_SYSTEM,
+        messages=[{"role": "user", "content": f"목표: {goal}"}],
+    )
+    if not response.content:
+        raise RuntimeError("빈 응답")
+    raw = response.content[0].text.strip()
+    # JSON 블록 추출 (```json ... ``` 래핑 제거)
+    if "```" in raw:
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    result = json.loads(raw)
+    _validate_recommended(result)
+    return result
+
+
+def _recommend_via_rules(goal: str) -> dict:
+    """키워드 기반 규칙으로 폴백 추천."""
+    g = goal.lower()
+
+    # 규모 판단
+    is_large = any(k in g for k in ["장시간", "전체", "대규모", "꼼꼼", "완전히", "전반적"])
+    is_small = any(k in g for k in ["빠르게", "간단", "간략", "빠른", "소규모", "바로"])
+    needs_check = any(k in g for k in ["확인", "검토", "승인", "단계별", "조심", "중요"])
+
+    # 도메인 → 페이즈
+    if any(k in g for k in ["이미지", "image", "생성", "그림", "스타일"]):
+        phases = ["레퍼런스 수집", "초안 생성", "품질 개선", "최종 검수"]
+        label = "이미지 생성"
+    elif any(k in g for k in ["분석", "조사", "리포트", "보고서", "검토"]):
+        phases = ["데이터 수집", "분석", "인사이트 도출", "리포트 작성"]
+        label = "분석/조사"
+    elif any(k in g for k in ["배포", "deploy", "운영", "서버", "인프라"]):
+        phases = ["환경 준비", "배포", "검증", "모니터링"]
+        label = "배포/운영"
+    else:
+        phases = ["탐색/분석", "구현", "테스트/검증", "정리/마무리"]
+        label = "코드 구현"
+
+    if is_small:
+        max_iter, max_cyc = 8, 3
+        reflection = False
+        label = f"빠른 {label}"
+    elif is_large:
+        max_iter, max_cyc = 15, 25
+        reflection = True
+        label = f"장시간 {label}"
+    else:
+        max_iter, max_cyc = 12, 10
+        reflection = True
+
+    return {
+        "max_iterations": max_iter,
+        "max_cycles": max_cyc,
+        "cycle_reflection": reflection,
+        "cycle_checkpoint": needs_check,
+        "cycle_phases": phases,
+        "supervisor_model": "sonnet",
+        "preset_label": label,
+        "reasoning": (
+            f"목표 분석 결과 '{label}' 유형으로 판단했습니다. "
+            f"{'장시간 실행에 맞게 사이클 반성을 활성화했습니다.' if reflection else '빠른 실행을 위해 반성 비용을 제거했습니다.'}"
+            f"{'사람 확인이 필요한 태스크로 판단해 checkpoint를 활성화했습니다.' if needs_check else ''}"
+        ),
+    }
+
+
+def _validate_recommended(d: dict) -> None:
+    """추천 결과 기본 유효성 검사 — 타입/범위 벗어나면 수정."""
+    d.setdefault("max_iterations", 12)
+    d.setdefault("max_cycles", 10)
+    d.setdefault("cycle_reflection", True)
+    d.setdefault("cycle_checkpoint", False)
+    d.setdefault("cycle_phases", ["탐색/분석", "구현", "테스트/검증", "정리/마무리"])
+    d.setdefault("supervisor_model", "sonnet")
+    d.setdefault("preset_label", "자동 추천")
+    d.setdefault("reasoning", "")
+    d["max_iterations"] = max(1, min(100, int(d["max_iterations"])))
+    d["max_cycles"] = max(1, min(200, int(d["max_cycles"])))
+
+
 # ─── 사이클 반성 프롬프트 ─────────────────────────────────────────────────────────
 
 _CYCLE_REFLECTION_SYSTEM = """당신은 텍스트 생성기입니다. 도구를 사용하지 마세요. 오직 일반 텍스트만 출력하세요.

@@ -243,3 +243,17 @@ class DismissSessionsRequest(BaseModel):
 
 class CleanupPipelinesRequest(BaseModel):
     run_ids: list[str] | None = None
+
+
+class PipelineRecommendRequest(BaseModel):
+    goal: str = Field(..., min_length=1, description="파이프라인 목표 텍스트")
+    mode: str = Field(default="cli", pattern="^(api|cli)$")
+
+
+class PipelineConfigSaveRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60,
+                      pattern=r"^[a-zA-Z0-9_\-가-힣]+$",
+                      description="설정 식별자 (영문/한글/숫자/_- 조합)")
+    label: str = Field(..., min_length=1, max_length=40, description="표시 이름")
+    description: str = Field(default="", max_length=200)
+    config: dict = Field(..., description="PipelineStartRequest 호환 파라미터 dict")
