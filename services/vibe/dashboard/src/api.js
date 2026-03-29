@@ -81,6 +81,10 @@ async function fetchJSON(path) {
     throw new Error('서버에 연결할 수 없습니다. 네트워크를 확인해주세요.')
   }
   if (!res.ok) {
+    if (res.status === 401) {
+      logout()
+      throw new Error(STATUS_MESSAGES[401])
+    }
     let detail = ''
     try {
       const body = await res.json()
