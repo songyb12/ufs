@@ -206,7 +206,7 @@ services:
     environment:
       - SERVICE_NAME=vibe2
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - JWT_SECRET=${VIBE2_JWT_SECRET:-vibe2-dev-secret}
+      - JWT_SECRET=${VIBE2_JWT_SECRET}
     volumes:
       - vibe2-data:/app/data
     networks:
