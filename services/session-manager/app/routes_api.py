@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import shutil
+import string
 import subprocess
 import sys
 import threading
