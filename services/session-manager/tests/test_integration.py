@@ -343,6 +343,17 @@ class TestBrowse:
         # 홈이 실제로 존재하면 200, 없으면 400 — 둘 다 403이 아니어야 함
         assert r.status_code != 403
 
+    async def test_browse_empty_path_returns_drive_list(self, client):
+        """빈 path → Windows 드라이브 목록 반환 (import string 누락 시 500)"""
+        r = await client.get("/api/browse", params={"path": ""})
+        assert r.status_code == 200
+        body = r.json()
+        assert "items" in body
+        # Windows: 드라이브 항목 type이 "drive", 다른 플랫폼: 홈 디렉토리 items
+        import sys
+        if sys.platform == "win32":
+            assert any(i["type"] == "drive" for i in body["items"])
+
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 6. Logs
