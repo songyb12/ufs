@@ -1,6 +1,6 @@
 import json
 import logging
-import os
+import subprocess
 import uuid
 from datetime import date, datetime, timezone
 
@@ -10,6 +10,9 @@ from pydantic import BaseModel
 logger = logging.getLogger("ufs.chord_search")
 
 router = APIRouter(prefix="/api/chord-search", tags=["chord-search"])
+
+# Claude CLI path
+CLAUDE_CLI = r"C:\Users\saos3\AppData\Roaming\Claude\claude-code\2.1.87\claude.exe"
 
 # Simple daily rate limit (resets on server restart or date change)
 _call_count = 0
@@ -60,106 +63,80 @@ class ChordSearchResponse(BaseModel):
     updatedAt: str
 
 
-# ── Tool schema for structured output ──
+PROMPT_TEMPLATE = """Return the chord progression for the song "{title}"{artist_hint}.
+Provide the actual, accurate chord progression as widely known.
+Include at least Verse and Chorus sections.
+Use standard chord notation (e.g. Am, F#m7, Bbmaj7).
+Set beats to the number of beats each chord is held.
 
-CHORD_TOOL = {
-    "name": "return_chord_progression",
-    "description": "Return the chord progression of a song in structured JSON format.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "title": {"type": "string"},
-            "artist": {"type": "string"},
-            "genre": {"type": "string"},
-            "key": {"type": "string", "description": "Musical key, e.g. C, Am, F#m"},
-            "bpm": {"type": "integer"},
-            "timeSignature": {
-                "type": "array",
-                "items": {"type": "integer"},
-                "minItems": 2,
-                "maxItems": 2,
-            },
-            "sections": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "enum": [
-                                "Intro", "Verse", "Pre-Chorus", "Chorus",
-                                "Bridge", "Interlude", "Solo", "Outro", "Other",
-                            ],
-                        },
-                        "chords": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "chord": {"type": "string"},
-                                    "beats": {"type": "integer"},
-                                    "annotation": {"type": "string"},
-                                },
-                                "required": ["chord", "beats"],
-                            },
-                        },
-                    },
-                    "required": ["name", "chords"],
-                },
-            },
-        },
-        "required": ["title", "sections"],
-    },
-}
+Reply with ONLY a JSON object in this exact format, no other text:
+{{
+  "title": "Song Title",
+  "artist": "Artist Name",
+  "genre": "Genre",
+  "key": "C",
+  "bpm": 120,
+  "timeSignature": [4, 4],
+  "sections": [
+    {{
+      "name": "Verse",
+      "chords": [
+        {{"chord": "Am", "beats": 4}},
+        {{"chord": "F", "beats": 4}}
+      ]
+    }}
+  ]
+}}
+
+Section names must be one of: Intro, Verse, Pre-Chorus, Chorus, Bridge, Interlude, Solo, Outro, Other."""
 
 
 @router.post("/", response_model=ChordSearchResponse)
 async def search_chords(req: ChordSearchRequest):
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
-
     _check_rate_limit()
 
-    import anthropic
-
     artist_hint = f" by {req.artist}" if req.artist else ""
-    prompt = (
-        f'Return the chord progression for the song "{req.title}"{artist_hint}. '
-        "Provide the actual, accurate chord progression as widely known. "
-        "Include at least Verse and Chorus sections. "
-        "Use standard chord notation (e.g. Am, F#m7, Bbmaj7). "
-        "Set beats to the number of beats each chord is held."
-    )
+    prompt = PROMPT_TEMPLATE.format(title=req.title, artist_hint=artist_hint)
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model="claude-haiku-4-5-20241022",
-            max_tokens=2048,
-            tools=[CHORD_TOOL],
-            tool_choice={"type": "tool", "name": "return_chord_progression"},
-            messages=[{"role": "user", "content": prompt}],
+        result = subprocess.run(
+            [CLAUDE_CLI, "-p", prompt, "--output-format", "text"],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
-    except anthropic.APIConnectionError as e:
-        logger.error("LLM connection failed: %s", e)
-        raise HTTPException(status_code=502, detail="LLM 서버 연결 실패")
-    except anthropic.RateLimitError as e:
-        logger.warning("LLM rate limited: %s", e)
-        raise HTTPException(status_code=429, detail="LLM API 요청 한도 초과")
-    except anthropic.APIStatusError as e:
-        logger.error("LLM API error (status %d): %s", e.status_code, e)
-        raise HTTPException(status_code=502, detail=f"LLM API 오류 ({e.status_code})")
+    except FileNotFoundError:
+        logger.error("Claude CLI not found at %s", CLAUDE_CLI)
+        raise HTTPException(status_code=503, detail="Claude CLI not found")
+    except subprocess.TimeoutExpired:
+        logger.error("Claude CLI timed out")
+        raise HTTPException(status_code=504, detail="LLM 응답 시간 초과")
 
-    # Extract tool_use block
-    tool_input = None
-    for block in message.content:
-        if block.type == "tool_use":
-            tool_input = block.input
-            break
+    if result.returncode != 0:
+        logger.error("Claude CLI failed (code %d): %s", result.returncode, result.stderr[:500])
+        raise HTTPException(status_code=502, detail="LLM 호출 실패")
 
-    if not tool_input or "sections" not in tool_input:
-        raise HTTPException(status_code=500, detail="Failed to parse LLM response")
+    raw = result.stdout.strip()
+
+    # Extract JSON from response (may have markdown fences)
+    if "```" in raw:
+        start = raw.find("```")
+        end = raw.rfind("```")
+        inner = raw[start:end + 3] if end > start else raw[start:]
+        # Strip ```json and ```
+        inner = inner.split("\n", 1)[-1] if "\n" in inner else inner
+        if inner.endswith("```"):
+            inner = inner[:-3]
+        raw = inner.strip()
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.error("Failed to parse CLI output as JSON: %s", raw[:300])
+        raise HTTPException(status_code=500, detail="LLM 응답 파싱 실패")
+
+    if "sections" not in data:
+        raise HTTPException(status_code=500, detail="LLM 응답에 sections 누락")
 
     now = datetime.now(timezone.utc).isoformat()
 
@@ -176,17 +153,17 @@ async def search_chords(req: ChordSearchRequest):
                     for c in s.get("chords", [])
                 ],
             )
-            for s in tool_input["sections"]
+            for s in data["sections"]
             if isinstance(s, dict)
         ]
     except (TypeError, KeyError) as e:
-        logger.error("Failed to parse LLM tool output: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to parse LLM response structure")
+        logger.error("Failed to parse sections: %s", e)
+        raise HTTPException(status_code=500, detail="LLM 응답 구조 파싱 실패")
 
     if not sections:
         raise HTTPException(status_code=500, detail="LLM returned empty sections")
 
-    ts = tool_input.get("timeSignature")
+    ts = data.get("timeSignature")
     if isinstance(ts, list) and len(ts) == 2:
         ts = [int(ts[0]), int(ts[1])]
     else:
@@ -194,11 +171,11 @@ async def search_chords(req: ChordSearchRequest):
 
     return ChordSearchResponse(
         id=f"llm-{uuid.uuid4().hex[:12]}",
-        title=tool_input.get("title", req.title),
-        artist=tool_input.get("artist", req.artist),
-        genre=tool_input.get("genre"),
-        key=tool_input.get("key"),
-        bpm=tool_input.get("bpm"),
+        title=data.get("title", req.title),
+        artist=data.get("artist", req.artist),
+        genre=data.get("genre"),
+        key=data.get("key"),
+        bpm=data.get("bpm"),
         timeSignature=ts,
         sections=sections,
         source="llm",
