@@ -327,6 +327,42 @@ async def upload_file(session_id: str, file: UploadFile = File(...)):
     }
 
 
+@router.get("/sessions/{session_id}/media")
+async def list_session_media(session_id: str):
+    """세션의 업로드 이미지 + 스크린샷 목록 반환."""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="세션 없음")
+
+    img_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+    uploads = []
+    session_dir = UPLOADS_DIR / session_id
+    if session_dir.is_dir():
+        for f in sorted(session_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if f.suffix.lower() in img_exts:
+                st = f.stat()
+                uploads.append({
+                    "filename": f.name,
+                    "url": f"/uploads/{session_id}/{f.name}",
+                    "size": st.st_size,
+                    "modified": int(st.st_mtime),
+                })
+
+    screenshots = []
+    if SCREENSHOTS_DIR.is_dir():
+        for f in sorted(SCREENSHOTS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if f.suffix.lower() in img_exts:
+                st = f.stat()
+                screenshots.append({
+                    "filename": f.name,
+                    "url": f"/screenshots/{f.name}",
+                    "size": st.st_size,
+                    "modified": int(st.st_mtime),
+                })
+
+    return {"uploads": uploads, "screenshots": screenshots}
+
+
 @router.post("/sessions/{session_id}/interrupt")
 async def interrupt_session(session_id: str):
     if session_id not in sessions:
