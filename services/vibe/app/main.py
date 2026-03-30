@@ -23,6 +23,7 @@ from app.polaris.router import router as polaris_router
 from app.routers import academy, action_plan, alerts, auth, backtest, briefing, dashboard, data, geopolitical, guru, llm_settings, macro_intel, notification_settings, pipeline, portfolio, portfolio_import, risk, screening, sentiment, signals, soxl, soxl_backtest, soxl_live, strategy_settings, watchlist
 from app.scheduler.jobs import register_jobs
 from app.scheduler.runner import create_scheduler
+from app.soxl_briefing.routes import router as soxl_briefing_router
 
 def _setup_logging() -> None:
     """Configure logging: text (dev) or JSON (production)."""
@@ -63,6 +64,8 @@ async def lifespan(app: FastAPI):
     await init_db()
     from app.polaris.repository import init_polaris_schema
     await init_polaris_schema()
+    from app.soxl_briefing.store import init_briefing_table
+    await init_briefing_table()
     logger.info("Database initialized: %s", settings.DB_PATH)
 
     seeded = await seed_watchlist()
@@ -98,6 +101,8 @@ async def lifespan(app: FastAPI):
             register_jobs(scheduler, settings, collector_registry)
             from app.polaris.scheduler import register_polaris_jobs
             register_polaris_jobs(scheduler, settings)
+            from app.soxl_briefing.scheduler import register_briefing_job
+            register_briefing_job(scheduler)
             scheduler.start()
             app.state.scheduler = scheduler
             logger.info("Scheduler started with %d jobs", len(scheduler.get_jobs()))
@@ -195,6 +200,7 @@ app.include_router(soxl.router)
 app.include_router(soxl_live.router)
 app.include_router(soxl_backtest.router)
 app.include_router(geopolitical.router)
+app.include_router(soxl_briefing_router)
 app.include_router(polaris_router)
 
 
