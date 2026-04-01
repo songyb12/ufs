@@ -187,7 +187,8 @@ class ClaudeSession:
 
     def save_state(self):
         """세션 상태를 디스크에 저장 (output_lines, session_uuid 등)
-        ephemeral 세션은 디스크에 저장하지 않는다."""
+        ephemeral 세션은 디스크에 저장하지 않는다.
+        원자적 쓰기 (tmp → os.replace): 크래시 시 파일 손상 방지."""
         if self.ephemeral:
             return
         try:
@@ -209,9 +210,9 @@ class ClaudeSession:
                 "pipeline_id": self.pipeline_id,
                 "pipeline_role": self.pipeline_role,
             }
-            self._save_path.write_text(
-                json.dumps(state, ensure_ascii=False), encoding="utf-8"
-            )
+            tmp = self._save_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self._save_path)
         except Exception:
             pass  # 저장 실패가 메인 동작 방해 금지
 
@@ -316,8 +317,18 @@ class ClaudeSession:
 
         try:
             # 중첩 세션 감지 방지: CLAUDECODE 환경변수 제거
-            # ANTHROPIC_API_KEY 제거 → CLI가 OAuth 토큰(Pro/Max 구독) 사용
-            env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "ANTHROPIC_API_KEY", "LLM_API_KEY")}
+            # ANTHROPIC_API_KEY 제거 → CLI가 OAuth 토큰 사용
+            # CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST 제거:
+            #   이 플래그가 있으면 CLI가 Desktop IPC로 토큰을 받으려 하는데,
+            #   세션 매니저 서브프로세스는 Desktop의 직계 자식이 아니므로 IPC 실패 → 인증 오류 발생.
+            #   CLAUDE_CODE_OAUTH_TOKEN은 유지하여 CLI가 토큰을 직접 사용하게 한다.
+            _ENV_BLOCKLIST = {
+                "CLAUDECODE",
+                "ANTHROPIC_API_KEY",
+                "LLM_API_KEY",
+                "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
+            }
+            env = {k: v for k, v in os.environ.items() if k not in _ENV_BLOCKLIST}
             self.process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,

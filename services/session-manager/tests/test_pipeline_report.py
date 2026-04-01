@@ -39,6 +39,8 @@ client = TestClient(app=main_module.app, raise_server_exceptions=True)
 
 @pytest.fixture(autouse=True)
 def reset_state():
+    from app.models import SESSIONS_DIR
+    existing_session_files = set(SESSIONS_DIR.glob("*.json"))
     main_module._session_create_log.clear()
     sessions.clear()
     pipelines.clear()
@@ -46,6 +48,10 @@ def reset_state():
     main_module._session_create_log.clear()
     sessions.clear()
     pipelines.clear()
+    # 테스트 중 생성된 세션 파일 정리 (디스크 오염 방지 — PITFALLS.md #3)
+    for f in SESSIONS_DIR.glob("*.json"):
+        if f not in existing_session_files:
+            f.unlink(missing_ok=True)
 
 
 def _make_session(sid="s1") -> ClaudeSession:
@@ -903,7 +909,7 @@ class TestResume:
         r, _ = _make_runner()
         r.status = "running"
         r._soft_stop_flag = True
-        with pytest.raises(RuntimeError, match="stopped 상태"):
+        with pytest.raises(RuntimeError, match="재개 불가"):
             r.resume()
 
     def test_resume_fails_if_hard_stop(self):

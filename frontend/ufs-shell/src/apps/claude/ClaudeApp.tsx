@@ -1,4 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { getIframeUrl } from '../../shared/serviceUrl.ts'
+
+// Session manager는 Jinja2 템플릿 (Vite 에셋 없음) → 프록시 경로 항상 안전
+// DEV 직접 URL(http://host:8000/)은 모바일에서 방화벽 차단 → /svc/claude/ 프록시 경유
+const SESSION_MANAGER_URL = '/svc/claude/'
+// 새 탭 전용: 항상 직접 포트로 열어야 UFS Shell 레이아웃 없이 표시됨
+const SESSION_MANAGER_DIRECT = `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8000/`
 
 interface SessionManagerHealth {
   status: string
@@ -76,7 +83,7 @@ export default function ClaudeApp() {
     timeoutRef.current = setTimeout(() => {
       setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
     }, 15000)
-    if (iframeRef.current) { iframeRef.current.src = '/svc/claude/' }
+    if (iframeRef.current) { iframeRef.current.src = SESSION_MANAGER_URL }
   }, [])
 
   const features = [
@@ -111,7 +118,7 @@ export default function ClaudeApp() {
                 Retry
               </button>
             )}
-            <a href="/svc/claude/" target="_blank" rel="noopener noreferrer"
+            <a href={SESSION_MANAGER_DIRECT} target="_blank" rel="noopener noreferrer"
               className="text-xs text-ufs-400 hover:text-white px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors"
               title="새 탭에서 열기"
             >
@@ -139,14 +146,14 @@ export default function ClaudeApp() {
                 </svg>
               </div>
               <p className="text-sm text-ufs-300 mb-1">Session Manager를 불러올 수 없습니다</p>
-              <p className="text-xs text-ufs-500 mb-4">서비스 확인 (port 8006)</p>
+              <p className="text-xs text-ufs-500 mb-4">서비스 확인 (port 8000)</p>
               <div className="flex gap-2">
                 <button onClick={handleRetry} className="text-xs px-3 py-1.5 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors border border-amber-500/30">다시 시도</button>
                 <button onClick={closeManager} className="text-xs px-3 py-1.5 rounded bg-ufs-700 text-ufs-400 hover:bg-ufs-600 hover:text-white transition-colors">Overview로 돌아가기</button>
               </div>
             </div>
           )}
-          <iframe ref={iframeRef} src="/svc/claude/" className="w-full h-full border-0" title="Claude Session Manager" onLoad={handleIframeLoad} onError={handleIframeError} />
+          <iframe ref={iframeRef} src={SESSION_MANAGER_URL} className="w-full h-full border-0" title="Claude Session Manager" onLoad={handleIframeLoad} onError={handleIframeError} />
         </div>
       </div>
     )
@@ -229,7 +236,7 @@ export default function ClaudeApp() {
             >
               Open Manager
             </button>
-            <a href="/svc/claude/" target="_blank" rel="noopener noreferrer"
+            <a href={SESSION_MANAGER_DIRECT} target="_blank" rel="noopener noreferrer"
               className="px-3 py-2.5 rounded-lg bg-amber-500/10 text-amber-400 text-sm hover:bg-amber-500/20 transition-all border border-amber-500/20 hover:border-amber-400/40">
               ↗ 새 탭에서 열기
             </a>
@@ -248,7 +255,7 @@ export default function ClaudeApp() {
             <div className="flex items-center gap-6 text-xs">
               <div><span className="text-amber-300 font-bold text-lg">WebSocket</span> <span className="text-ufs-400">Real-time</span></div>
               <div><span className="text-amber-300 font-bold text-lg">Multi</span> <span className="text-ufs-400">Sessions</span></div>
-              <div><span className="text-amber-300 font-bold text-lg">:8006</span> <span className="text-ufs-400">Port</span></div>
+              <div><span className="text-amber-300 font-bold text-lg">:8000</span> <span className="text-ufs-400">Port</span></div>
             </div>
           </div>
 

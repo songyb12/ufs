@@ -77,7 +77,7 @@ from app.pipeline_store import (
 # ─── Module imports ───────────────────────────────────────────────────────────
 
 from app.models import (
-    APP_DIR, LOGS_DIR, SESSIONS_DIR, UPLOADS_DIR, SCREENSHOTS_DIR,  # re-exported for tests
+    APP_DIR, DATA_DIR, LOGS_DIR, SESSIONS_DIR, UPLOADS_DIR, SCREENSHOTS_DIR,  # re-exported for tests
     TEMPLATES_FILE,  # re-exported for tests
     SESSION_TTL_SECONDS, CLEANUP_INTERVAL,
     MAX_SESSIONS_PER_CLIENT, MAX_SESSION_CREATES_PER_MINUTE,  # re-exported for tests
@@ -192,20 +192,39 @@ app.include_router(api_router)
 app.include_router(ws_router)
 
 
+_ACCESS_LOG = DATA_DIR / "access.log"
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-XSS-Protection"] = "1; mode=block"
+    path = request.url.path
+    if path == "/" or path.startswith("/api/imagegen/"):
+        response.headers["cache-control"] = "no-store"
+    else:
+        # HTML 페이지(/)는 UFS Shell iframe에 삽입되므로 X-Frame-Options 제외
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    # 페이지 접속(GET /)만 기록 — API/WS 호출 제외
+    # asyncio.to_thread: 동기 파일 I/O가 이벤트 루프를 블로킹하지 않도록
+    if request.method == "GET" and path == "/":
+        ip = request.client.host if request.client else "unknown"
+        ua = request.headers.get("user-agent", "-")
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        line = f"{ts}  {ip}  {ua}\n"
+        await asyncio.to_thread(_write_access_log, line)
     return response
+
+
+def _write_access_log(line: str) -> None:
+    with open(_ACCESS_LOG, "a", encoding="utf-8") as f:
+        f.write(line)
 
 
 # 정적 파일 서빙 (업로드, 스크린샷)
 # ADMIN_API_KEY 미설정(개발 모드): StaticFiles 직접 서빙
 # ADMIN_API_KEY 설정(보안 모드): /api/media/{path}?mkey=... 엔드포인트를 통해 인증 후 서빙
-import os as _os
-if not _os.environ.get("ADMIN_API_KEY"):
+if not os.environ.get("ADMIN_API_KEY"):
     app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
     app.mount("/screenshots", StaticFiles(directory=str(SCREENSHOTS_DIR)), name="screenshots")
 

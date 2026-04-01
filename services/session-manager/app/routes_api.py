@@ -36,13 +36,14 @@ from app.models import (
     ClaudeMdRequest, CompareRequest, PlanPhaseStartRequest, PlanPhaseAnswerRequest,
     PlanPhaseApproveRequest, PlanPhaseRejectRequest,
     DismissSessionsRequest, CleanupPipelinesRequest,
-    MEDIA_TOKEN_TTL, TASK_TIMEOUTS,
+    MEDIA_TOKEN_TTL, TASK_TIMEOUTS, MAX_SESSIONS_PER_CLIENT,
+    IMAGEGEN_OUTPUT_DIR,
 )
 from app.session import ClaudeSession, _check_rate_limit
 from app.shell import ShellSession, HAS_WINPTY
 from app.screen import ScreenMonitor
 from app.pipeline import PipelineRunner, PlanPhase, recommend_pipeline_config
-from app.auth import verify_admin_key, _is_browse_allowed, _ALLOWED_BROWSE_ROOTS
+from app.auth import verify_admin_key, _is_browse_allowed, _ALLOWED_BROWSE_ROOTS, validate_work_dir
 from app.pipeline_store import (
     get_resumable_runs, cleanup_old_runs, cleanup_interrupted_runs,
 )
@@ -149,6 +150,11 @@ async def create_session(body: CreateSessionRequest, request: Request):
     client_ip = request.client.host if request.client else "unknown"
     _check_rate_limit(client_ip)
 
+    try:
+        validate_work_dir(body.work_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     session_id = str(uuid.uuid4())[:8]
     session = ClaudeSession(session_id, body.work_dir, body.model,
                             skip_permissions=body.skip_permissions,
@@ -206,7 +212,6 @@ async def send_command(session_id: str, body: SendCommandRequest):
     if not session.alive:
         raise HTTPException(status_code=409, detail="세션이 종료된 상태입니다")
     # task_type에 따라 idle_timeout 적용 (image_gen 등 장시간 작업 지원)
-    from app.models import TASK_TIMEOUTS
     task_type = body.task_type if body.task_type in TASK_TIMEOUTS else "default"
     session.idle_timeout = TASK_TIMEOUTS[task_type]
     await session.send_prompt(prompt)
@@ -280,6 +285,31 @@ async def serve_media(request: Request, full_path: str, mkey: Optional[str] = Qu
         raise HTTPException(status_code=404, detail="파일 없음")
 
     return FileResponse(filepath)
+
+
+@router.get("/imagegen/{filename}")
+async def serve_imagegen(filename: str):
+    """04_ImageGen/output 디렉토리의 이미지 파일 서빙.
+
+    파일명만 받아 IMAGEGEN_OUTPUT_DIR 내에서 찾는다.
+    경로 구분자(슬래시, 백슬래시)나 상위 디렉토리(..) 포함 시 403.
+    """
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=403, detail="파일명에 경로 구분자 불가")
+    filepath = IMAGEGEN_OUTPUT_DIR / filename
+    try:
+        resolved = filepath.resolve()
+        if not resolved.is_relative_to(IMAGEGEN_OUTPUT_DIR.resolve()):
+            raise HTTPException(status_code=403, detail="경로 이탈 거부")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=403, detail="경로 오류")
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="파일 없음")
+    resp = FileResponse(filepath, filename=filename, content_disposition_type="inline")
+    resp.headers["cache-control"] = "no-store"
+    return resp
 
 
 @router.post("/sessions/{session_id}/upload")
@@ -534,6 +564,11 @@ async def compare_models(body: CompareRequest, request: Request):
             detail=f"세션 한도 초과: 현재 {active_count}개 활성, {model_count}개 추가 시 한도({MAX_SESSIONS_PER_CLIENT}) 초과"
         )
 
+    try:
+        validate_work_dir(body.work_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     results = {}
     for model in body.models[:4]:  # 최대 4개
         sid = f"cmp-{str(uuid.uuid4())[:6]}"
@@ -647,19 +682,22 @@ async def get_projects():
 async def add_project(body: ProjectRequest):
     """프로젝트 즐겨찾기 추가"""
     path = body.path
-    name = body.name or Path(path).name
+    resolved = Path(path).resolve()
+    name = body.name or resolved.name
 
-    if not Path(path).exists():
+    if not resolved.exists():
         raise HTTPException(status_code=400, detail="유효하지 않은 경로")
+    if not _is_browse_allowed(resolved):
+        raise HTTPException(status_code=403, detail="접근 거부: 허용된 루트 외 경로")
 
     projects = load_projects()
-    # 중복 방지
-    if any(p["path"] == path for p in projects):
+    # 중복 방지 — resolve()로 정규화하여 trailing slash, 대소문자 차이 등 무시
+    if any(Path(p["path"]).resolve() == resolved for p in projects):
         return {"status": "already_exists"}
 
     projects.append({
         "name": name,
-        "path": path,
+        "path": str(resolved),
         "added_at": datetime.now().isoformat(),
     })
     save_projects(projects)
@@ -677,6 +715,16 @@ async def remove_project(body: ProjectRequest):
 
 
 # ─── Git 연동 ─────────────────────────────────────────────────────────────────────
+
+# git_exec 허용/차단 명령 목록 — 매 호출마다 재생성하지 않도록 모듈 레벨에 정의
+_GIT_READONLY_COMMANDS = {"status", "log", "diff", "show", "branch", "remote", "fetch", "tag"}
+_GIT_WRITE_COMMANDS = {
+    "add", "commit", "push", "pull", "checkout", "switch",
+    "merge", "rebase", "stash", "restore", "cherry-pick", "revert",
+}
+_GIT_FORBIDDEN_COMMANDS = {"clean", "gc", "filter-branch", "reflog"}
+_GIT_DANGEROUS_FLAGS = {"--force", "-f", "--force-with-lease", "--hard", "--no-verify", "-D", "--delete"}
+
 
 async def run_git(args: list[str], cwd: str) -> dict:
     """git 명령 실행 헬퍼"""
@@ -734,11 +782,18 @@ async def run_gh(args: list[str], cwd: str) -> dict:
         return {"ok": False, "stdout": "", "stderr": str(e)}
 
 
+def _check_git_path(path: str) -> None:
+    """git 엔드포인트 공통 경로 검증 — 존재 여부 + 허용 루트 확인."""
+    if not Path(path).exists():
+        raise HTTPException(status_code=400, detail="경로 없음")
+    if not _is_browse_allowed(Path(path)):
+        raise HTTPException(status_code=403, detail="접근 거부: 허용된 루트 외 경로")
+
+
 @router.get("/git/status")
 async def git_status(path: str = Query(...)):
     """git status --porcelain + branch info"""
-    if not Path(path).exists():
-        raise HTTPException(status_code=400, detail="경로 없음")
+    _check_git_path(path)
 
     # 4개 git 명령을 병렬 실행 (순차 실행 시 멈춤/느림 방지)
     branch_res, status_res, remote_res, behind_res = await asyncio.gather(
@@ -772,8 +827,7 @@ async def git_status(path: str = Query(...)):
 @router.get("/git/log")
 async def git_log(path: str = Query(...), limit: int = Query(20)):
     """git log 최근 커밋 목록"""
-    if not Path(path).exists():
-        raise HTTPException(status_code=400, detail="경로 없음")
+    _check_git_path(path)
 
     res = await run_git([
         "log", f"-{limit}", "--format=%H|%h|%an|%ar|%s"
@@ -798,8 +852,7 @@ async def git_log(path: str = Query(...), limit: int = Query(20)):
 @router.get("/git/branches")
 async def git_branches(path: str = Query(...)):
     """브랜치 목록"""
-    if not Path(path).exists():
-        raise HTTPException(status_code=400, detail="경로 없음")
+    _check_git_path(path)
 
     res = await run_git(["branch", "-a", "--format=%(refname:short)|%(HEAD)"], path)
     branches = []
@@ -819,8 +872,7 @@ async def git_branches(path: str = Query(...)):
 @router.get("/git/diff")
 async def git_diff(path: str = Query(...), cached: bool = Query(False)):
     """git diff (staged or unstaged)"""
-    if not Path(path).exists():
-        raise HTTPException(status_code=400, detail="경로 없음")
+    _check_git_path(path)
 
     args = ["diff", "--stat"]
     if cached:
@@ -835,8 +887,7 @@ async def git_exec(body: GitExecRequest):
     path = body.path
     command = body.command
 
-    if not Path(path).exists():
-        raise HTTPException(status_code=400, detail="경로 없음")
+    _check_git_path(path)
 
     # 보안: allow-list 기반 git 명령 제어 (shell injection 방지)
     try:
@@ -849,32 +900,21 @@ async def git_exec(body: GitExecRequest):
 
     subcommand = parts[0]
 
-    # 읽기 전용 (항상 허용)
-    READONLY_COMMANDS = {"status", "log", "diff", "show", "branch", "remote", "fetch", "tag"}
-    # 쓰기 명령 (ALLOW_GIT_WRITE=true 환경변수 필요, 기본 허용)
-    WRITE_COMMANDS = {
-        "add", "commit", "push", "pull", "checkout", "switch",
-        "merge", "rebase", "stash", "restore", "cherry-pick", "revert",
-    }
-    # 절대 금지
-    FORBIDDEN_COMMANDS = {"clean", "gc", "filter-branch", "reflog"}
-
-    if subcommand in FORBIDDEN_COMMANDS:
+    if subcommand in _GIT_FORBIDDEN_COMMANDS:
         raise HTTPException(status_code=403, detail=f"금지된 git 명령: {subcommand}")
 
-    if subcommand not in READONLY_COMMANDS and subcommand not in WRITE_COMMANDS:
-        raise HTTPException(status_code=403, detail=f"허용되지 않은 git 명령: {subcommand}. 허용: {', '.join(sorted(READONLY_COMMANDS | WRITE_COMMANDS))}")
+    if subcommand not in _GIT_READONLY_COMMANDS and subcommand not in _GIT_WRITE_COMMANDS:
+        raise HTTPException(status_code=403, detail=f"허용되지 않은 git 명령: {subcommand}. 허용: {', '.join(sorted(_GIT_READONLY_COMMANDS | _GIT_WRITE_COMMANDS))}")
 
-    if subcommand in WRITE_COMMANDS:
+    if subcommand in _GIT_WRITE_COMMANDS:
         allow_write = os.environ.get("ALLOW_GIT_WRITE", "true").lower() == "true"
         if not allow_write:
             raise HTTPException(status_code=403, detail=f"쓰기 명령 비활성화됨: {subcommand} (ALLOW_GIT_WRITE=true 필요)")
 
     # 위험한 플래그 차단 (쓰기 명령에서만)
-    DANGEROUS_FLAGS = {"--force", "-f", "--force-with-lease", "--hard", "--no-verify", "-D", "--delete"}
-    if subcommand in WRITE_COMMANDS:
+    if subcommand in _GIT_WRITE_COMMANDS:
         for flag in parts[1:]:
-            if flag in DANGEROUS_FLAGS:
+            if flag in _GIT_DANGEROUS_FLAGS:
                 raise HTTPException(status_code=403, detail=f"차단된 플래그: {flag} (명령: git {subcommand})")
 
     # subprocess_exec로 실행 (shell=False — injection 불가)
@@ -1228,10 +1268,11 @@ async def get_cycle_summaries(pipeline_id: str):
 
 @router.post("/pipelines/{pipeline_id}/resume")
 async def resume_pipeline(pipeline_id: str):
-    """soft_stop으로 중단된 파이프라인을 재개.
+    """soft_stop 또는 cycle checkpoint 타임아웃으로 중단된 파이프라인을 재개.
 
     재개 조건:
-    - status == "stopped" AND soft_stop으로 중단된 것
+    - status == "stopped" AND soft_stop으로 중단된 것, 또는
+    - status == "paused" (cycle checkpoint 5분 타임아웃으로 일시 중단된 것)
     - worker 세션이 여전히 alive (세션 바인딩 보존 중)
 
     재개 시 _step_log / pending_items / current_cycle / iteration을 유지하여 이어서 실행.
@@ -1239,11 +1280,11 @@ async def resume_pipeline(pipeline_id: str):
     if pipeline_id not in pipelines:
         raise HTTPException(status_code=404, detail="파이프라인 없음")
     p = pipelines[pipeline_id]
-    if p.status != "stopped":
+    if p.status not in ("stopped", "paused"):
         raise HTTPException(
             status_code=400,
-            detail=f"재개 불가: status={p.status!r} — stopped 상태여야 합니다")
-    if not p._soft_stop_flag:
+            detail=f"재개 불가: status={p.status!r} — stopped 또는 paused 상태여야 합니다")
+    if p.status == "stopped" and not p._soft_stop_flag:
         raise HTTPException(
             status_code=400,
             detail="hard stop으로 중단된 파이프라인은 재개할 수 없습니다")
@@ -1382,7 +1423,12 @@ async def approve_plan_phase(plan_id: str, body: PlanPhaseApproveRequest):
         raise HTTPException(status_code=409, detail=f"현재 상태({phase.status})에서는 승인 불가")
 
     try:
-        pipeline_id = await phase.approve(body.plan_text, body.max_iterations, body.max_cycles)
+        pipeline_id = await phase.approve(
+            body.plan_text, body.max_iterations, body.max_cycles,
+            cycle_phases=body.cycle_phases,
+            cycle_reflection=body.cycle_reflection,
+            cycle_checkpoint=body.cycle_checkpoint,
+        )
         return {
             "status": "approved",
             "pipeline_id": pipeline_id,
@@ -1475,6 +1521,11 @@ async def create_shell(body: ShellCreateRequest, request: Request):
 
     client_ip = request.client.host if request.client else "unknown"
     _check_rate_limit(client_ip)
+
+    try:
+        validate_work_dir(body.work_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     shell_id = str(uuid.uuid4())[:8]
     shell = ShellSession(shell_id, body.work_dir, body.shell_type, body.cols, body.rows)

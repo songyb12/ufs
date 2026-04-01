@@ -90,6 +90,58 @@ AI 보조 개발 시 반복되는 실수 패턴과 예방 규칙을 기록한다
 
 ---
 
+## 7. 이미지 인라인 표시 — 경로 형식
+
+**사례**: Claude가 파일을 생성 후 경로를 출력할 때 Windows 백슬래시(`data\uploads\sid\file.png`)를 사용하면 프론트엔드 정규식이 파일명 직전에서 끊겨 이미지가 렌더되지 않음. 포워드슬래시 경로(`/uploads/sid/file.png`)는 항상 정상 동작.
+
+**수정 내용** (2026-03-30): `_IMG_PATH_RE`에서 `data[/\]uploads[/\]...` 이후 `\\` 제외 제거, `_extractImgUrl` 내부에서 백슬래시→포워드슬래시 정규화 추가. 이제 두 형식 모두 처리 가능.
+
+**Claude에게**: 이미지 파일 생성 후 경로를 언급할 때는 `/uploads/{session_id}/{filename}` 형식을 사용하면 바로 인라인 표시됨.
+
+---
+
+## 8. 비원자적 파일 쓰기 (세션 손상)
+
+**사례**: `save_state()`에서 `write_text()`를 직접 사용 → 서버 강제 종료/크래시 시 JSON 파일이 절반만 쓰여서 재시작 시 `load_state` 실패 → 세션 유실.
+
+**패턴**: Python `Path.write_text()` / `open().write()`는 원자적이지 않음. 쓰기 도중 프로세스가 종료되면 파일이 깨진 채로 남음.
+
+**규칙**:
+- 상태 파일 저장 시 항상 `tmp → os.replace` 패턴 사용:
+  ```python
+  tmp = save_path.with_suffix(".json.tmp")
+  tmp.write_text(json.dumps(data), encoding="utf-8")
+  os.replace(tmp, save_path)
+  ```
+- `save_projects()`, `save_state()` 등 영속 상태 쓰기 함수에 적용
+
+---
+
+## 9. async 미들웨어 안에서 동기 I/O
+
+**사례**: `add_security_headers` 미들웨어에서 `open().write()`로 access log 쓰기 → GET `/` 요청마다 이벤트 루프 블로킹.
+
+**패턴**: FastAPI/Starlette async 미들웨어는 이벤트 루프에서 실행됨. 동기 I/O(파일, DB 등)를 직접 호출하면 모든 요청 처리가 block됨.
+
+**규칙**:
+- async 미들웨어/핸들러 안에서 동기 I/O → `asyncio.to_thread(fn, *args)` 사용
+- SQLite, 파일 쓰기 등 짧지만 blocking 가능한 작업도 포함
+
+---
+
+## 10. git/browse 엔드포인트 경로 검증 누락
+
+**사례**: `git_status`, `git_log`, `git_diff`, `git_branches`, `git_exec`에서 `Path(path).exists()` 만 체크하고 `_is_browse_allowed()` 미호출 → 허용 루트 밖 디렉토리(예: `C:\Windows`)에서 git 명령 실행 가능.
+
+**패턴**: 새 경로 파라미터를 받는 엔드포인트를 추가할 때 "경로가 존재하는지"만 확인하고 "허용된 루트인지"를 빠뜨리는 경우.
+
+**규칙**:
+- 경로 파라미터를 받는 모든 엔드포인트: `_is_browse_allowed()` 필수
+- git 엔드포인트는 `_check_git_path(path)` 헬퍼 함수로 통일 (존재 여부 + allowlist 검증)
+- 새 경로 파라미터 엔드포인트 추가 시 체크리스트 항목 확인
+
+---
+
 ## 작업 전 체크리스트
 
 새 기능 추가 또는 버그 수정 전:
@@ -100,5 +152,8 @@ AI 보조 개발 시 반복되는 실수 패턴과 예방 규칙을 기록한다
 [ ] index.html 수정 시: 탭/모달/switchTab 4곳 일관성 확인
 [ ] innerHTML 사용 시: escapeHtml 경유 여부 확인
 [ ] 모델명 기본값 변경 시: 위 5번 목록 전체 확인
+[ ] 경로 파라미터 추가 시: _is_browse_allowed() 검증 포함됐는지 확인
+[ ] 상태 파일 저장 시: tmp → os.replace 원자적 쓰기 사용했는지 확인
+[ ] async 핸들러/미들웨어에서 동기 I/O: asyncio.to_thread 사용했는지 확인
 [ ] 수정 후: python -m pytest tests/ -q 통과 확인
 ```

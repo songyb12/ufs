@@ -25,6 +25,10 @@ UPLOADS_DIR = DATA_DIR / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
 SCREENSHOTS_DIR = DATA_DIR / "screenshots"
 SCREENSHOTS_DIR.mkdir(exist_ok=True)
+IMAGEGEN_OUTPUT_DIR = Path(os.environ.get(
+    "IMAGEGEN_OUTPUT_DIR",
+    str(APP_DIR.parent.parent.parent / "04_ImageGen" / "output"),
+))
 PROJECTS_FILE = DATA_DIR / "projects.json"
 TEMPLATES_FILE = DATA_DIR / "templates.json"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -50,7 +54,7 @@ if _env_file.exists():
 SESSION_TTL_SECONDS = 3600          # 1h idle session auto-cleanup
 CLEANUP_INTERVAL = 300              # run cleanup every 5 min
 CMP_SESSION_TTL_SECONDS = 600       # cmp-* sessions: 10 min TTL after completion
-MAX_SESSIONS_PER_CLIENT = int(os.environ.get("MAX_SESSIONS_PER_CLIENT", "10"))
+MAX_SESSIONS_PER_CLIENT = int(os.environ.get("MAX_SESSIONS_PER_CLIENT", "20"))
 MAX_SESSION_CREATES_PER_MINUTE = 10
 
 # ─── Task timeout config (seconds) ────────────────────────────────────────────
@@ -231,6 +235,9 @@ class PlanPhaseApproveRequest(BaseModel):
     plan_text: str | None = None
     max_iterations: int = Field(default=20, ge=1, le=100)
     max_cycles: int = Field(default=100, ge=1, le=200)
+    cycle_phases: list[str] | None = None
+    cycle_reflection: bool = True
+    cycle_checkpoint: bool = False
 
 
 class PlanPhaseRejectRequest(BaseModel):
