@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type { NoteName } from '../types/music'
 import { CHROMATIC_SCALE } from '../constants/notes'
 import { addPracticeSession } from '../utils/storage'
@@ -31,7 +31,7 @@ export function usePracticeMode() {
   const startTimeRef = useRef<number>(0)
   const targetDescRef = useRef<string>('')
   const statsRef = useRef(stats)
-  statsRef.current = stats
+  useEffect(() => { statsRef.current = stats }, [stats])
 
   const activate = useCallback((targetNotes: NoteName[], description?: string) => {
     targetRef.current = new Set(targetNotes)

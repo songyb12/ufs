@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 
 // ── Rating thresholds (ms from beat center) ──
 const PERFECT_MS = 30
@@ -59,7 +59,7 @@ export function useRhythmScore() {
   // Ring buffer of recent beat timestamps (performance.now())
   const beatTimesRef = useRef<number[]>([])
   const activeRef = useRef(false)
-  activeRef.current = active
+  useEffect(() => { activeRef.current = active }, [active])
 
   // Seconds per beat (for "window" calculation — don't score if too far from any beat)
   const beatIntervalMsRef = useRef(500) // default 120 BPM

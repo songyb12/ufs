@@ -51,13 +51,15 @@ export function useMetronome(
   const [accentPattern, setAccentPatternState] = useState<AccentLevel[] | null>(null)
   const [volume, setVolumeState] = useState(0.8)
 
-  // Keep refs to avoid stale closures
+  // Keep refs to avoid stale closures in AudioWorklet/setTimeout callbacks.
+  // These must update synchronously — useEffect would introduce a 1-frame delay
+  // that breaks Web Audio scheduling timing.
   const onBeatScheduleRef = useRef(externalOnBeatSchedule)
-  onBeatScheduleRef.current = externalOnBeatSchedule
+  onBeatScheduleRef.current = externalOnBeatSchedule // eslint-disable-line react-hooks/refs
   const countInRef = useRef(countIn)
-  countInRef.current = countIn
+  countInRef.current = countIn // eslint-disable-line react-hooks/refs
   const isPlayingRef = useRef(isPlaying)
-  isPlayingRef.current = isPlaying
+  isPlayingRef.current = isPlaying // eslint-disable-line react-hooks/refs
 
   const start = useCallback(async () => {
     const ctx = await getSharedAudioContext()
