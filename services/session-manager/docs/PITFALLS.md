@@ -142,6 +142,61 @@ AI 보조 개발 시 반복되는 실수 패턴과 예방 규칙을 기록한다
 
 ---
 
+## 11. OAuth 토큰 미상속 (독립 실행 시 인증 실패)
+
+**사례**: 세션 매니저가 watchdog.bat으로 독립 실행됨 → Claude Desktop의 직계 자식이 아니므로 `CLAUDE_CODE_OAUTH_TOKEN` 환경변수 미상속 → CLI 실행 시 "Your organization does not have access" 에러.
+
+**패턴**: `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1`은 Desktop IPC를 통한 토큰 주입을 의미하는데, Desktop 자식이 아닌 프로세스에서는 IPC 채널이 없어 실패. 재부팅 시마다 토큰이 갱신되므로 환경변수 고정값도 무효.
+
+**규칙**:
+- `_ENV_BLOCKLIST`에 `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST` 반드시 포함 (IPC 차단)
+- `CLAUDE_CODE_OAUTH_TOKEN`이 env에 없으면 `~/.claude/.credentials.json`에서 런타임 주입
+- Desktop이 꺼져 있으면 토큰 갱신 안 됨 → 장기 무인 운영 시 주의
+
+---
+
+## 12. "출력 없음" 에러 오분류 (UUID 만료 vs 인증 vs 네트워크)
+
+**사례**: CLI가 인증 오류/네트워크 오류로 stdout 없이 종료 → "세션 UUID 만료 감지"로 오판 → UUID 리셋 → 재시도도 같은 이유로 실패 → "--- Done ---" 미표시 → 세션 stuck.
+
+**패턴**: `not all_output`만으로 UUID 만료를 판단하면 인증/네트워크/기타 에러와 구분 불가.
+
+**규칙**:
+- 에러 분류 우선순위: 인증 에러 > 모델 에러 > UUID 만료 > 기타
+- stderr/combined에서 인증 관련 키워드 먼저 체크 후 UUID 만료 판정
+- `_run_claude` 완료 후 반드시 "--- Done ---" 보장 (정상/에러 모든 경로)
+- `_process_queue`의 finally 블록에서도 "--- Done ---" 최종 보장
+
+---
+
+## 13. 포트 번호 하드코딩 분산 (8000 vs 8006)
+
+**사례**: 세션 매니저 포트가 8006인데, UFS Shell의 `vite.config.ts`, `appRegistry.ts`, `ClaudeApp.tsx`, `index.html` 4곳에 8000으로 하드코딩 → iframe에서 master-core JSON이 보이거나 세션 목록이 빈 화면.
+
+**패턴**: 포트 번호가 여러 파일에 분산 하드코딩되어 있으면 한 곳만 바꾸고 나머지를 누락.
+
+**위치 목록** (변경 시 전부 확인):
+- `frontend/ufs-shell/vite.config.ts`: `/api/claude`, `/svc/claude` 프록시 target
+- `frontend/ufs-shell/src/apps/claude/ClaudeApp.tsx`: `SESSION_MANAGER_DIRECT`, 포트 표시
+- `frontend/ufs-shell/src/shared/appRegistry.ts`: `port` 필드
+- `services/session-manager/app/templates/index.html`: `_isDirectAccess` 포트 목록
+- `frontend/ufs-shell/nginx.conf`: prod 프록시 (이건 이미 8006으로 되어있었음)
+
+---
+
+## 14. 인증 에러 키워드 오탐 (Claude 응답 텍스트 매칭)
+
+**사례**: Claude가 SSH 인증, GitHub 로그인 등을 논의하면 응답에 "authentication", "login again" 등이 포함 → 인증 에러로 오판 → 불필요한 재시도 발생. 정상 응답 후 "--- Done ---" 바로 다음에 "인증 오류 감지 → 토큰 갱신 후 재시도합니다..." 가 뜨는 패턴.
+
+**패턴**: `combined = stderr + all_output` 전체에서 키워드 검색하면 Claude 응답 내용까지 매칭됨.
+
+**규칙**:
+- 인증 에러 키워드는 **stderr만** 검사 (Claude 응답인 stdout 제외)
+- 키워드를 좁게: `"authentication"` → `"authentication required"` 등 CLI 에러 메시지에만 매칭되도록
+- 모든 에러 분류에서 stdout(Claude 응답)과 stderr(CLI 에러)를 구분하여 검사
+
+---
+
 ## 작업 전 체크리스트
 
 새 기능 추가 또는 버그 수정 전:
@@ -155,5 +210,8 @@ AI 보조 개발 시 반복되는 실수 패턴과 예방 규칙을 기록한다
 [ ] 경로 파라미터 추가 시: _is_browse_allowed() 검증 포함됐는지 확인
 [ ] 상태 파일 저장 시: tmp → os.replace 원자적 쓰기 사용했는지 확인
 [ ] async 핸들러/미들웨어에서 동기 I/O: asyncio.to_thread 사용했는지 확인
+[ ] CLI 서브프로세스 에러 처리: 인증/모델/UUID/네트워크 분류 순서 확인
+[ ] _run_claude 모든 경로에서 "--- Done ---" 표시 보장 여부 확인
+[ ] 포트 번호 변경 시: 위 13번 목록 전체 확인
 [ ] 수정 후: python -m pytest tests/ -q 통과 확인
 ```

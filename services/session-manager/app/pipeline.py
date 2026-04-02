@@ -178,6 +178,20 @@ async def recommend_pipeline_config(goal: str, mode: str = "cli") -> dict:
     return _recommend_via_rules(goal)
 
 
+def _extract_text_response(response) -> str:
+    """Anthropic API response에서 첫 번째 text 블록 텍스트를 추출한다.
+
+    content 리스트에 text 타입 블록이 없으면 RuntimeError를 발생시킨다.
+    (tool_use 등 다른 타입 블록이 먼저 오는 경우 방어).
+    """
+    for block in response.content:
+        if getattr(block, "type", None) == "text":
+            return block.text.strip()
+    raise RuntimeError(
+        f"Anthropic API 응답에 text 블록 없음 (stop_reason={response.stop_reason!r})"
+    )
+
+
 async def _recommend_via_api(goal: str, api_key: str) -> dict:
     """Anthropic API로 설정 추천."""
     try:
@@ -194,12 +208,11 @@ async def _recommend_via_api(goal: str, api_key: str) -> dict:
     )
     if not response.content:
         raise RuntimeError("빈 응답")
-    raw = response.content[0].text.strip()
+    raw = _extract_text_response(response)
     # JSON 블록 추출 (```json ... ``` 래핑 제거)
-    if "```" in raw:
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+    if m:
+        raw = m.group(1).strip()
     result = json.loads(raw)
     _validate_recommended(result)
     return result
@@ -522,10 +535,10 @@ class PipelineRunner:
         ended_at, report, stop_type은 재실행 후 새로 생성.
         세션 바인딩(pipeline_id/pipeline_role)은 soft_stop 시 이미 유지되어 있음.
         """
-        if self.status != "stopped":
+        if self.status not in ("stopped", "paused"):
             raise RuntimeError(
-                f"재개 불가: status={self.status!r} — stopped 상태여야 합니다")
-        if not self._soft_stop_flag:
+                f"재개 불가: status={self.status!r} — stopped 또는 paused 상태여야 합니다")
+        if self.status == "stopped" and not self._soft_stop_flag:
             raise RuntimeError(
                 "hard stop으로 중단된 파이프라인은 재개할 수 없습니다 (soft_stop만 재개 가능)")
         if not self.session or not self.session.alive:
@@ -995,7 +1008,7 @@ class PipelineRunner:
         )
         if not response.content:
             raise RuntimeError("빈 응답")
-        return response.content[0].text.strip()
+        return _extract_text_response(response)
 
     async def _call_reflection_cli(self, prompt: str) -> str:
         """CLI 모드: 감독자 CLI 세션에 반성 프롬프트 전송."""
@@ -1048,7 +1061,7 @@ class PipelineRunner:
 
         # pending_question이 있으면 감독자가 인식할 수 있도록 구조화된 블록 추가
         pq = session.pending_question
-        if pq and pq.get("questions"):
+        if isinstance(pq, dict) and pq.get("questions"):
             lines = ["\n\n══ AskUserQuestion 대기 중 ══"]
             for q in pq["questions"]:
                 lines.append(f"Q: {q.get('question', '')}")
@@ -1105,10 +1118,11 @@ class PipelineRunner:
                                 self._add_history("system",
                                     f"▶ 사이클 {self.current_cycle} 승인됨, 계속 진행합니다.")
                             except asyncio.TimeoutError:
-                                self.status = "stopped"
+                                self.status = "paused"
                                 self.summary = (
                                     f"Cycle checkpoint 시간 초과 (5분) — "
-                                    f"사이클 {self.current_cycle} 시작 전 중단")
+                                    f"사이클 {self.current_cycle} 시작 전 일시 중단 "
+                                    f"(POST /api/pipelines/{self.id}/resume 으로 재개 가능)")
                                 self._add_history("system", self.summary)
                                 return
 
@@ -1288,7 +1302,7 @@ class PipelineRunner:
 
         if not response.content:
             raise RuntimeError("Anthropic API가 빈 content를 반환했습니다")
-        return response.content[0].text.strip()
+        return _extract_text_response(response)
 
     async def _call_supervisor_cli(self, last_output: str) -> str:
         """감독자 CLI 세션에 프롬프트 전달 → 결과 파싱"""
@@ -1308,10 +1322,8 @@ class PipelineRunner:
         )
 
         # pending_question 여부 확인 (출력 내 AskUserQuestion 블록 감지)
-        _has_question = (
-            self.session.pending_question is not None
-            and bool(self.session.pending_question.get("questions"))
-        )
+        _pq = self.session.pending_question
+        _has_question = isinstance(_pq, dict) and bool(_pq.get("questions"))
         _task_hint = (
             "⚠️ 작업자가 질문에 대한 답변을 기다리고 있습니다. "
             "출력 끝의 AskUserQuestion 블록을 읽고 직접 답변하세요. 다음 작업 지시가 아닌 답변만 출력하세요."
@@ -1401,10 +1413,8 @@ class PipelineRunner:
             elif h["role"] == "cli_result":
                 messages.append({"role": "user", "content": h["content"]})
 
-        _has_question = (
-            self.session.pending_question is not None
-            and bool(self.session.pending_question.get("questions"))
-        )
+        _pq2 = self.session.pending_question
+        _has_question = isinstance(_pq2, dict) and bool(_pq2.get("questions"))
         _question_hint = (
             "\n\n⚠️ 작업자가 질문에 대한 답변을 기다리고 있습니다. "
             "출력 끝의 AskUserQuestion 블록을 읽고 직접 답변하세요."
@@ -1533,7 +1543,10 @@ class PlanPhase:
         await self._generate_plan()
 
     async def approve(self, plan_text: str | None,
-                      max_iterations: int, max_cycles: int) -> str:
+                      max_iterations: int, max_cycles: int,
+                      cycle_phases: Optional[list[str]] = None,
+                      cycle_reflection: bool = True,
+                      cycle_checkpoint: bool = False) -> str:
         """계획 승인 → PipelineRunner 생성/시작"""
         if plan_text is not None:
             self.plan_text = plan_text
@@ -1562,8 +1575,15 @@ class PlanPhase:
             )
 
         session = self._source_session
+        if session.pipeline_id:
+            raise RuntimeError(
+                f"Session already bound to pipeline {session.pipeline_id}"
+            )
         runner = PipelineRunner(session, enriched_goal, self.supervisor_model,
-                                max_iterations, self.mode, max_cycles)
+                                max_iterations, self.mode, max_cycles,
+                                cycle_phases=cycle_phases,
+                                cycle_reflection=cycle_reflection,
+                                cycle_checkpoint=cycle_checkpoint)
         _state.pipelines[runner.id] = runner
         try:
             runner.start()
@@ -1733,7 +1753,7 @@ class PlanPhase:
         )
         if not response.content:
             raise RuntimeError("Anthropic API가 빈 content를 반환했습니다")
-        return response.content[0].text.strip()
+        return _extract_text_response(response)
 
     async def _call_llm_cli(self, system_prompt: str, messages: list[dict]) -> str:
         """CLI 세션으로 LLM 호출"""

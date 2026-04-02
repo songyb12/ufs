@@ -55,10 +55,11 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
-_DB_PATH = Path(__file__).parent.parent / "data" / "pipeline_state.db"
+from app.models import DATA_DIR
+
+_DB_PATH = DATA_DIR / "pipeline_state.db"
 _lock = threading.Lock()
 
 
