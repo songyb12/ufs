@@ -32,7 +32,7 @@ from app.models import (
     load_projects, save_projects, _load_template,
     CreateSessionRequest, SendCommandRequest, GitExecRequest, GitCloneRequest,
     ProjectRequest, PipelineStartRequest, PipelineStopRequest, ShellCreateRequest,
-    RenameSessionRequest, ChangeModelRequest, ForkSessionRequest, PromptTemplate,
+    RenameSessionRequest, ReorderSessionsRequest, ChangeModelRequest, ForkSessionRequest, PromptTemplate,
     ClaudeMdRequest, CompareRequest, PlanPhaseStartRequest, PlanPhaseAnswerRequest,
     PlanPhaseApproveRequest, PlanPhaseRejectRequest,
     DismissSessionsRequest, CleanupPipelinesRequest,
@@ -96,7 +96,7 @@ async def stats():
 
 @router.get("/sessions")
 async def list_sessions():
-    return [s.to_dict() for s in list(sessions.values())]
+    return [s.to_dict() for s in sorted(sessions.values(), key=lambda s: s.sort_order)]
 
 
 @router.get("/sessions/pending-restore")
@@ -162,6 +162,7 @@ async def create_session(body: CreateSessionRequest, request: Request):
                             ephemeral=body.ephemeral)
     if body.ephemeral:
         session.name = f"tmp-{session_id}"
+    session.sort_order = max((s.sort_order for s in sessions.values()), default=-1) + 1
     session.start_worker()
     sessions[session_id] = session
     session.save_state()  # ephemeral이면 no-op
@@ -418,6 +419,16 @@ async def rename_session(session_id: str, body: RenameSessionRequest):
     sessions[session_id].name = body.name.strip()
     sessions[session_id].save_state()
     return {"status": "renamed", "name": body.name.strip()}
+
+
+@router.post("/sessions/reorder")
+async def reorder_sessions(body: ReorderSessionsRequest):
+    """세션 표시 순서 변경 — ids 배열의 순서대로 sort_order 0,1,2,... 재할당"""
+    for i, sid in enumerate(body.ids):
+        if sid in sessions:
+            sessions[sid].sort_order = i
+            sessions[sid].save_state()
+    return {"status": "ok"}
 
 
 @router.patch("/sessions/{session_id}/model")

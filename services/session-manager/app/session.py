@@ -166,6 +166,7 @@ class ClaudeSession:
         self.output_lines: list[dict] = []  # {type, text, timestamp}
         self.max_lines = 5000
         self.session_uuid: Optional[str] = None  # Claude 세션 ID (--continue 용)
+        self._resume_failed = False  # --resume 실패 감지 플래그 (자동 복구용)
         self.log_filename = f"{self.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         self.log_path = LOGS_DIR / self.log_filename
         self._queue: asyncio.Queue = asyncio.Queue()
@@ -180,6 +181,7 @@ class ClaudeSession:
         self.pipeline_id: Optional[str] = None       # 바인딩된 파이프라인 ID
         self.pipeline_role: Optional[str] = None      # None | "worker" | "supervisor"
         self._output_event: asyncio.Event = asyncio.Event()  # WS 이벤트 기반 wake-up
+        self.sort_order: int = 0  # 사이드바 표시 순서 (낮을수록 위)
 
     @property
     def _save_path(self) -> Path:
@@ -209,6 +211,7 @@ class ClaudeSession:
                 "idle_timeout": self.idle_timeout,
                 "pipeline_id": self.pipeline_id,
                 "pipeline_role": self.pipeline_role,
+                "sort_order": self.sort_order,
             }
             tmp = self._save_path.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
@@ -237,6 +240,7 @@ class ClaudeSession:
         session.idle_timeout = data.get("idle_timeout", TASK_TIMEOUTS["default"])
         session.pipeline_id = data.get("pipeline_id")
         session.pipeline_role = data.get("pipeline_role")
+        session.sort_order = data.get("sort_order", 0)
         session._output_version = len(session.output_lines)
         return session
 
@@ -271,6 +275,9 @@ class ClaudeSession:
                 # busy 상태가 절대 stuck 되지 않도록 보장
                 self.busy = False
                 self.process = None
+                # "--- Done ---" 최종 보장 (어떤 경로로든 반드시 표시)
+                if not self.output_lines or self.output_lines[-1].get("text") != "--- Done ---":
+                    self._append_output("system", "--- Done ---")
                 # busy→false 전환을 WS에 즉시 알림 (pending_question 패널 표시 트리거)
                 self._output_version += 1
                 self._output_event.set()
@@ -320,8 +327,9 @@ class ClaudeSession:
             # ANTHROPIC_API_KEY 제거 → CLI가 OAuth 토큰 사용
             # CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST 제거:
             #   이 플래그가 있으면 CLI가 Desktop IPC로 토큰을 받으려 하는데,
-            #   세션 매니저 서브프로세스는 Desktop의 직계 자식이 아니므로 IPC 실패 → 인증 오류 발생.
-            #   CLAUDE_CODE_OAUTH_TOKEN은 유지하여 CLI가 토큰을 직접 사용하게 한다.
+            #   세션 매니저는 Desktop의 직계 자식이 아니므로 IPC 실패 → 인증 오류 발생.
+            # CLAUDE_CODE_OAUTH_TOKEN: 세션 매니저는 Desktop 자식이 아니라 독립 실행되므로
+            #   환경 상속이 없다. ~/.claude/.credentials.json에서 직접 읽어 주입한다.
             _ENV_BLOCKLIST = {
                 "CLAUDECODE",
                 "ANTHROPIC_API_KEY",
@@ -329,6 +337,19 @@ class ClaudeSession:
                 "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
             }
             env = {k: v for k, v in os.environ.items() if k not in _ENV_BLOCKLIST}
+
+            # OAuth 토큰을 credentials.json에서 읽어 주입 (환경 상속이 없는 경우 대비)
+            if not env.get("CLAUDE_CODE_OAUTH_TOKEN"):
+                try:
+                    import json as _json
+                    _cred_path = Path.home() / ".claude" / ".credentials.json"
+                    _cred = _json.loads(_cred_path.read_text(encoding="utf-8"))
+                    _token = _cred.get("claudeAiOauth", {}).get("accessToken", "")
+                    if _token:
+                        env["CLAUDE_CODE_OAUTH_TOKEN"] = _token
+                        logger.debug("OAuth token injected from credentials.json")
+                except Exception as _e:
+                    logger.warning("Failed to read credentials.json: %s", _e)
             self.process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -420,39 +441,86 @@ class ClaudeSession:
                     await self._force_kill_process()
 
             stderr_text = "\n".join(stderr_lines)
-
-            # 모델 에러 감지 → 기본 모델로 자동 재시도
             combined = stderr_text + " " + " ".join(all_output)
+            combined_lower = combined.lower()
+
+            # ── 에러 분류 (우선순위 순) ──
+
+            # 0) --resume 실패 → UUID 클리어 후 자동 재시도 (1회)
+            if self._resume_failed and not _uuid_reset:
+                self._resume_failed = False
+                self.session_uuid = None
+                self.process = None
+                self.save_state()
+                self._append_output("system",
+                    "세션 이어가기 실패 → 새 세션으로 재시도합니다...")
+                await self._run_claude(prompt, _retry_without_model=_retry_without_model, _uuid_reset=True)
+                return
+            self._resume_failed = False
+
+            # 1) 인증 에러 감지 — 토큰 갱신 후 1회 재시도
+            #    주의: stderr만 검사. all_output(Claude 응답)에 "authentication" 등이
+            #    포함되면 오탐 발생 (SSH 인증 논의 등)
+            _stderr_lower = stderr_text.lower()
+            auth_error = (
+                "does not have access to claude" in _stderr_lower
+                or "please login again" in _stderr_lower
+                or "invalid oauth token" in _stderr_lower
+                or "unauthorized" in _stderr_lower
+                or "authentication required" in _stderr_lower
+            )
+            if auth_error and not _retry_without_model and not _uuid_reset:
+                logger.warning("Auth error detected, refreshing token and retrying")
+                # credentials.json에서 최신 토큰 갱신 시도
+                self._append_output("system", "인증 오류 감지 → 토큰 갱신 후 재시도합니다...")
+                self.process = None
+                # _uuid_reset=True를 재사용하여 1회만 재시도 (무한루프 방지)
+                await self._run_claude(prompt, _retry_without_model=_retry_without_model, _uuid_reset=True)
+                return
+
+            # 2) 모델 에러 감지 → 기본 모델로 자동 재시도
             model_error = (
                 "issue with the selected model" in combined
-                or "model not found" in combined.lower()
+                or "model not found" in combined_lower
                 or "you may not have access" in combined
             )
-
-            if model_error and use_model and not _retry_without_model:
+            # all_output이 있으면 정상 응답이 나온 것 — 재시도 불필요 (중복 실행 방지)
+            if model_error and use_model and not _retry_without_model and not all_output:
                 self._append_output("system",
                     f"모델 '{use_model}' 사용 불가 (구독 플랜 미지원 또는 모델명 오류) → 기본 모델로 전환합니다...")
-                # 이후 프롬프트에서도 같은 에러 반복 방지 — 모델 설정 영구 변경
                 self.model = ""
                 self.process = None
                 await self._run_claude(prompt, _retry_without_model=True)
                 self.save_state()
                 return
 
-            # 만료/손상된 세션 UUID 감지 → 자동 리셋 후 재시도
-            # --resume {uuid}로 호출했는데 출력이 전혀 없으면 세션이 만료된 것
-            # _uuid_reset=True를 전달해 재귀 깊이를 1로 제한 (무한루프 방지)
-            if self.session_uuid and not all_output and not _retry_without_model and not _uuid_reset:
+            # 3) 세션 UUID 만료 감지 — stderr에 인증/네트워크 에러가 없을 때만
+            #    --resume {uuid}로 호출했는데 출력이 전혀 없으면 세션이 만료된 것
+            if (self.session_uuid and not all_output
+                    and not _retry_without_model and not _uuid_reset
+                    and not auth_error):
                 self._append_output("system",
-                    f"세션 UUID 만료 감지 (출력 없음) → UUID 리셋 후 재시도합니다...")
+                    "세션 UUID 만료 감지 (출력 없음) → UUID 리셋 후 재시도합니다...")
                 self.session_uuid = None
                 self.process = None
                 self.save_state()
                 await self._run_claude(prompt, _uuid_reset=True)
                 return
 
+            # 4) 기타 에러 — stderr 표시
             if stderr_text:
                 self._append_output("error", stderr_text)
+
+            # 5) 출력이 전혀 없으면 (재시도 후에도) 사용자에게 알림
+            if not all_output and not auth_error and not model_error:
+                rc = self.process.returncode if self.process else "?"
+                self._append_output("error",
+                    f"Claude CLI가 응답 없이 종료됨 (exit={rc}). "
+                    "네트워크 연결 또는 CLI 상태를 확인해주세요.")
+
+            # 6) "--- Done ---" 보장 — result 이벤트에서 이미 표시됐으면 중복 방지
+            if not self.output_lines or self.output_lines[-1].get("text") != "--- Done ---":
+                self._append_output("system", "--- Done ---")
 
         except asyncio.CancelledError:
             # 태스크 취소 시 프로세스 정리
@@ -460,6 +528,7 @@ class ClaudeSession:
             raise
         except Exception as e:
             self._append_output("error", f"실행 오류: {str(e)}")
+            self._append_output("system", "--- Done ---")
             await self._force_kill_process()
         finally:
             self.process = None
@@ -508,9 +577,17 @@ class ClaudeSession:
                     if tool_name == "Bash":
                         cmd = tool_input.get("command", "")
                         self._append_output("tool", f"[Bash] {cmd}")
-                    elif tool_name in ("Read", "Write", "Edit"):
+                    elif tool_name == "Read":
+                        path = tool_input.get("file_path", "")
+                        self._append_output("tool", f"[Read] {path}")
+                    elif tool_name in ("Write", "Edit"):
                         path = tool_input.get("file_path", "")
                         self._append_output("tool", f"[{tool_name}] {path}")
+                        # 플랜 파일 Write 시 내용 인라인 표시 (.claude/plans/ 경로)
+                        if tool_name == "Write" and ".claude" in path and "plan" in path.lower():
+                            content = tool_input.get("content", "")
+                            if content:
+                                self._append_output("assistant", f"📋 Plan:\n{content}")
                     elif tool_name == "AskUserQuestion":
                         # 질문 내용을 풀어서 표시 + 클릭 가능 옵션 저장
                         questions = tool_input.get("questions", [])
@@ -536,6 +613,15 @@ class ClaudeSession:
                         todos = tool_input.get("todos", [])
                         items = ", ".join(t.get("content", "")[:40] for t in todos[:5])
                         self._append_output("tool", f"[TodoWrite] {items}")
+                    elif tool_name == "EnterPlanMode":
+                        self._append_output("tool", "── Plan Mode 진입 ──")
+                    elif tool_name == "ExitPlanMode":
+                        # allowedPrompts: 구현에 필요한 권한 목록
+                        prompts = tool_input.get("allowedPrompts", [])
+                        self._append_output("tool", "── Plan Mode 완료 ──")
+                        if prompts:
+                            for p in prompts:
+                                self._append_output("tool", f"  허용: [{p.get('tool','')}] {p.get('prompt','')}")
                     else:
                         self._append_output("tool", f"[{tool_name}]")
             return
@@ -567,6 +653,8 @@ class ClaudeSession:
         if etype == "result":
             # 최종 결과
             result_text = event.get("result", "")
+            is_error = event.get("is_error", False)
+            errors = event.get("errors", [])
             sid = event.get("session_id")
             if sid:
                 self.session_uuid = sid
@@ -577,6 +665,16 @@ class ClaudeSession:
                 self.total_output_tokens += usage.get("output_tokens", 0)
                 self.total_cache_read_tokens += usage.get("cache_read_input_tokens", 0)
                 self.total_cache_creation_tokens += usage.get("cache_creation_input_tokens", 0)
+            # CLI 에러 메시지 처리 (resume 실패, 인증 오류 등)
+            if is_error and errors:
+                error_text = " ".join(str(e) for e in errors)
+                # --resume 실패 감지 → 자동 복구 플래그 설정 (에러는 표시하지 않음)
+                if "no conversation found" in error_text.lower() or "--resume requires" in error_text.lower():
+                    self._resume_failed = True
+                    logger.info("Resume failed, will retry without UUID: %s", error_text[:100])
+                else:
+                    for err in errors:
+                        self._append_output("error", str(err))
             if result_text and not any(l["text"] == result_text for l in self.output_lines[-5:]):
                 self._append_output("result", result_text)
             self._append_output("system", "--- Done ---")
@@ -691,6 +789,7 @@ class ClaudeSession:
             "pipeline_id": self.pipeline_id,
             "pipeline_role": self.pipeline_role,
             "ephemeral": self.ephemeral,
+            "sort_order": self.sort_order,
         }
 
     def export_markdown(self) -> str:

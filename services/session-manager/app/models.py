@@ -195,6 +195,10 @@ class RenameSessionRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
 
 
+class ReorderSessionsRequest(BaseModel):
+    ids: list[str] = Field(..., min_length=1, description="세션 ID 목록 (표시 순서대로)")
+
+
 class ChangeModelRequest(BaseModel):
     model: str = Field(..., max_length=80, description="Model name (e.g. sonnet, opus, haiku; empty = CLI default)")
 

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-store">
 <title>Claude Session Manager</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
@@ -95,12 +96,35 @@ body {
     margin-bottom: 4px;
     border: 1px solid transparent;
     transition: all 0.15s;
+    position: relative;
 }
 
 .session-item:hover { background: var(--bg-tertiary); }
 .session-item.active { background: var(--bg-tertiary); border-color: var(--accent); }
 
 .session-item .session-name { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+
+.session-reorder-btns {
+    display: none;
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    flex-direction: column;
+    gap: 1px;
+}
+.session-item:hover .session-reorder-btns { display: flex; }
+.session-reorder-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 10px;
+    line-height: 1;
+    padding: 1px 3px;
+    border-radius: 3px;
+}
+.session-reorder-btn:hover { color: var(--text-primary); background: var(--bg-secondary); }
 
 .session-item .session-meta {
     font-size: 11px;
@@ -1117,6 +1141,12 @@ body {
                                   ondragleave="this.style.borderColor='var(--border)'"
                                   ondrop="handleFileDrop(event)"></textarea>
                     </div>
+                    <select id="taskTypeSelect" title="타임아웃 설정" style="align-self:flex-end;margin-bottom:2px;padding:4px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;font-size:11px">
+                        <option value="default">5m</option>
+                        <option value="long_task">15m</option>
+                        <option value="image_gen">30m</option>
+                    </select>
+                    <button id="inputStopBtn" class="btn btn-small" onclick="interruptSession()" style="display:none;align-self:flex-end;margin-bottom:2px;background:var(--red);color:white;border-color:var(--red)">&#9632; Stop</button>
                     <button class="btn btn-primary btn-small" onclick="sendCommand()" style="align-self:flex-end;margin-bottom:2px">Send</button>
                 </div>
             </div>
@@ -1507,11 +1537,13 @@ function toggleSidebar() {
     overlay.classList.toggle('active');
 }
 
-// Auto-detect API base: direct access (port 8006) uses /api,
-// shell iframe (port 3000) uses /api/claude proxy prefix
-const API_BASE = window.location.port === '8006' ? '/api' : '/api/claude/api';
+// Auto-detect API base:
+// iframe 내부에서는 /api/claude/ 프록시 경유, 직접 접속이면 /api
+// UFS Shell iframe은 항상 port 3000 → 그 외는 직접 접속으로 간주
+const _isDirectAccess = window.location.port !== '3000';
+const API_BASE = _isDirectAccess ? '/api' : '/api/claude/api';
 // 정적 파일(screenshots, uploads)은 Session Manager에서 직접 서빙
-const STATIC_BASE = window.location.port === '8006' ? '' : '/api/claude';
+const STATIC_BASE = _isDirectAccess ? '' : '/api/claude';
 
 async function api(method, path, body = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -1560,7 +1592,7 @@ async function initMediaAuth() {
 function staticUrl(path) {
     // 미디어 인증 활성 시 /api/media/{path}?mkey=... 경로로 서빙
     if (_mediaAuthRequired && (path.startsWith('/uploads') || path.startsWith('/screenshots'))) {
-        const apiBase = window.location.port === '8006' ? '' : '/api/claude';
+        const apiBase = _isDirectAccess ? '' : '/api/claude';
         const mkey = _mediaKey ? `?mkey=${encodeURIComponent(_mediaKey)}` : '';
         return `${apiBase}/api/media${path}${mkey}`;
     }
@@ -1593,10 +1625,12 @@ async function refreshSessions() {
     // WS 세션 전환 시 이전 busy 상태 리셋
     _wasBusy = activeSess ? !!activeSess.busy : false;
 
-    el.innerHTML = list.map(s => {
+    el.innerHTML = list.map((s, idx) => {
         let statusClass = s.alive ? (s.busy ? 'busy' : 'alive') : 'dead';
         let statusText = s.alive ? (s.busy ? 'Working...' : 'Ready') : 'Stopped';
         let queueInfo = s.queue_size > 0 ? ` (${s.queue_size} queued)` : '';
+        const isFirst = idx === 0;
+        const isLast = idx === list.length - 1;
 
         return `
         <div class="session-item ${s.id === activeSessionId ? 'active' : ''}"
@@ -1611,8 +1645,35 @@ async function refreshSessions() {
                 ${s.ephemeral ? '&middot; <span style="color:var(--warning);font-size:10px" title="임시 세션 (저장 안 됨)">TMP</span>' : ''}
                 ${(s.total_input_tokens + s.total_output_tokens) > 0 ? `&middot; <span style="font-size:10px;color:var(--text-dim)" title="토큰: ${s.total_input_tokens} in / ${s.total_output_tokens} out">${formatTokens(s.total_input_tokens + s.total_output_tokens)}</span>` : ''}
             </div>
+            <div class="session-reorder-btns" onclick="event.stopPropagation()">
+                <button class="session-reorder-btn" title="위로" ${isFirst ? 'disabled style="opacity:0.3"' : ''}
+                        onclick="moveSession('${s.id}', -1)">&#9650;</button>
+                <button class="session-reorder-btn" title="아래로" ${isLast ? 'disabled style="opacity:0.3"' : ''}
+                        onclick="moveSession('${s.id}', 1)">&#9660;</button>
+            </div>
         </div>`;
     }).join('');
+}
+
+async function moveSession(sessionId, direction) {
+    // GET /api/sessions 대신 현재 렌더된 순서를 DOM에서 읽어서 순서 변경
+    const items = [...document.querySelectorAll('.session-item')];
+    const ids = items.map(el => {
+        const onclick = el.getAttribute('onclick') || '';
+        const m = onclick.match(/selectSession\('([^']+)'\)/);
+        return m ? m[1] : null;
+    }).filter(Boolean);
+
+    const idx = ids.indexOf(sessionId);
+    if (idx === -1) return;
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= ids.length) return;
+
+    // swap
+    [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
+
+    await api('POST', '/sessions/reorder', { ids });
+    await refreshSessions();
 }
 
 function renderUsagePanel(sessions) {
@@ -1785,7 +1846,7 @@ function _doConnect(sessionId) {
     if (activeSessionId !== sessionId) return;
     const myConnectId = wsConnectId;  // 클로저에 캡처
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsBase = window.location.port === '8006' ? '' : '/svc/claude';
+    const wsBase = _isDirectAccess ? '' : '/svc/claude';
     ws = new WebSocket(`${proto}//${location.host}${wsBase}/ws/${sessionId}`);
 
     ws.onopen = () => { wsReconnectAttempts = 0; };
@@ -1820,15 +1881,18 @@ function _doConnect(sessionId) {
 
             if (autoScroll) el.scrollTop = el.scrollHeight;
         }
-        // 상태 배지 업데이트 + 완료 알림
+        // 상태 배지 업데이트 + Stop 버튼 토글 + 완료 알림
         const badge = document.getElementById('statusBadge');
+        const inputStop = document.getElementById('inputStopBtn');
         if (data.busy) {
             badge.textContent = 'Working...';
             badge.className = 'status-badge busy';
+            if (inputStop) inputStop.style.display = '';
         } else {
             let q = data.queue_size || 0;
             badge.textContent = q > 0 ? `${q} queued` : 'Idle';
             badge.className = 'status-badge';
+            if (inputStop) inputStop.style.display = 'none';
         }
         // busy true→false 전환 시 알림 — pipeline worker 세션은 억제 (pipeline 완료 시 별도 알림)
         if (_wasBusy && !data.busy && data.alive) {
@@ -2104,7 +2168,8 @@ async function sendCommand() {
     const command = input.value.trim();
     if (!command && pendingAttachments.length === 0) return;
 
-    const body = { command: command || '첨부된 파일을 확인하세요.' };
+    const taskType = document.getElementById('taskTypeSelect')?.value || 'default';
+    const body = { command: command || '첨부된 파일을 확인하세요.', task_type: taskType };
     if (pendingAttachments.length > 0) {
         body.attachments = pendingAttachments.map(a => a.path);
     }
@@ -3497,14 +3562,21 @@ function escapeHtml(str) {
 
 // ─── 이미지 경로 감지 + 인라인 렌더 ────────────────────────────────────
 const _IMG_EXT = /\.(png|jpg|jpeg|gif|webp|bmp)$/i;
-const _IMG_PATH_RE = /(?:\/uploads\/[^\s"'<>\\]+|\/screenshots\/[^\s"'<>\\]+|data[/\\]uploads[/\\][^\s"'<>\\]+|data[/\\]screenshots[/\\][^\s"'<>\\]+)/gi;
+// [/\\] 대신 (?:\/|\\) 사용 — 문자 클래스 내 \\ 이스케이프 버그 방지.
+// 백틱(`)을 제외 목록에 추가 — Claude가 백틱으로 감싼 경로의 trailing ` 제거.
+const _IMG_PATH_RE = /(?:\/uploads\/[^\s"'`()<>\\]+|\/screenshots\/[^\s"'`()<>\\]+|data(?:\/|\\)uploads(?:\/|\\)[^\s"'`()<>]+|data(?:\/|\\)screenshots(?:\/|\\)[^\s"'`()<>]+|04_ImageGen(?:\/|\\)output(?:\/|\\)[^\s"'`()<>]+)/gi;
 
 function _extractImgUrl(raw) {
-    // 절대 경로 → URL 경로로 변환 (data/uploads/sid/file → /uploads/sid/file)
-    const m = raw.match(/[/\\]uploads[/\\]([^/\\]+)[/\\]([^\s"'<>\\]+)$/i)
-           || raw.match(/[/\\]screenshots[/\\]([^\s"'<>\\]+)$/i);
+    // 백슬래시 → 포워드슬래시 정규화
+    const normalized = raw.replace(/\\/g, '/');
+    // 04_ImageGen/output/{filename} → /api/imagegen/{filename}
+    const ig = normalized.match(/04_ImageGen\/output\/([^/\s"'`()<>]+)$/i);
+    if (ig) return _IMG_EXT.test(ig[1]) ? `/api/imagegen/${ig[1]}` : null;
+    // uploads/screenshots 경로 추출
+    const m = normalized.match(/\/uploads\/([^/\s"'`()<>]+)\/([^/\s"'`()<>]+)$/i)
+           || normalized.match(/\/screenshots\/([^/\s"'`()<>]+)$/i);
     if (!m) return null;
-    const isShot = /screenshots/i.test(raw);
+    const isShot = /screenshots/i.test(normalized);
     const url = isShot ? `/screenshots/${m[1]}` : `/uploads/${m[1]}/${m[2]}`;
     return _IMG_EXT.test(url) ? url : null;
 }
@@ -4075,7 +4147,7 @@ function connectShellWebSocket(shellId) {
 
     const myShellConnectId = shellWsConnectId;  // 클로저에 캡처
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsBase = window.location.port === '8006' ? '' : '/svc/claude';
+    const wsBase = _isDirectAccess ? '' : '/svc/claude';
     shellWs = new WebSocket(`${proto}//${location.host}${wsBase}/ws/shell/${shellId}`);
 
     shellWs.onopen = () => {
@@ -4124,7 +4196,7 @@ async function killShellSession() {
 
 // ─── Admin Panel ────────────────────────────────────────────────────
 // /admin/* 엔드포인트는 API_BASE(/api)와 별도 경로
-const ADMIN_BASE = window.location.port === '8006' ? '/admin' : '/api/claude/admin';
+const ADMIN_BASE = _isDirectAccess ? '/admin' : '/api/claude/admin';
 
 async function adminFetch(method, path, body = null) {
     try {
