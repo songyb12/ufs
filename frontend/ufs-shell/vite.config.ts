@@ -34,7 +34,7 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/life/, ''),
       },
       '/api/claude': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8006',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/claude/, ''),
       },
@@ -52,7 +52,7 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/svc\/bocchi/, ''),
       },
       '/svc/claude': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8006',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/svc\/claude/, ''),
         ws: true,

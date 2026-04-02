@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { getIframeUrl } from '../../shared/serviceUrl.ts'
+
+const VIBE_IFRAME_URL = getIframeUrl('/svc/vibe/', 8001, '/ui/')
 
 interface VibeHealth {
   service: string
@@ -64,7 +67,7 @@ export default function VibeApp() {
     timeoutRef.current = setTimeout(() => {
       setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
     }, 15000)
-    if (iframeRef.current) { iframeRef.current.src = '/svc/vibe/' }
+    if (iframeRef.current) { iframeRef.current.src = VIBE_IFRAME_URL }
   }, [])
 
   const modules = [
@@ -106,7 +109,7 @@ export default function VibeApp() {
               </button>
             )}
             <button
-              onClick={() => window.open('/svc/vibe/', '_blank')}
+              onClick={() => window.open(VIBE_IFRAME_URL, '_blank')}
               className="text-xs text-ufs-400 hover:text-white px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors"
               title="새 탭에서 열기"
             >
@@ -145,7 +148,7 @@ export default function VibeApp() {
               </div>
             </div>
           )}
-          <iframe ref={iframeRef} src="/svc/vibe/" className="w-full h-full border-0" title="VIBE Dashboard" onLoad={handleIframeLoad} onError={handleIframeError} />
+          <iframe ref={iframeRef} src={VIBE_IFRAME_URL} className="w-full h-full border-0" title="VIBE Dashboard" onLoad={handleIframeLoad} onError={handleIframeError} />
         </div>
       </div>
     )
@@ -178,7 +181,7 @@ export default function VibeApp() {
         >
           Open Dashboard
         </button>
-        <a href="/svc/vibe/" target="_blank" rel="noopener noreferrer"
+        <a href={VIBE_IFRAME_URL} target="_blank" rel="noopener noreferrer"
           className="px-3 py-2.5 rounded-lg bg-blue-500/10 text-blue-400 text-sm hover:bg-blue-500/20 transition-all border border-blue-500/20 hover:border-blue-400/40">
           ↗ 새 탭에서 열기
         </a>

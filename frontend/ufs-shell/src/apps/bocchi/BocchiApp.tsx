@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { getIframeUrl } from '../../shared/serviceUrl.ts'
+
+const BOCCHI_IFRAME_URL = getIframeUrl('/svc/bocchi/', 3001)
 
 interface BocchiHealth {
   service: string
@@ -61,7 +64,7 @@ export default function BocchiApp() {
     timeoutRef.current = setTimeout(() => {
       setIframeState((prev) => (prev === 'loading' ? 'error' : prev))
     }, 15000)
-    if (iframeRef.current) { iframeRef.current.src = '/svc/bocchi/' }
+    if (iframeRef.current) { iframeRef.current.src = BOCCHI_IFRAME_URL }
   }, [])
 
   const features = [
@@ -101,7 +104,7 @@ export default function BocchiApp() {
               </button>
             )}
             <button
-              onClick={() => window.open('/svc/bocchi/', '_blank')}
+              onClick={() => window.open(BOCCHI_IFRAME_URL, '_blank')}
               className="text-xs text-ufs-400 hover:text-white px-2 py-1 rounded bg-ufs-700 hover:bg-ufs-600 transition-colors"
               title="새 탭에서 열기"
             >
@@ -142,7 +145,7 @@ export default function BocchiApp() {
           )}
           <iframe
             ref={iframeRef}
-            src="/svc/bocchi/"
+            src={BOCCHI_IFRAME_URL}
             className="w-full h-full border-0"
             title="Bocchi-master Studio"
             allow="autoplay; midi"
@@ -179,7 +182,7 @@ export default function BocchiApp() {
         >
           Open Studio
         </button>
-        <a href="/svc/bocchi/" target="_blank" rel="noopener noreferrer"
+        <a href={BOCCHI_IFRAME_URL} target="_blank" rel="noopener noreferrer"
           className="px-3 py-2.5 rounded-lg bg-orange-500/10 text-orange-400 text-sm hover:bg-orange-500/20 transition-all border border-orange-500/20 hover:border-orange-400/40">
           ↗ 새 탭에서 열기
         </a>

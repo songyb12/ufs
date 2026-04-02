@@ -10,6 +10,8 @@ export interface AppInfo {
   shortcut?: string       // keyboard shortcut key
   tags?: string[]          // searchable tags
   port?: number            // backend port
+  svcPort?: number         // frontend service port for iframe (dev mode direct access)
+  svcPath?: string         // path on the frontend service (default: '/')
   features?: string[]      // feature highlights
 }
 
@@ -25,6 +27,7 @@ export const APP_REGISTRY: AppInfo[] = [
     apiBase: '/api/bocchi',
     shortcut: 'b',
     port: 8002,       // lab-studio API backend; frontend (iframe) served at :3001 via /svc/bocchi
+    svcPort: 3001,
     tags: ['music', 'guitar', 'bass', 'practice', 'metronome', 'fretboard'],
     features: ['Fretboard SVG', 'Metronome', 'MIDI', 'Chord Progressions', 'Quiz'],
   },
@@ -39,6 +42,8 @@ export const APP_REGISTRY: AppInfo[] = [
     apiBase: '/api/vibe',
     shortcut: 'v',
     port: 8001,
+    svcPort: 8001,
+    svcPath: '/ui/',
     tags: ['investment', 'trading', 'signals', 'portfolio', 'backtest', 'SOXL', 'macro'],
     features: ['Portfolio', 'Signals', 'SOXL Live', 'Backtest', 'Macro Analysis'],
   },
