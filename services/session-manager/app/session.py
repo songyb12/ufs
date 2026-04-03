@@ -579,7 +579,21 @@ class ClaudeSession:
                         self._append_output("tool", f"[Bash] {cmd}")
                     elif tool_name == "Read":
                         path = tool_input.get("file_path", "")
-                        self._append_output("tool", f"[Read] {path}")
+                        # uploads/screenshots 절대경로 → 웹 URL로 변환 (이미지 인라인 렌더용)
+                        try:
+                            resolved = Path(path).resolve()
+                            from app.models import UPLOADS_DIR, SCREENSHOTS_DIR
+                            if resolved.is_relative_to(UPLOADS_DIR.resolve()):
+                                rel = resolved.relative_to(UPLOADS_DIR.resolve())
+                                display = f"/uploads/{rel.as_posix()}"
+                            elif resolved.is_relative_to(SCREENSHOTS_DIR.resolve()):
+                                rel = resolved.relative_to(SCREENSHOTS_DIR.resolve())
+                                display = f"/screenshots/{rel.as_posix()}"
+                            else:
+                                display = path
+                        except Exception:
+                            display = path
+                        self._append_output("tool", f"[Read] {display}")
                     elif tool_name in ("Write", "Edit"):
                         path = tool_input.get("file_path", "")
                         self._append_output("tool", f"[{tool_name}] {path}")
