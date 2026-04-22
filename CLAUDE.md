@@ -7,7 +7,7 @@
 
 ## Sub-Projects
 1. **VIBE** (Investment Intelligence) — 파이프라인 구현 완료, 401 tests passing
-2. **Lab-Studio / Bocchi-master** — 기타/베이스 연습 웹앱 (사업화 1순위)
+2. **Lab-Studio / Bocchi-master** — 기타/베이스 연습 웹앱 (사업화 1순위) → **독립 분리: `D:\Claude\08_Bocchi\`** (GitHub: songyb12/bocchi-master)
 3. **Engineering-Ops** — C언어 HW 검증 로그 분석 (프로토타입)
 4. **Life-Master** — 루틴/일정 최적화 (기획 단계)
 
@@ -38,6 +38,20 @@
 
 ## VIBE Auth
 - ID/PW 로그인 (bcrypt + JWT), dev 계정: dev/dev1234
+
+## Current Status (2026-04-22)
+- **VIBE SOXL Briefing 모듈 완료** (`691fc5c`): `app/soxl_briefing/` 4개 모듈 + 7 tests, 기존 2402 tests regression 없음
+- **UFS Shell**: iframe dev URL 수정 완료 (`getIframeUrl()` 헬퍼)
+- **Session Manager**: port 8006→8000 마이그레이션 완료, pipeline cycle phases (미커밋)
+- **코드 리뷰**: critical/major 없음, minor 3건 (1인 서비스 특성상 보류)
+
+## Backlog
+- [ ] VIBE: SOXL 브리핑 대시보드 프론트엔드 통합
+- [ ] VIBE: Discord webhook / 주간·월간 집계 브리핑
+- [ ] 미커밋 변경사항 커밋 (Shell iframe fix + Session Manager 기능)
+- [ ] session-manager standalone 레포 동기화
+- [ ] Docker Compose Shell iframe 통합 검증 (nginx 프록시)
+- [ ] Life-Master / Engineering-Ops 프론트엔드 Shell 통합 (placeholder)
 
 ## User Preferences
 - Engineering mindset: 추상적 비유 배제, 아키텍처/로직 중심
